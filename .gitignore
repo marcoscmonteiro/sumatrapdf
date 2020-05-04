@@ -30,3 +30,5 @@ artifacts/
 .idea/
 src/.vscode
 tools/pdfjs/coverage/
+/.vs
+/src/memtrace/MemTraceCollector/obj/x86/Debug

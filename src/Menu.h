@@ -39,3 +39,5 @@ void OnMenuCustomZoom(WindowInfo* win);
 UINT MenuIdFromVirtualZoom(float virtualZoom);
 void UpdateAppMenu(WindowInfo* win, HMENU m);
 void ShowHideMenuBar(WindowInfo* win, bool showTemporarily = false);
+
+LRESULT PluginHostCallback(WCHAR* msg, ...);

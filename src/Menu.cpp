@@ -660,12 +660,44 @@ void OnAboutContextMenu(WindowInfo* win, int x, int y) {
     }
 }
 
+/* Auxiliary function to callback Plugin Host Window with a generic message - MCM 24-04-2016 */
+LRESULT PluginHostCallback(WCHAR* msg, ...) {
+    if (gPluginMode) {
+        CrashIf(gWindows.IsEmpty());
+        if (gWindows.IsEmpty())
+            return 0;
+        HWND plugin = gWindows.at(0)->hwndFrame;
+        HWND Parent = GetAncestor(plugin, GA_PARENT);
+        if (!Parent)
+            return 0;
+
+        // Format msg string with argment list
+        va_list args;
+        
+        va_start(args, msg);
+        ScopedMem<WCHAR> MsgStr0(str::FmtV(msg, args));
+        va_end(args);
+
+        // Converts msg to UTF8
+        strconv::StackWstrToUtf8 MsgStr = MsgStr0.Get();
+
+        // Prepare struct and send message to plugin Host Window
+        COPYDATASTRUCT cds = {0x1 /* Message from SumatraPDF plugin */, (DWORD)str::Len(MsgStr), MsgStr.Get()};
+        return SendMessage(Parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
+    }
+
+    return 0;
+}
+
 void OnWindowContextMenu(WindowInfo* win, int x, int y) {
     DisplayModel* dm = win->AsFixed();
     CrashIf(!dm);
     if (!dm) {
         return;
     }
+
+	/* Sends a message to plugin host window telling Context Menu is opening - MCM 24-04-2016  */
+    if (PluginHostCallback(L"OPEN_CONTEXTMENU(%d, %d)", x, y)==1) return;
 
     TabInfo* tab = win->currentTab;
     PageElement* pageEl = dm->GetElementAtPos({x, y});

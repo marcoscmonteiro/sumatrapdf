@@ -887,6 +887,7 @@ void ControllerCallbackHandler::PageNoChanged(Controller* ctrl, int pageNo) {
     UpdateTocSelection(win, pageNo);
     win->currPageNo = pageNo;
 
+    PluginHostCallback(L"PAGE_CHANGE(%d)", pageNo);
     NotificationWnd* wnd = win->notifications->GetForGroup(NG_PAGE_INFO_HELPER);
     if (wnd) {
         CrashIf(!win->AsFixed());

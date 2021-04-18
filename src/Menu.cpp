@@ -705,7 +705,7 @@ static bool ShouldShowCreateAnnotationMenu(TabInfo* tab, int x, int y) {
 }
 
 /* Auxiliary function to callback Plugin Host Window with a generic message - MCM 24-04-2016 */
-LRESULT PluginHostCallback(WCHAR* msg, ...) {
+LRESULT PluginHostCallback(const WCHAR* msg, ...) {
     if (gPluginMode) {
         CrashIf(gWindows.IsEmpty());
         if (gWindows.IsEmpty())

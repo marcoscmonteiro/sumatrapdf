@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -9,15 +9,14 @@
 
 #define ABC "abc"
 void ByteOrderTests() {
-    unsigned char d1[] = {0x00, 0x01,
-                          0x00,                               // to skip
-                          0x01, 0x00, 0xff, 0xfe, 0x00, 0x00, // to skip
-                          0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0xff,
-                          0xff, 0xff, 0xfe, 0x02, 0x00, 'a',  'b',  'c'};
+    u8 d1[] = {0x00, 0x01,
+               0x00,                               // to skip
+               0x01, 0x00, 0xff, 0xfe, 0x00, 0x00, // to skip
+               0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xfe, 0x02, 0x00, 'a', 'b', 'c'};
 
     {
-        uint16_t vu16;
-        uint32_t vu32;
+        u16 vu16;
+        u32 vu32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::LittleEndian);
         utassert(0 == d.Offset());
@@ -59,8 +58,8 @@ void ByteOrderTests() {
     }
 
     {
-        uint16_t vu16;
-        uint32_t vu32;
+        u16 vu16;
+        u32 vu32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::BigEndian);
         vu16 = d.UInt16();
@@ -87,8 +86,8 @@ void ByteOrderTests() {
     }
 
     {
-        int16_t v16;
-        int32_t v32;
+        i16 v16;
+        i32 v32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::LittleEndian);
         v16 = d.Int16();
@@ -115,8 +114,8 @@ void ByteOrderTests() {
     }
 
     {
-        int16_t v16;
-        int32_t v32;
+        i16 v16;
+        i32 v32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::BigEndian);
         v16 = d.Int16();

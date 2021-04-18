@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct TxtNode;
@@ -8,8 +8,8 @@ namespace sertxt {
 struct FieldMetadata;
 
 typedef struct {
-    uint16_t size;
-    uint16_t nFields;
+    u16 size;
+    u16 nFields;
     const char* fieldNames;
     const FieldMetadata* fields;
 } StructMetadata;
@@ -39,16 +39,16 @@ typedef enum {
 // information about a single field
 struct FieldMetadata {
     // offset of the value from the beginning of the struct
-    uint16_t offset;
+    u16 offset;
     Type type;
     // StructMetadata * for TYP_ARRAY and TYPE_STRUCT_PT
     // otherwise default value for this field
     uintptr_t defValOrDefinition;
 };
 
-std::string_view Serialize(const uint8_t* data, const StructMetadata* def);
-uint8_t* Deserialize(struct TxtNode* root, const StructMetadata* def);
-uint8_t* Deserialize(const std::string_view str, const StructMetadata* def);
-void FreeStruct(uint8_t* data, const StructMetadata* def);
+std::string_view Serialize(const u8* data, const StructMetadata* def);
+u8* Deserialize(struct TxtNode* root, const StructMetadata* def);
+u8* Deserialize(const std::string_view str, const StructMetadata* def);
+void FreeStruct(u8* data, const StructMetadata* def);
 
 } // namespace sertxt

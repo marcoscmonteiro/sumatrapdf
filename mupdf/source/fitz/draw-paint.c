@@ -246,7 +246,7 @@ template_solid_color_N_256(byte * FZ_RESTRICT dp, int n, int w, const byte * FZ_
 {
 	int k;
 	int n1 = n - da;
-	if (n == 3 && da == 0 && w >= 8)
+	if (n == 3 && da == 0 && w >= 7)
 	{
 		union {uint32_t w[3]; byte b[12];} u;
 
@@ -643,15 +643,12 @@ template_span_with_color_1_da(byte * FZ_RESTRICT dp, const byte * FZ_RESTRICT mp
 		{
 			int ma = *mp++;
 			ma = FZ_EXPAND(ma);
-			if (ma == 0)
-			{
-			}
-			else if (ma == 256)
+			if (ma == 256)
 			{
 				dp[0] = g;
 				dp[1] = 255;
 			}
-			else
+			else if (ma != 0)
 			{
 				dp[0] = FZ_BLEND(g, dp[0], ma);
 				dp[1] = FZ_BLEND(255, dp[1], ma);
@@ -666,10 +663,7 @@ template_span_with_color_1_da(byte * FZ_RESTRICT dp, const byte * FZ_RESTRICT mp
 		{
 			int ma = *mp++;
 			ma = FZ_EXPAND(ma);
-			if (ma == 0)
-			{
-			}
-			else
+			if (ma != 0)
 			{
 				ma = FZ_COMBINE(ma, sa);
 				dp[0] = FZ_BLEND(g, dp[0], ma);
@@ -703,14 +697,11 @@ template_span_with_color_3_da(byte * FZ_RESTRICT dp, const byte * FZ_RESTRICT mp
 			unsigned int ma = *mp++;
 			dp += 4;
 			ma = FZ_EXPAND(ma);
-			if (ma == 0)
-			{
-			}
-			else if (ma == 256)
+			if (ma == 256)
 			{
 				((unsigned int *)dp)[-1] = rgba;
 			}
-			else
+			else if (ma != 0)
 			{
 				unsigned int RGBA = ((unsigned int *)dp)[-1];
 				unsigned int RB = (RGBA<<8) & mask;
@@ -762,10 +753,7 @@ template_span_with_color_4_da(byte * FZ_RESTRICT dp, const byte * FZ_RESTRICT mp
 		{
 			int ma = *mp++;
 			ma = FZ_EXPAND(ma);
-			if (ma == 0)
-			{
-			}
-			else if (ma == 256)
+			if (ma == 256)
 			{
 				dp[0] = c;
 				dp[1] = m;
@@ -773,7 +761,7 @@ template_span_with_color_4_da(byte * FZ_RESTRICT dp, const byte * FZ_RESTRICT mp
 				dp[3] = k;
 				dp[4] = 255;
 			}
-			else
+			else if (ma != 0)
 			{
 				dp[0] = FZ_BLEND(c, dp[0], ma);
 				dp[1] = FZ_BLEND(m, dp[1], ma);
@@ -791,10 +779,7 @@ template_span_with_color_4_da(byte * FZ_RESTRICT dp, const byte * FZ_RESTRICT mp
 		{
 			int ma = *mp++;
 			ma = FZ_EXPAND(ma);
-			if (ma == 0)
-			{
-			}
-			else
+			if (ma != 0)
 			{
 				ma = FZ_COMBINE(ma, sa);
 				dp[0] = FZ_BLEND(c, dp[0], ma);
@@ -823,10 +808,7 @@ template_span_with_color_N_general(byte * FZ_RESTRICT dp, const byte * FZ_RESTRI
 		{
 			int ma = *mp++;
 			ma = FZ_EXPAND(ma);
-			if (ma == 0)
-			{
-			}
-			else if (ma == 256)
+			if (ma == 256)
 			{
 				if (n1 > 0)
 					dp[0] = color[0];
@@ -839,7 +821,7 @@ template_span_with_color_N_general(byte * FZ_RESTRICT dp, const byte * FZ_RESTRI
 				if (da)
 					dp[n1] = 255;
 			}
-			else
+			else if (ma != 0)
 			{
 				for (k = 0; k < n1; k++)
 					dp[k] = FZ_BLEND(color[k], dp[k], ma);
@@ -880,10 +862,7 @@ template_span_with_color_N_general_op(byte * FZ_RESTRICT dp, const byte * FZ_RES
 		{
 			int ma = *mp++;
 			ma = FZ_EXPAND(ma);
-			if (ma == 0)
-			{
-			}
-			else if (ma == 256)
+			if (ma == 256)
 			{
 				if (n1 > 0)
 					if (fz_overprint_component(eop, 0))
@@ -900,7 +879,7 @@ template_span_with_color_N_general_op(byte * FZ_RESTRICT dp, const byte * FZ_RES
 				if (da)
 					dp[n1] = 255;
 			}
-			else
+			else if (ma != 0)
 			{
 				for (k = 0; k < n1; k++)
 					if (fz_overprint_component(eop, k))
@@ -1514,10 +1493,9 @@ template_span_1_general(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRICT 
 				dp++;
 				if (da)
 				{
-					*dp = (sa ? *sp + FZ_COMBINE(*dp, t) : 255);
+					*dp = *sp + FZ_COMBINE(*dp, t);
 					dp++;
 				}
-				if (sa)
 					sp++;
 			}
 		}
@@ -1554,6 +1532,7 @@ template_span_3_general(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRICT 
 			}
 			else
 			{
+				/* sa != 0 as t != 0 */
 				*dp = *sp++ + FZ_COMBINE(*dp, t);
 				dp++;
 				*dp = *sp++ + FZ_COMBINE(*dp, t);
@@ -1562,10 +1541,9 @@ template_span_3_general(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRICT 
 				dp++;
 				if (da)
 				{
-					*dp = (sa ? *sp + FZ_COMBINE(*dp, t) : 255);
+					*dp = *sp + FZ_COMBINE(*dp, t);
 					dp++;
 				}
-				if (sa)
 					sp++;
 			}
 		}
@@ -1598,6 +1576,7 @@ template_span_4_general(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRICT 
 			}
 			else
 			{
+				/* sa != 0 as t != 0 */
 				*dp = *sp++ + FZ_COMBINE(*dp, t);
 				dp++;
 				*dp = *sp++ + FZ_COMBINE(*dp, t);
@@ -1608,10 +1587,9 @@ template_span_4_general(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRICT 
 				dp++;
 				if (da)
 				{
-					*dp = (sa ? *sp + FZ_COMBINE(*dp, t) : 255);
+					*dp = *sp + FZ_COMBINE(*dp, t);
 					dp++;
 				}
-				if (sa)
 					sp++;
 			}
 		}
@@ -1645,6 +1623,7 @@ template_span_N_general(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRICT 
 			}
 			else
 			{
+				/* sa != 0, as t != 0 */
 				int k;
 				for (k = 0; k < n1; k++)
 				{
@@ -1654,10 +1633,9 @@ template_span_N_general(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRICT 
 				}
 				if (da)
 				{
-					*dp = (sa ? *sp + FZ_COMBINE(*dp, t) : 255);
+					*dp = *sp + FZ_COMBINE(*dp, t);
 					dp++;
 				}
-				if (sa)
 					sp++;
 			}
 		}
@@ -1696,6 +1674,7 @@ template_span_N_general_op(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRI
 			else
 			{
 				int k;
+				/* sa can never be 0 here, as t != 0. */
 				for (k = 0; k < n1; k++)
 				{
 					if (fz_overprint_component(eop, k))
@@ -1705,10 +1684,9 @@ template_span_N_general_op(byte * FZ_RESTRICT dp, int da, const byte * FZ_RESTRI
 				}
 				if (da)
 				{
-					*dp = (sa ? *sp + FZ_COMBINE(*dp, t) : 255);
+					*dp = *sp + FZ_COMBINE(*dp, t);
 					dp++;
 				}
-				if (sa)
 					sp++;
 			}
 		}
@@ -2186,15 +2164,15 @@ fz_paint_pixmap_with_bbox(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_REST
 
 	x = bbox.x0;
 	y = bbox.y0;
-	w = bbox.x1 - bbox.x0;
-	h = bbox.y1 - bbox.y0;
+	w = fz_irect_width(bbox);
+	h = fz_irect_height(bbox);
 	if (w == 0 || h == 0)
 		return;
 
 	n = src->n;
-	sp = src->samples + (unsigned int)((y - src->y) * src->stride + (x - src->x) * src->n);
+	sp = src->samples + (y - src->y) * (size_t)src->stride + (x - src->x) * (size_t)src->n;
 	sa = src->alpha;
-	dp = dst->samples + (unsigned int)((y - dst->y) * dst->stride + (x - dst->x) * dst->n);
+	dp = dst->samples + (y - dst->y) * (size_t)dst->stride + (x - dst->x) * (size_t)dst->n;
 	da = dst->alpha;
 
 	n -= sa;
@@ -2233,15 +2211,15 @@ fz_paint_pixmap(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_RESTRICT src, 
 	bbox = fz_intersect_irect(fz_pixmap_bbox_no_ctx(src), fz_pixmap_bbox_no_ctx(dst));
 	x = bbox.x0;
 	y = bbox.y0;
-	w = bbox.x1 - bbox.x0;
-	h = bbox.y1 - bbox.y0;
+	w = fz_irect_width(bbox);
+	h = fz_irect_height(bbox);
 	if (w == 0 || h == 0)
 		return;
 
 	n = src->n;
-	sp = src->samples + (unsigned int)((y - src->y) * src->stride + (x - src->x) * src->n);
+	sp = src->samples + (y - src->y) * (size_t)src->stride + (x - src->x) * (size_t)src->n;
 	sa = src->alpha;
-	dp = dst->samples + (unsigned int)((y - dst->y) * dst->stride + (x - dst->x) * dst->n);
+	dp = dst->samples + (y - dst->y) * (size_t)dst->stride + (x - dst->x) * (size_t)dst->n;
 	da = dst->alpha;
 
 	n -= sa;
@@ -2306,14 +2284,14 @@ fz_paint_pixmap_alpha(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_RESTRICT
 	bbox = fz_intersect_irect(fz_pixmap_bbox_no_ctx(src), fz_pixmap_bbox_no_ctx(dst));
 	x = bbox.x0;
 	y = bbox.y0;
-	w = bbox.x1 - bbox.x0;
-	h = bbox.y1 - bbox.y0;
+	w = fz_irect_width(bbox);
+	h = fz_irect_height(bbox);
 	if (w == 0 || h == 0)
 		return;
 
 	n = src->n;
-	sp = src->samples + (unsigned int)((y - src->y) * src->stride + (x - src->x) * src->n);
-	dp = dst->samples + (unsigned int)((y - dst->y) * dst->stride + (x - dst->x) * dst->n);
+	sp = src->samples + (y - src->y) * (size_t)src->stride + (x - src->x) * (size_t)src->n;
+	dp = dst->samples + (y - dst->y) * (size_t)dst->stride + (x - dst->x) * (size_t)dst->n;
 
 	if (alpha == 255)
 	{
@@ -2354,15 +2332,15 @@ fz_paint_pixmap_with_overprint(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ
 	bbox = fz_intersect_irect(fz_pixmap_bbox_no_ctx(src), fz_pixmap_bbox_no_ctx(dst));
 	x = bbox.x0;
 	y = bbox.y0;
-	w = bbox.x1 - bbox.x0;
-	h = bbox.y1 - bbox.y0;
+	w = fz_irect_width(bbox);
+	h = fz_irect_height(bbox);
 	if (w == 0 || h == 0)
 		return;
 
 	n = src->n;
-	sp = src->samples + (unsigned int)((y - src->y) * src->stride + (x - src->x) * src->n);
+	sp = src->samples + (y - src->y) * (size_t)src->stride + (x - src->x) * (size_t)src->n;
 	sa = src->alpha;
-	dp = dst->samples + (unsigned int)((y - dst->y) * dst->stride + (x - dst->x) * dst->n);
+	dp = dst->samples + (y - dst->y) * (size_t)dst->stride + (x - dst->x) * (size_t)dst->n;
 	da = dst->alpha;
 
 	n -= sa;
@@ -2397,16 +2375,16 @@ fz_paint_pixmap_with_mask(fz_pixmap * FZ_RESTRICT dst, const fz_pixmap * FZ_REST
 
 	x = bbox.x0;
 	y = bbox.y0;
-	w = bbox.x1 - bbox.x0;
-	h = bbox.y1 - bbox.y0;
+	w = fz_irect_width(bbox);
+	h = fz_irect_height(bbox);
 	if (w == 0 || h == 0)
 		return;
 
 	n = src->n;
-	sp = src->samples + (unsigned int)((y - src->y) * src->stride + (x - src->x) * src->n);
+	sp = src->samples + (y - src->y) * (size_t)src->stride + (x - src->x) * (size_t)src->n;
 	sa = src->alpha;
-	mp = msk->samples + (unsigned int)((y - msk->y) * msk->stride + (x - msk->x) * msk->n);
-	dp = dst->samples + (unsigned int)((y - dst->y) * dst->stride + (x - dst->x) * dst->n);
+	mp = msk->samples + (y - msk->y) * (size_t)msk->stride + (x - msk->x) * (size_t)msk->n;
+	dp = dst->samples + (y - dst->y) * (size_t)dst->stride + (x - dst->x) * (size_t)dst->n;
 	da = dst->alpha;
 
 	/* sa == da, or something has gone very wrong! */

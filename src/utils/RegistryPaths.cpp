@@ -1,8 +1,8 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
-#include "utils/Winutil.h"
+#include "utils/WinUtil.h"
 
 // This is in HKLM. Note that on 64bit windows, if installing 32bit app
 // the installer has to be 32bit as well, so that it goes into proper
@@ -68,7 +68,7 @@ bool ListAsDefaultProgramPreWin10(const WCHAR* exeName, const WCHAR* extensions[
     for (int i = 0; nullptr != extensions[i]; i++) {
         const WCHAR* ext = extensions[i];
         AutoFreeWstr name = str::Join(L"Software\\Classes\\", ext, openWithVal);
-        ok &= CreateRegKey(hkey, name.get());
+        ok &= CreateRegKey(hkey, name.Get());
     }
     return ok;
 }

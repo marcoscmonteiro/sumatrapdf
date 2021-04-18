@@ -1,10 +1,11 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
 #include "utils/ScopedWin.h"
 #include "utils/DirIter.h"
 #include "utils/FileUtil.h"
+#include "utils/GuessFileType.h"
 #include "utils/GdiPlusUtil.h"
 #include "utils/HtmlParserLookup.h"
 #include "utils/HtmlWindow.h"
@@ -17,11 +18,12 @@
 
 #include "Annotation.h"
 #include "EngineBase.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
 #include "EbookBase.h"
 #include "HtmlFormatter.h"
 #include "EbookFormatter.h"
 #include "Doc.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "GlobalPrefs.h"
@@ -54,8 +56,9 @@ bool IsStressTesting() {
 
 static bool IsInRange(Vec<PageRange>& ranges, int pageNo) {
     for (size_t i = 0; i < ranges.size(); i++) {
-        if (ranges.at(i).start <= pageNo && pageNo <= ranges.at(i).end)
+        if (ranges.at(i).start <= pageNo && pageNo <= ranges.at(i).end) {
             return true;
+        }
     }
     return false;
 }
@@ -121,10 +124,6 @@ void BenchEbookLayout(const WCHAR* filePath) {
         logf(L"Error: file doesn't exist");
         return;
     }
-    if (!Doc::IsSupportedFile(filePath)) {
-        logf(L"Error: not an ebook file");
-        return;
-    }
     auto t = TimeGet();
     Doc doc = Doc::CreateFromFile(filePath);
     if (doc.LoadingFailed()) {
@@ -178,12 +177,16 @@ static void BenchFile(const WCHAR* filePath, const WCHAR* pagesSpec) {
     // using all text rendering methods, so that we can compare and find
     // docs that take a long time to load
 
-    if (Doc::IsSupportedFile(filePath) && !gGlobalPrefs->ebookUI.useFixedPageUI) {
+    Kind kind = GuessFileType(filePath, true);
+    if (!kind) {
+        return;
+    }
+    if (Doc::IsSupportedFileType(kind) && !gGlobalPrefs->ebookUI.useFixedPageUI) {
         BenchEbookLayout(filePath);
         return;
     }
 
-    if (ChmModel::IsSupportedFile(filePath) && !gGlobalPrefs->chmUI.useFixedPageUI) {
+    if (ChmModel::IsSupportedFileType(kind) && !gGlobalPrefs->chmUI.useFixedPageUI) {
         BenchChmLoadOnly(filePath);
         return;
     }
@@ -192,7 +195,7 @@ static void BenchFile(const WCHAR* filePath, const WCHAR* pagesSpec) {
     logf(L"Starting: %s", filePath);
 
     auto t = TimeGet();
-    EngineBase* engine = EngineManager::CreateEngine(filePath);
+    EngineBase* engine = CreateEngine(filePath);
     if (!engine) {
         logf(L"Error: failed to load %s", filePath);
         return;
@@ -209,13 +212,14 @@ static void BenchFile(const WCHAR* filePath, const WCHAR* pagesSpec) {
         }
     }
 
-    AssertCrash(!pagesSpec || IsBenchPagesInfo(pagesSpec));
+    CrashIf(pagesSpec && !IsBenchPagesInfo(pagesSpec));
     Vec<PageRange> ranges;
     if (ParsePageRanges(pagesSpec, ranges)) {
         for (size_t i = 0; i < ranges.size(); i++) {
             for (int j = ranges.at(i).start; j <= ranges.at(i).end; j++) {
-                if (1 <= j && j <= pages)
+                if (1 <= j && j <= pages) {
                     BenchLoadRender(engine, j);
+                }
             }
         }
     }
@@ -225,11 +229,14 @@ static void BenchFile(const WCHAR* filePath, const WCHAR* pagesSpec) {
     logf(L"Finished (in %.2f ms): %s", TimeSinceInMs(total), filePath);
 }
 
-static bool IsFileToBench(const WCHAR* fileName) {
-    if (EngineManager::IsSupportedFile(fileName))
+static bool IsFileToBench(const WCHAR* path) {
+    Kind kind = GuessFileType(path, true);
+    if (IsSupportedFileType(kind, true)) {
         return true;
-    if (Doc::IsSupportedFile(fileName))
+    }
+    if (Doc::IsSupportedFileType(kind)) {
         return true;
+    }
     return false;
 }
 
@@ -256,12 +263,13 @@ void BenchFileOrDir(WStrVec& pathsToBench) {
     size_t n = pathsToBench.size() / 2;
     for (size_t i = 0; i < n; i++) {
         WCHAR* path = pathsToBench.at(2 * i);
-        if (file::Exists(path))
+        if (file::Exists(path)) {
             BenchFile(path, pathsToBench.at(2 * i + 1));
-        else if (dir::Exists(path))
+        } else if (dir::Exists(path)) {
             BenchDir(path);
-        else
+        } else {
             logf(L"Error: file or dir %s doesn't exist", path);
+        }
     }
 }
 
@@ -269,7 +277,11 @@ static bool IsStressTestSupportedFile(const WCHAR* filePath, const WCHAR* filter
     if (filter && !path::Match(path::GetBaseNameNoFree(filePath), filter)) {
         return false;
     }
-    if (EngineManager::IsSupportedFile(filePath) || Doc::IsSupportedFile(filePath)) {
+    Kind kind = GuessFileType(filePath, false);
+    if (!kind) {
+        return false;
+    }
+    if (IsSupportedFileType(kind, true) || Doc::IsSupportedFileType(kind)) {
         return true;
     }
     if (!filter) {
@@ -277,7 +289,14 @@ static bool IsStressTestSupportedFile(const WCHAR* filePath, const WCHAR* filter
     }
     // sniff the file's content if it matches the filter but
     // doesn't have a known extension
-    return EngineManager::IsSupportedFile(filePath, true) || Doc::IsSupportedFile(filePath, true);
+    Kind kindSniffed = GuessFileType(filePath, true);
+    if (!kindSniffed || kindSniffed == kind) {
+        return false;
+    }
+    if (IsSupportedFileType(kindSniffed, true)) {
+        return true;
+    }
+    return Doc::IsSupportedFileType(kindSniffed);
 }
 
 static bool CollectStressTestSupportedFilesFromDirectory(const WCHAR* dirPath, const WCHAR* filter, WStrVec& paths) {
@@ -311,10 +330,12 @@ static WCHAR* FormatTime(int totalSecs) {
     int totalMins = totalSecs / 60;
     int mins = totalMins % 60;
     int hrs = totalMins / 60;
-    if (hrs > 0)
+    if (hrs > 0) {
         return str::Format(L"%d hrs %d mins %d secs", hrs, mins, secs);
-    if (mins > 0)
+    }
+    if (mins > 0) {
         return str::Format(L"%d mins %d secs", mins, secs);
+    }
     return str::Format(L"%d secs", secs);
 }
 
@@ -323,19 +344,23 @@ static void FormatTime(int totalSecs, str::Str* s) {
     int totalMins = totalSecs / 60;
     int mins = totalMins % 60;
     int hrs = totalMins / 60;
-    if (hrs > 0)
+    if (hrs > 0) {
         s->AppendFmt("%d hrs %d mins %d secs", hrs, mins, secs);
-    if (mins > 0)
+    }
+    if (mins > 0) {
         s->AppendFmt("%d mins %d secs", mins, secs);
+    }
     s->AppendFmt("%d secs", secs);
 }
 
 static void MakeRandomSelection(WindowInfo* win, int pageNo) {
     DisplayModel* dm = win->AsFixed();
-    if (!dm->ValidPageNo(pageNo))
+    if (!dm->ValidPageNo(pageNo)) {
         pageNo = 1;
-    if (!dm->ValidPageNo(pageNo))
+    }
+    if (!dm->ValidPageNo(pageNo)) {
         return;
+    }
 
     // try a random position in the page
     int x = rand() % 640;
@@ -379,13 +404,14 @@ class FilesProvider : public TestFileProvider {
     virtual ~FilesProvider() {
     }
 
-    virtual WCHAR* NextFile() {
-        if (provided >= files.size())
+    WCHAR* NextFile() override {
+        if (provided >= files.size()) {
             return nullptr;
+        }
         return str::Dup(files.at(provided++));
     }
 
-    virtual void Restart() {
+    void Restart() override {
         provided = 0;
     }
 };
@@ -403,14 +429,15 @@ class DirFileProvider : public TestFileProvider {
   public:
     DirFileProvider(const WCHAR* path, const WCHAR* filter);
     virtual ~DirFileProvider();
-    virtual WCHAR* NextFile();
-    virtual void Restart();
+    WCHAR* NextFile() override;
+    void Restart() override;
 };
 
 DirFileProvider::DirFileProvider(const WCHAR* path, const WCHAR* filter) {
     startDir.SetCopy(path);
-    if (filter && !str::Eq(filter, L"*"))
+    if (filter && !str::Eq(filter, L"*")) {
         fileFilter.SetCopy(filter);
+    }
     OpenDir(path);
 }
 
@@ -418,7 +445,7 @@ DirFileProvider::~DirFileProvider() {
 }
 
 bool DirFileProvider::OpenDir(const WCHAR* dirPath) {
-    AssertCrash(filesToOpen.size() == 0);
+    CrashIf(filesToOpen.size() > 0);
 
     bool hasFiles = CollectStressTestSupportedFilesFromDirectory(dirPath, fileFilter, filesToOpen);
     filesToOpen.SortNatural();
@@ -460,7 +487,7 @@ static size_t GetAllMatchingFiles(const WCHAR* dir, const WCHAR* filter, WStrVec
 
         AutoFreeWstr path(dirsToVisit.PopAt(0));
         CollectStressTestSupportedFilesFromDirectory(path, filter, files);
-        AutoFreeWstr pattern(str::Format(L"%s\\*", path.get()));
+        AutoFreeWstr pattern(str::Format(L"%s\\*", path.Get()));
         CollectPathsFromDirectory(pattern, dirsToVisit, true);
     }
     return files.size();
@@ -470,24 +497,24 @@ static size_t GetAllMatchingFiles(const WCHAR* dir, const WCHAR* filter, WStrVec
 a human advancing one page at a time. This is mostly to run through a large number
 of PDFs before a release to make sure we're crash proof. */
 
-class StressTest {
-    WindowInfo* win;
-    LARGE_INTEGER currPageRenderTime;
-    int currPage;
-    int pageForSearchStart;
-    int filesCount; // number of files processed so far
-    int timerId;
-    bool exitWhenDone;
+struct StressTest {
+    WindowInfo* win{nullptr};
+    LARGE_INTEGER currPageRenderTime{0};
+    int currPage{0};
+    int pageForSearchStart{0};
+    int filesCount{0}; // number of files processed so far
+    int timerId{0};
+    bool exitWhenDone{false};
 
-    SYSTEMTIME stressStartTime;
-    int cycles;
+    SYSTEMTIME stressStartTime{};
+    int cycles{1};
     Vec<PageRange> pageRanges;
     // range of files to render (files get a new index when going through several cycles)
     Vec<PageRange> fileRanges;
-    int fileIndex;
+    int fileIndex{0};
 
     // owned by StressTest
-    TestFileProvider* fileProvider;
+    TestFileProvider* fileProvider{nullptr};
 
     bool OpenFile(const WCHAR* fileName);
 
@@ -497,16 +524,7 @@ class StressTest {
     void TickTimer();
     void Finished(bool success);
 
-  public:
-    StressTest(WindowInfo* win, bool exitWhenDone)
-        : win(win),
-          currPage(0),
-          pageForSearchStart(0),
-          filesCount(0),
-          cycles(1),
-          fileIndex(0),
-          fileProvider(nullptr),
-          exitWhenDone(exitWhenDone) {
+    StressTest(WindowInfo* win, bool exitWhenDone) : win(win), exitWhenDone(exitWhenDone) {
         timerId = gCurrStressTimerId++;
     }
     ~StressTest() {
@@ -526,10 +544,12 @@ void StressTest::Start(TestFileProvider* fileProvider, int cycles) {
     this->fileProvider = fileProvider;
     this->cycles = cycles;
 
-    if (pageRanges.size() == 0)
+    if (pageRanges.size() == 0) {
         pageRanges.Append(PageRange());
-    if (fileRanges.size() == 0)
+    }
+    if (fileRanges.size() == 0) {
         fileRanges.Append(PageRange());
+    }
 
     TickTimer();
 }
@@ -557,7 +577,7 @@ void StressTest::Finished(bool success) {
     if (success) {
         int secs = SecsSinceSystemTime(stressStartTime);
         AutoFreeWstr tm(FormatTime(secs));
-        AutoFreeWstr s(str::Format(L"Stress test complete, rendered %d files in %s", filesCount, tm.get()));
+        AutoFreeWstr s(str::Format(L"Stress test complete, rendered %d files in %s", filesCount, tm.Get()));
         win->ShowNotification(s, NOS_PERSIST, NG_STRESS_TEST_SUMMARY);
     }
 
@@ -569,14 +589,17 @@ bool StressTest::GoToNextFile() {
     for (;;) {
         AutoFreeWstr nextFile(fileProvider->NextFile());
         if (nextFile) {
-            if (!IsInRange(fileRanges, ++fileIndex))
+            if (!IsInRange(fileRanges, ++fileIndex)) {
                 continue;
-            if (OpenFile(nextFile))
+            }
+            if (OpenFile(nextFile)) {
                 return true;
+            }
             continue;
         }
-        if (--cycles <= 0)
+        if (--cycles <= 0) {
             return false;
+        }
         fileProvider->Restart();
     }
 }
@@ -588,12 +611,14 @@ bool StressTest::OpenFile(const WCHAR* fileName) {
     LoadArgs args(fileName, nullptr);
     args.forceReuse = rand() % 3 != 1;
     WindowInfo* w = LoadDocument(args);
-    if (!w)
+    if (!w) {
         return false;
+    }
 
     if (w == win) { // WindowInfo reused
-        if (!win->IsDocLoaded())
+        if (!win->IsDocLoaded()) {
             return false;
+        }
     } else if (!w->IsDocLoaded()) { // new WindowInfo
         CloseWindow(w, false);
         return false;
@@ -601,16 +626,17 @@ bool StressTest::OpenFile(const WCHAR* fileName) {
 
     // transfer ownership of stressTest object to a new window and close the
     // current one
-    AssertCrash(this == win->stressTest);
+    CrashIf(this != win->stressTest);
     if (w != win) {
         if (win->IsDocLoaded()) {
             // try to provoke a crash in RenderCache cleanup code
             Rect rect = ClientRect(win->hwndFrame);
             rect.Inflate(rand() % 10, rand() % 10);
-            SendMessage(win->hwndFrame, WM_SIZE, 0, MAKELONG(rect.dx, rect.dy));
-            if (win->AsFixed())
+            SendMessageW(win->hwndFrame, WM_SIZE, 0, MAKELONG(rect.dx, rect.dy));
+            if (win->AsFixed()) {
                 win->cbHandler->RequestRendering(1);
-            win->RepaintAsync();
+            }
+            RepaintAsync(win, 0);
         }
 
         WindowInfo* toClose = win;
@@ -619,14 +645,16 @@ bool StressTest::OpenFile(const WCHAR* fileName) {
         win = w;
         CloseWindow(toClose, false);
     }
-    if (!win->IsDocLoaded())
+    if (!win->IsDocLoaded()) {
         return false;
+    }
 
-    win->ctrl->SetDisplayMode(DM_CONTINUOUS);
+    win->ctrl->SetDisplayMode(DisplayMode::Continuous);
     win->ctrl->SetZoomVirtual(ZOOM_FIT_PAGE, nullptr);
     win->ctrl->GoToFirstPage();
-    if (win->tocVisible || gGlobalPrefs->showFavorites)
+    if (win->tocVisible || gGlobalPrefs->showFavorites) {
         SetSidebarVisibility(win, win->tocVisible, gGlobalPrefs->showFavorites);
+    }
 
     currPage = pageRanges.at(0).start;
     win->ctrl->GoToPage(currPage, false);
@@ -643,7 +671,7 @@ bool StressTest::OpenFile(const WCHAR* fileName) {
 
     int secs = SecsSinceSystemTime(stressStartTime);
     AutoFreeWstr tm(FormatTime(secs));
-    AutoFreeWstr s(str::Format(L"File %d: %s, time: %s", filesCount, fileName, tm.get()));
+    AutoFreeWstr s(str::Format(L"File %d: %s, time: %s", filesCount, fileName, tm.Get()));
     win->ShowNotification(s, NOS_PERSIST, NG_STRESS_TEST_SUMMARY);
 
     return true;
@@ -652,7 +680,7 @@ bool StressTest::OpenFile(const WCHAR* fileName) {
 bool StressTest::GoToNextPage() {
     double pageRenderTime = TimeSinceInMs(currPageRenderTime);
     AutoFreeWstr s(str::Format(L"Page %d rendered in %d milliseconds", currPage, (int)pageRenderTime));
-    win->ShowNotification(s, NOS_DEFAULT, NG_STRESS_TEST_BENCHMARK);
+    win->ShowNotification(s, NOS_WITH_TIMEOUT, NG_STRESS_TEST_BENCHMARK);
 
     ++currPage;
     while (!IsInRange(pageRanges, currPage) && currPage <= win->ctrl->PageCount()) {
@@ -660,8 +688,9 @@ bool StressTest::GoToNextPage() {
     }
 
     if (currPage > win->ctrl->PageCount()) {
-        if (GoToNextFile())
+        if (GoToNextFile()) {
             return true;
+        }
         Finished(true);
         return false;
     }
@@ -684,13 +713,15 @@ bool StressTest::GoToNextPage() {
         Rect rect = ClientRect(win->hwndFrame);
         int deltaX = (rand() % 40) - 23;
         rect.dx += deltaX;
-        if (rect.dx < 300)
+        if (rect.dx < 300) {
             rect.dx += (abs(deltaX) * 3);
+        }
         int deltaY = (rand() % 40) - 23;
         rect.dy += deltaY;
-        if (rect.dy < 300)
+        if (rect.dy < 300) {
             rect.dy += (abs(deltaY) * 3);
-        SendMessage(win->hwndFrame, WM_SIZE, 0, MAKELONG(rect.dx, rect.dy));
+        }
+        SendMessageW(win->hwndFrame, WM_SIZE, 0, MAKELONG(rect.dx, rect.dy));
     }
     return true;
 }
@@ -700,6 +731,9 @@ void StressTest::TickTimer() {
 }
 
 void StressTest::OnTimer(int timerIdGot) {
+    DisplayModel* dm;
+    bool didRender;
+
     CrashIf(timerId != timerIdGot);
     KillTimer(win->hwndFrame, timerId);
     if (!win->IsDocLoaded()) {
@@ -714,8 +748,9 @@ void StressTest::OnTimer(int timerIdGot) {
     // chm documents aren't rendered and we block until we show them
     // so we can assume previous page has been shown and go to next page
     if (!win->AsFixed()) {
-        if (!GoToNextPage())
+        if (!GoToNextPage()) {
             return;
+        }
         goto Next;
     }
 
@@ -723,13 +758,14 @@ void StressTest::OnTimer(int timerIdGot) {
     // (but we don't wait more than 3 seconds).
     // Image files are always fully rendered in WM_PAINT, so we know the page
     // has already been rendered.
-    DisplayModel* dm = win->AsFixed();
-    bool didRender = gRenderCache.Exists(dm, currPage, dm->GetRotation());
+    dm = win->AsFixed();
+    didRender = gRenderCache.Exists(dm, currPage, dm->GetRotation());
     if (!didRender && dm->ShouldCacheRendering(currPage)) {
         double timeInMs = TimeSinceInMs(currPageRenderTime);
         if (timeInMs > 3.0 * 1000) {
-            if (!GoToNextPage())
+            if (!GoToNextPage()) {
                 return;
+            }
         }
     } else if (!GoToNextPage()) {
         return;
@@ -752,13 +788,15 @@ void GetStressTestInfo(str::Str* s) {
     // only add paths to files encountered during an explicit stress test
     // (for privacy reasons, users should be able to decide themselves
     // whether they want to share what files they had opened during a crash)
-    if (!IsStressTesting())
+    if (!IsStressTesting()) {
         return;
+    }
 
     for (size_t i = 0; i < gWindows.size(); i++) {
         WindowInfo* w = gWindows.at(i);
-        if (!w || !w->currentTab || !w->currentTab->filePath)
+        if (!w || !w->currentTab || !w->currentTab->filePath) {
             continue;
+        }
 
         s->Append("File: ");
         char buf[256];
@@ -847,8 +885,9 @@ void StartStressTest(Flags* i, WindowInfo* win) {
         windows[0] = win;
         for (int j = 1; j < n; j++) {
             windows[j] = CreateAndShowWindowInfo();
-            if (!windows[j])
+            if (!windows[j]) {
                 return;
+            }
         }
         WStrVec filesToTest;
 

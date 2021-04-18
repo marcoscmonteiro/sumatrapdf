@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -18,11 +18,6 @@ extern "C" {
 // 3 is for absolute worst case of WCHAR* where last char was partially written
 #define ZERO_PADDING_COUNT 3
 
-// for debugging of unrar.dll fallback, if set to true we'll try to
-// open .rar files using unrar.dll (otherwise it only happens if unarr
-// fails to open
-static bool tryUnrarDllFirst = true;
-
 #if OS_WIN
 FILETIME MultiFormatArchive::FileInfo::GetWinFileTime() const {
     FILETIME ft = {(DWORD)-1, (DWORD)-1};
@@ -41,7 +36,7 @@ bool MultiFormatArchive::Open(ar_stream* data, const char* archivePath) {
     if (!data) {
         return false;
     }
-    if ((format == Format::Rar) && archivePath && tryUnrarDllFirst) {
+    if ((format == Format::Rar) && archivePath) {
         bool ok = OpenUnrarFallback(archivePath);
         if (ok) {
             return true;
@@ -98,18 +93,18 @@ size_t MultiFormatArchive::GetFileId(const char* fileName) {
 }
 
 #if OS_WIN
-std::string_view MultiFormatArchive::GetFileDataByName(const WCHAR* fileName) {
+std::span<u8> MultiFormatArchive::GetFileDataByName(const WCHAR* fileName) {
     AutoFree fileNameUtf8 = strconv::WstrToUtf8(fileName);
     return GetFileDataByName(fileNameUtf8);
 }
 #endif
 
-std::string_view MultiFormatArchive::GetFileDataByName(const char* fileName) {
+std::span<u8> MultiFormatArchive::GetFileDataByName(const char* fileName) {
     size_t fileId = getFileIdByName(fileInfos_, fileName);
     return GetFileDataById(fileId);
 }
 
-std::string_view MultiFormatArchive::GetFileDataById(size_t fileId) {
+std::span<u8> MultiFormatArchive::GetFileDataById(size_t fileId) {
     if (fileId == (size_t)-1) {
         return {};
     }
@@ -134,7 +129,7 @@ std::string_view MultiFormatArchive::GetFileDataById(size_t fileId) {
     if (addOverflows<size_t>(size, ZERO_PADDING_COUNT)) {
         return {};
     }
-    char* data = AllocArray<char>(size + ZERO_PADDING_COUNT);
+    u8* data = AllocArray<u8>(size + ZERO_PADDING_COUNT);
     if (!data) {
         return {};
     }
@@ -310,7 +305,7 @@ static bool FindFile(HANDLE hArc, RARHeaderDataEx* rarHeader, const WCHAR* fileN
     }
 }
 
-std::string_view MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
+std::span<u8> MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
     CrashIf(!rarFilePath_);
 
     AutoFreeWstr rarPath = strconv::Utf8ToWstr(rarFilePath_);
@@ -335,6 +330,7 @@ std::string_view MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
     size_t size = 0;
     AutoFreeWstr fileName = strconv::Utf8ToWstr(fileInfo->name.data());
     RARHeaderDataEx rarHeader = {0};
+    int res;
     bool ok = FindFile(hArc, &rarHeader, fileName.Get());
     if (!ok) {
         goto Exit;
@@ -352,7 +348,7 @@ std::string_view MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
         goto Exit;
     }
     uncompressedBuf.Set(data, size);
-    int res = RARProcessFile(hArc, RAR_TEST, nullptr, nullptr);
+    res = RARProcessFile(hArc, RAR_TEST, nullptr, nullptr);
     ok = (res == 0) && (uncompressedBuf.Left() == 0);
 
 Exit:
@@ -361,22 +357,12 @@ Exit:
         free(data);
         return {};
     }
-    return {data, size};
+    return {(u8*)data, size};
 }
 
 // asan build crashes in UnRAR code
 // see https://codeeval.dev/gist/801ad556960e59be41690d0c2fa7cba0
-#if defined(ASAN_BUILD)
-static bool disableUnrarFallback = true;
-#else
-static bool disableUnrarFallback = false;
-#endif
-
 bool MultiFormatArchive::OpenUnrarFallback(const char* rarPathUtf) {
-    if (disableUnrarFallback) {
-        return false;
-    }
-
     if (!rarPathUtf) {
         return false;
     }
@@ -407,7 +393,7 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPathUtf) {
         i->fileId = fileId;
         i->fileSizeUncompressed = (size_t)rarHeader.UnpSize;
         i->filePos = 0;
-        i->fileTime = (int64_t)rarHeader.FileTime;
+        i->fileTime = (i64)rarHeader.FileTime;
         i->name = Allocator::AllocString(&allocator_, name.Get());
         fileInfos_.Append(i);
 

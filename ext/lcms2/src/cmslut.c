@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2017 Marti Maria Saguer
+//  Copyright (c) 1998-2020 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -399,14 +399,12 @@ cmsStage*  CMSEXPORT cmsStageAllocMatrix(cmsContext ContextID, cmsUInt32Number R
     if (NewElem == NULL) goto Error;
     NewMPE ->Data  = (void*) NewElem;
 
-
     NewElem ->Double = (cmsFloat64Number*) _cmsCalloc(ContextID, n, sizeof(cmsFloat64Number));
     if (NewElem->Double == NULL) goto Error;
 
     for (i=0; i < n; i++) {
         NewElem ->Double[i] = Matrix[i];
     }
-
 
     if (Offset != NULL) {
 
@@ -416,7 +414,6 @@ cmsStage*  CMSEXPORT cmsStageAllocMatrix(cmsContext ContextID, cmsUInt32Number R
         for (i=0; i < Rows; i++) {
                 NewElem ->Offset[i] = Offset[i];
         }
-
     }
 
     return NewMPE;
@@ -696,7 +693,7 @@ cmsStage* CMSEXPORT cmsStageAllocCLutFloatGranular(cmsContext ContextID, const c
 
 
 static
-int IdentitySampler(cmsContext ContextID, register const cmsUInt16Number In[], register cmsUInt16Number Out[], register void * Cargo)
+int IdentitySampler(cmsContext ContextID, CMSREGISTER const cmsUInt16Number In[], CMSREGISTER cmsUInt16Number Out[], CMSREGISTER void * Cargo)
 {
     int nChan = *(int*) Cargo;
     int i;
@@ -1320,7 +1317,7 @@ cmsBool BlessLUT(cmsContext ContextID, cmsPipeline* lut)
 
 // Default to evaluate the LUT on 16 bit-basis. Precision is retained.
 static
-void _LUTeval16(cmsContext ContextID, register const cmsUInt16Number In[], register cmsUInt16Number Out[],  register const void* D)
+void _LUTeval16(cmsContext ContextID, CMSREGISTER const cmsUInt16Number In[], CMSREGISTER cmsUInt16Number Out[],  CMSREGISTER const void* D)
 {
     cmsPipeline* lut = (cmsPipeline*) D;
     cmsStage *mpe;
@@ -1346,7 +1343,7 @@ void _LUTeval16(cmsContext ContextID, register const cmsUInt16Number In[], regis
 
 // Does evaluate the LUT on cmsFloat32Number-basis.
 static
-void _LUTevalFloat(cmsContext ContextID, register const cmsFloat32Number In[], register cmsFloat32Number Out[], const void* D)
+void _LUTevalFloat(cmsContext ContextID, CMSREGISTER const cmsFloat32Number In[], CMSREGISTER cmsFloat32Number Out[], const void* D)
 {
     cmsPipeline* lut = (cmsPipeline*) D;
     cmsStage *mpe;
@@ -1841,5 +1838,3 @@ cmsBool CMSEXPORT cmsPipelineEvalReverseFloat(cmsContext ContextID,
 
     return TRUE;
 }
-
-

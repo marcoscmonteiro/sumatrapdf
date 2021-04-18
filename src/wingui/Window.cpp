@@ -1,6 +1,6 @@
 
 
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -45,7 +45,15 @@ struct HwndMsgHandler {
 
 VecSegmented<HwndMsgHandler> gHwndMsgHandlers;
 
+void WindowCleanup() {
+    gHwndMsgHandlers.allocator.FreeAll();
+}
+
 static void ClearHwndMsgHandler(HwndMsgHandler* h) {
+    CrashIf(!h);
+    if (!h) {
+        return;
+    }
     h->hwnd = nullptr;
     h->msg = 0;
     h->user = nullptr;
@@ -81,18 +89,16 @@ static HwndMsgHandler* FindHandlerForHwndAndMsg(HWND hwnd, UINT msg, bool create
 
 void RegisterHandlerForMessage(HWND hwnd, UINT msg, void (*handler)(void* user, WndEvent*), void* user) {
     auto h = FindHandlerForHwndAndMsg(hwnd, msg, true);
-    CrashIf(!h);
     h->handler = handler;
     h->user = user;
 }
 
 void UnregisterHandlerForMessage(HWND hwnd, UINT msg) {
     auto h = FindHandlerForHwndAndMsg(hwnd, msg, false);
-    CrashIf(!h);
     ClearHwndMsgHandler(h);
 }
 
-void UnregisterHandlersForHwnd(HWND hwnd) {
+static void UnregisterHandlersForHwnd(HWND hwnd) {
     for (auto h : gHwndMsgHandlers) {
         if (h->hwnd == hwnd) {
             ClearHwndMsgHandler(h);
@@ -102,7 +108,7 @@ void UnregisterHandlersForHwnd(HWND hwnd) {
 
 // TODO: potentially more messages
 // https://docs.microsoft.com/en-us/cpp/mfc/reflected-window-message-ids?view=vs-2019
-static HWND getChildHWNDForMessage(UINT msg, WPARAM wp, LPARAM lp) {
+static HWND GetChildHWNDForMessage(UINT msg, WPARAM wp, LPARAM lp) {
     // https://docs.microsoft.com/en-us/windows/win32/controls/wm-ctlcolorbtn
     if (WM_CTLCOLORBTN == msg) {
         return (HWND)lp;
@@ -129,6 +135,15 @@ static HWND getChildHWNDForMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (WM_CONTEXTMENU == msg) {
         return (HWND)wp;
     }
+    // https://docs.microsoft.com/en-us/windows/win32/controls/wm-vscroll--trackbar-
+    if (WM_VSCROLL == msg) {
+        return (HWND)lp;
+    }
+    // https://docs.microsoft.com/en-us/windows/win32/controls/wm-hscroll--trackbar-
+    if (WM_HSCROLL == msg) {
+        return (HWND)lp;
+    }
+
     // TODO: there's no HWND so have to do it differently e.g. allocate
     // unique CtlID, store it in WindowBase and compare that
 #if 0
@@ -143,7 +158,7 @@ static HWND getChildHWNDForMessage(UINT msg, WPARAM wp, LPARAM lp) {
 
 bool HandleRegisteredMessages(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& res) {
     HWND hwndLookup = hwnd;
-    HWND hwndMaybe = getChildHWNDForMessage(msg, wp, lp);
+    HWND hwndMaybe = GetChildHWNDForMessage(msg, wp, lp);
     if (hwndMaybe != nullptr) {
         hwndLookup = hwndMaybe;
     }
@@ -188,26 +203,14 @@ CopyWndEvent::CopyWndEvent(WndEvent* dst, WndEvent* src) {
     this->src = src;
     dst->hwnd = src->hwnd;
     dst->msg = src->msg;
-    dst->lparam = src->lparam;
-    dst->wparam = src->wparam;
+    dst->lp = src->lp;
+    dst->wp = src->wp;
     dst->w = src->w;
 }
 
 CopyWndEvent::~CopyWndEvent() {
     src->didHandle = dst->didHandle;
     src->result = dst->result;
-}
-
-void HwndSetText(HWND hwnd, std::string_view s) {
-    // can be called before a window is created
-    if (!hwnd) {
-        return;
-    }
-    if (s.empty()) {
-        return;
-    }
-    AutoFreeWstr ws = strconv::Utf8ToWstr(s);
-    win::SetText(hwnd, ws);
 }
 
 Kind kindWindowBase = "windowBase";
@@ -241,7 +244,7 @@ static LRESULT wndBaseProcDispatch(WindowBase* w, HWND hwnd, UINT msg, WPARAM wp
         HDC hdc = (HDC)wp;
         if (w->textColor != ColorUnset) {
             SetTextColor(hdc, w->textColor);
-            SetTextColor(hdc, RGB(255, 255, 255));
+            // SetTextColor(hdc, RGB(255, 255, 255));
             didHandle = true;
         }
         auto bgBrush = w->backgroundColorBrush;
@@ -285,30 +288,16 @@ static LRESULT wndBaseProcDispatch(WindowBase* w, HWND hwnd, UINT msg, WPARAM wp
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/inputdev/wm-keydown
-    if (WM_KEYDOWN == msg) {
-        if (!w->onKeyDown) {
-            return 0;
-        }
-        KeyEvent ev{};
-        SetWndEvent(ev);
-        ev.keyVirtCode = (int)wp;
-        w->onKeyDown(&ev);
-        if (ev.didHandle) {
-            didHandle = true;
-            // 0 means: did handle
-            return 0;
-        }
-    }
-
     // https://docs.microsoft.com/en-us/windows/win32/inputdev/wm-keyup
-    if (WM_KEYUP == msg) {
-        if (!w->onKeyUp) {
+    if ((WM_KEYUP == msg) || (WM_KEYDOWN == msg)) {
+        if (!w->onKeyDownUp) {
             return 0;
         }
         KeyEvent ev{};
         SetWndEvent(ev);
+        ev.isDown = (WM_KEYDOWN == msg);
         ev.keyVirtCode = (int)wp;
-        w->onKeyUp(&ev);
+        w->onKeyDownUp(&ev);
         if (ev.didHandle) {
             didHandle = true;
             // 0 means: did handle
@@ -379,7 +368,7 @@ static LRESULT wndBaseProcDispatch(WindowBase* w, HWND hwnd, UINT msg, WPARAM wp
 }
 
 static LRESULT CALLBACK wndProcCustom(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    // char* msgName = getWinMessageName(msg);
+    // auto msgName = GetWinMessageName(msg);
     // dbglogf("hwnd: 0x%6p, msg: 0x%03x (%s), wp: 0x%x\n", hwnd, msg, msgName, wp);
 
     if (WM_NCCREATE == msg) {
@@ -452,7 +441,6 @@ static LRESULT CALLBACK wndProcCustom(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         BeginPaint(hwnd, &ps);
         auto bgBrush = w->backgroundColorBrush;
         if (bgBrush != nullptr) {
-            RECT rc = GetClientRect(hwnd);
             FillRect(ps.hdc, &ps.rcPaint, bgBrush);
         }
         EndPaint(hwnd, &ps);
@@ -465,7 +453,7 @@ static LRESULT CALLBACK wndProcCustom(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return res;
     }
     res = DefWindowProcW(hwnd, msg, wp, lp);
-    // char* msgName = getWinMessageName(msg);
+    // auto msgName = GetWinMessageName(msg);
     // dbglogf("hwnd: 0x%6p, msg: 0x%03x (%s), wp: 0x%x, res: 0x%x\n", hwnd, msg, msgName, wp, res);
     return res;
 }
@@ -560,9 +548,28 @@ Size WindowBase::GetIdealSize() {
     return {};
 }
 
-static void DispatchWM_CONTEXTMENU(void* user, WndEvent* ev) {
-    auto w = (WindowBase*)user;
-    w->HandleWM_CONTEXTMENU(ev);
+void Handle_WM_CONTEXTMENU(WindowBase* w, WndEvent* ev) {
+    CrashIf(ev->msg != WM_CONTEXTMENU);
+    CrashIf(!w->onContextMenu);
+    // https://docs.microsoft.com/en-us/windows/win32/menurc/wm-contextmenu
+    ContextMenuEvent cmev;
+    CopyWndEvent cpev(&cmev, ev);
+    cmev.w = w;
+    cmev.mouseGlobal.x = GET_X_LPARAM(ev->lp);
+    cmev.mouseGlobal.y = GET_Y_LPARAM(ev->lp);
+    POINT pt{cmev.mouseGlobal.x, cmev.mouseGlobal.y};
+    if (pt.x != -1) {
+        MapWindowPoints(HWND_DESKTOP, w->hwnd, &pt, 1);
+    }
+    cmev.mouseWindow.x = pt.x;
+    cmev.mouseWindow.y = pt.y;
+    w->onContextMenu(&cmev);
+    ev->didHandle = true;
+}
+
+static void Dispatch_WM_CONTEXTMENU(void* user, WndEvent* ev) {
+    WindowBase* w = (WindowBase*)user;
+    Handle_WM_CONTEXTMENU(w, ev);
 }
 
 bool WindowBase::Create() {
@@ -600,7 +607,7 @@ bool WindowBase::Create() {
     // after creation
     if (onContextMenu) {
         void* user = this;
-        RegisterHandlerForMessage(hwnd, WM_CONTEXTMENU, DispatchWM_CONTEXTMENU, user);
+        RegisterHandlerForMessage(hwnd, WM_CONTEXTMENU, Dispatch_WM_CONTEXTMENU, user);
     }
 
     if (hfont == nullptr) {
@@ -612,11 +619,11 @@ bool WindowBase::Create() {
 }
 
 void WindowBase::SuspendRedraw() {
-    SendMessage(hwnd, WM_SETREDRAW, FALSE, 0);
+    SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
 }
 
 void WindowBase::ResumeRedraw() {
-    SendMessage(hwnd, WM_SETREDRAW, TRUE, 0);
+    SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
 }
 
 void WindowBase::SetFocus() {
@@ -629,6 +636,8 @@ bool WindowBase::IsFocused() {
 }
 
 void WindowBase::SetIsEnabled(bool isEnabled) {
+    // TODO: make it work even if not yet created?
+    CrashIf(!hwnd);
     BOOL enabled = isEnabled ? TRUE : FALSE;
     ::EnableWindow(hwnd, enabled);
 }
@@ -638,7 +647,16 @@ bool WindowBase::IsEnabled() {
     return tobool(enabled);
 }
 
-void WindowBase::SetIsVisible(bool isVisible) {
+Kind WindowBase::GetKind() {
+    return kind;
+}
+
+void WindowBase::SetVisibility(Visibility newVisibility) {
+    // TODO: make it work before Create()?
+    CrashIf(!hwnd);
+    visibility = newVisibility;
+    bool isVisible = IsVisible();
+    // TODO: a different way to determine if is top level vs. child window?
     if (GetParent(hwnd) == nullptr) {
         ::ShowWindow(hwnd, isVisible ? SW_SHOW : SW_HIDE);
     } else {
@@ -647,7 +665,9 @@ void WindowBase::SetIsVisible(bool isVisible) {
     }
 }
 
-bool WindowBase::IsVisible() {
+Visibility WindowBase::GetVisibility() {
+    return visibility;
+#if 0
     if (GetParent(hwnd) == nullptr) {
         // TODO: what to do for top-level window?
         CrashMe();
@@ -655,6 +675,16 @@ bool WindowBase::IsVisible() {
     }
     bool isVisible = IsWindowStyleSet(hwnd, WS_VISIBLE);
     return isVisible;
+#endif
+}
+
+// convenience function
+void WindowBase::SetIsVisible(bool isVisible) {
+    SetVisibility(isVisible ? Visibility::Visible : Visibility::Collapse);
+}
+
+bool WindowBase::IsVisible() const {
+    return visibility == Visibility::Visible;
 }
 
 void WindowBase::SetPos(RECT* r) {
@@ -667,27 +697,44 @@ void WindowBase::SetBounds(const RECT& r) {
 
 void WindowBase::SetFont(HFONT f) {
     hfont = f;
-    SetWindowFont(hwnd, f, TRUE);
+    HwndSetFont(hwnd, f);
+}
+
+HFONT WindowBase::GetFont() const {
+    HFONT res = hfont;
+    if (!res) {
+        res = HwndGetFont(hwnd);
+    }
+    if (!res) {
+        res = GetDefaultGuiFont();
+    }
+    return res;
+}
+
+void WindowBase::SetIcon(HICON iconIn) {
+    hIcon = iconIn;
+    HwndSetIcon(hwnd, hIcon);
+}
+
+HICON WindowBase::GetIcon() const {
+    return hIcon;
 }
 
 void WindowBase::SetText(const WCHAR* s) {
     AutoFree str = strconv::WstrToUtf8(s);
-    SetText(str.as_view());
+    SetText(str.AsView());
 }
 
 void WindowBase::SetText(std::string_view sv) {
     text.Set(sv);
     // can be set before we create the window
-    if (!hwnd) {
-        return;
-    }
     HwndSetText(hwnd, text.AsView());
-    InvalidateRect(hwnd, nullptr, FALSE);
+    HwndInvalidate(hwnd);
 }
 
 std::string_view WindowBase::GetText() {
     text = win::GetTextUtf8(hwnd);
-    return text.as_view();
+    return text.AsView();
 }
 
 void WindowBase::SetTextColor(COLORREF col) {
@@ -728,26 +775,6 @@ void WindowBase::SetColors(COLORREF bg, COLORREF txt) {
 
 void WindowBase::SetRtl(bool isRtl) {
     SetWindowExStyle(hwnd, WS_EX_LAYOUTRTL | WS_EX_NOINHERITLAYOUT, isRtl);
-}
-
-void WindowBase::HandleWM_CONTEXTMENU(WndEvent* ev) {
-    CrashIf(ev->msg != WM_CONTEXTMENU);
-    WindowBase* w = this;
-    CrashIf(!w->onContextMenu);
-    // https://docs.microsoft.com/en-us/windows/win32/menurc/wm-contextmenu
-    ContextMenuEvent cmev;
-    CopyWndEvent cpev(&cmev, ev);
-    cmev.w = w;
-    cmev.mouseGlobal.x = GET_X_LPARAM(ev->lparam);
-    cmev.mouseGlobal.y = GET_Y_LPARAM(ev->lparam);
-    POINT pt{cmev.mouseGlobal.x, cmev.mouseGlobal.y};
-    if (pt.x != -1) {
-        MapWindowPoints(HWND_DESKTOP, w->hwnd, &pt, 1);
-    }
-    cmev.mouseWindow.x = pt.x;
-    cmev.mouseWindow.y = pt.y;
-    w->onContextMenu(&cmev);
-    ev->didHandle = true;
 }
 
 Kind kindWindow = "window";
@@ -817,7 +844,7 @@ bool Window::Create() {
     if (initialSize.dy > 0) {
         dy = initialSize.dy;
     }
-    AutoFreeWstr title = strconv::Utf8ToWstr(this->text.as_view());
+    AutoFreeWstr title = strconv::Utf8ToWstr(this->text.AsView());
     HINSTANCE hinst = GetInstance();
     hwnd = CreateWindowExW(dwExStyle, winClass, title, dwStyle, x, y, dx, dy, parent, nullptr, hinst, (void*)this);
     CrashIf(!hwnd);
@@ -830,12 +857,12 @@ bool Window::Create() {
     // trigger creating a backgroundBrush
     SetBackgroundColor(backgroundColor);
     SetFont(hfont);
+    SetIcon(hIcon);
     HwndSetText(hwnd, text.AsView());
     return true;
 }
 
 Window::~Window() {
-    UnregisterHandlersForHwnd(hwnd);
 }
 
 void Window::SetTitle(std::string_view title) {
@@ -843,41 +870,69 @@ void Window::SetTitle(std::string_view title) {
 }
 
 void Window::Close() {
-    ::SendMessage(hwnd, WM_CLOSE, 0, 0);
+    ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
 }
 
-WindowBaseLayout::WindowBaseLayout(WindowBase* b, Kind k) {
-    wb = b;
-    kind = k;
+// if only top given, set them all to top
+// if top, right given, set bottom to top and left to right
+void WindowBase::SetInsetsPt(int top, int right, int bottom, int left) {
+    insets = DpiScaledInsets(hwnd, top, right, bottom, left);
 }
 
-WindowBaseLayout::~WindowBaseLayout() {
-    delete wb;
+Size WindowBase::Layout(const Constraints bc) {
+    dbglayoutf("WindowBase::Layout() %s ", GetKind());
+    LogConstraints(bc, "\n");
+
+    auto hinset = insets.left + insets.right;
+    auto vinset = insets.top + insets.bottom;
+    auto innerConstraints = bc.Inset(hinset, vinset);
+
+    int dx = MinIntrinsicWidth(0);
+    int dy = MinIntrinsicHeight(0);
+    childSize = innerConstraints.Constrain(Size{dx, dy});
+    auto res = Size{
+        childSize.dx + hinset,
+        childSize.dy + vinset,
+    };
+    return res;
 }
 
-Size WindowBaseLayout::Layout(const Constraints bc) {
-    int width = MinIntrinsicWidth(0);
-    int height = MinIntrinsicHeight(0);
-    return bc.Constrain(Size{width, height});
-}
-
-int WindowBaseLayout::MinIntrinsicHeight(i32) {
-    Size s = wb->GetIdealSize();
+int WindowBase::MinIntrinsicHeight(int) {
+#if 0
+    auto vinset = insets.top + insets.bottom;
+    Size s = GetIdealSize();
+    return s.dy + vinset;
+#else
+    Size s = GetIdealSize();
     return s.dy;
+#endif
 }
 
-int WindowBaseLayout::MinIntrinsicWidth(i32) {
-    Size s = wb->GetIdealSize();
+int WindowBase::MinIntrinsicWidth(int) {
+#if 0
+    auto hinset = insets.left + insets.right;
+    Size s = GetIdealSize();
+    return s.dx + hinset;
+#else
+    Size s = GetIdealSize();
     return s.dx;
+#endif
 }
 
-void WindowBaseLayout::SetBounds(const Rect bounds) {
+void WindowBase::SetBounds(Rect bounds) {
+    dbglayoutf("WindowBaseLayout:SetBounds() %s %d,%d - %d, %d\n", GetKind(), bounds.x, bounds.y, bounds.dx, bounds.dy);
+
     lastBounds = bounds;
 
+    bounds.x += insets.left;
+    bounds.y += insets.top;
+    bounds.dx -= (insets.right + insets.left);
+    bounds.dy -= (insets.bottom + insets.top);
+
     auto r = RectToRECT(bounds);
-    ::MoveWindow(wb->hwnd, &r);
+    ::MoveWindow(hwnd, &r);
     // TODO: optimize if doesn't change position
-    ::InvalidateRect(wb->hwnd, nullptr, TRUE);
+    ::InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 int RunMessageLoop(HACCEL accelTable, HWND hwndDialog) {
@@ -899,7 +954,7 @@ int RunMessageLoop(HACCEL accelTable, HWND hwndDialog) {
 void PositionCloseTo(WindowBase* w, HWND hwnd) {
     CrashIf(!hwnd);
     Size is = w->initialSize;
-    CrashIf(is.empty());
+    CrashIf(is.IsEmpty());
     RECT r{};
     BOOL ok = GetWindowRect(hwnd, &r);
     CrashIf(!ok);

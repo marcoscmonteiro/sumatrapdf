@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 extern "C" {
@@ -15,11 +15,11 @@ class MultiFormatArchive {
     struct FileInfo {
         size_t fileId;
         std::string_view name;
-        int64_t fileTime; // this is typedef'ed as time64_t in unrar.h
+        i64 fileTime; // this is typedef'ed as time64_t in unrar.h
         size_t fileSizeUncompressed;
 
         // internal use
-        int64_t filePos;
+        i64 filePos;
 
 #if OS_WIN
         FILETIME GetWinFileTime() const;
@@ -38,10 +38,10 @@ class MultiFormatArchive {
     size_t GetFileId(const char* fileName);
 
 #if OS_WIN
-    std::string_view GetFileDataByName(const WCHAR* filename);
+    std::span<u8> GetFileDataByName(const WCHAR* filename);
 #endif
-    std::string_view GetFileDataByName(const char* filename);
-    std::string_view GetFileDataById(size_t fileId);
+    std::span<u8> GetFileDataByName(const char* filename);
+    std::span<u8> GetFileDataById(size_t fileId);
 
     std::string_view GetComment();
 
@@ -58,7 +58,7 @@ class MultiFormatArchive {
     const char* rarFilePath_ = nullptr;
 
     bool OpenUnrarFallback(const char* rarPathUtf);
-    std::string_view GetFileDataByIdUnarrDll(size_t fileId);
+    std::span<u8> GetFileDataByIdUnarrDll(size_t fileId);
     bool LoadedUsingUnrarDll() const {
         return rarFilePath_ != nullptr;
     }

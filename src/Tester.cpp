@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 /* A driver for various tests. The idea is that instead of having a separate
@@ -11,6 +11,8 @@
 #include "utils/CryptoUtil.h"
 #include "utils/DirIter.h"
 #include "utils/FileUtil.h"
+#include "utils/GuessFileType.h"
+#include "utils/PalmDbReader.h"
 #include "utils/GdiPlusUtil.h"
 #include "utils/HtmlParserLookup.h"
 #include "utils/HtmlPrettyPrint.h"
@@ -82,10 +84,10 @@ CalcMD5DigestWin: 2.605000 ms
 diff: 0.929000
 */
 
-static void BenchMD5Size(void* data, size_t dataSize, char* desc) {
-    unsigned char d1[16], d2[16];
+static void BenchMD5Size(void* data, size_t dataSize, const char* desc) {
+    u8 d1[16], d2[16];
     auto t1 = TimeGet();
-    CalcMD5Digest((unsigned char*)data, dataSize, d1);
+    CalcMD5Digest((u8*)data, dataSize, d1);
     double dur1 = TimeSinceInMs(t1);
 
     auto t2 = TimeGet();
@@ -115,25 +117,24 @@ static void MobiSaveHtml(const WCHAR* filePathBase, MobiDoc* mb) {
 
     AutoFreeWstr outFile(str::Join(filePathBase, L"_pp.html"));
 
-    const std::string_view htmlData = mb->GetHtmlData();
-    size_t htmlLen = htmlData.size();
-    const char* html = htmlData.data();
-    size_t ppHtmlLen;
-    char* ppHtml = PrettyPrintHtml(html, htmlLen, ppHtmlLen);
-    file::WriteFile(outFile.Get(), {ppHtml, ppHtmlLen});
+    std::span<u8> htmlData = mb->GetHtmlData();
+
+    std::span<u8> ppHtml = PrettyPrintHtml(htmlData);
+    file::WriteFile(outFile.Get(), ppHtml);
 
     outFile.Set(str::Join(filePathBase, L".html"));
-    file::WriteFile(outFile.Get(), {html, htmlLen});
+    file::WriteFile(outFile.Get(), htmlData);
 }
 
 static void MobiSaveImage(const WCHAR* filePathBase, size_t imgNo, ImageData* img) {
     // it's valid to not have image data at a given index
-    if (!img || !img->data)
+    if (!img || !img->data) {
         return;
-    const WCHAR* ext = GfxFileExtFromData(img->data, img->len);
+    }
+    const WCHAR* ext = GfxFileExtFromData(img->AsSpan());
     CrashAlwaysIf(!ext);
-    AutoFreeWstr fileName(str::Format(L"%s_img_%d%s", filePathBase, imgNo, ext));
-    file::WriteFile(fileName.Get(), {img->data, img->len});
+    AutoFreeWstr fileName(str::Format(L"%s_img_%d%s", filePathBase, (int)imgNo, ext));
+    file::WriteFile(fileName.Get(), img->AsSpan());
 }
 
 static void MobiSaveImages(const WCHAR* filePathBase, MobiDoc* mb) {
@@ -179,47 +180,48 @@ static void MobiTestFile(const WCHAR* filePath) {
         // construct a base name for extracted html/image files in the form
         // "${MOBI_SAVE_DIR}/${file}" i.e. change dir to MOBI_SAVE_DIR and
         // remove the file extension
-        WCHAR* dir = MOBI_SAVE_DIR;
+        const WCHAR* dir = MOBI_SAVE_DIR;
         dir::CreateAll(dir);
         AutoFreeWstr fileName(str::Dup(path::GetBaseNameNoFree(filePath)));
         AutoFreeWstr filePathBase(path::Join(dir, fileName));
         WCHAR* ext = (WCHAR*)str::FindCharLast(filePathBase.Get(), '.');
         *ext = 0;
 
-        if (gSaveHtml)
+        if (gSaveHtml) {
             MobiSaveHtml(filePathBase, mobiDoc);
-        if (gSaveImages)
+        }
+        if (gSaveImages) {
             MobiSaveImages(filePathBase, mobiDoc);
+        }
     }
 
     delete mobiDoc;
 }
 
-static bool IsMobiFile(const WCHAR* f) {
-    return str::EndsWithI(f, L".mobi") || str::EndsWithI(f, L".azw") || str::EndsWithI(f, L".azw1") ||
-           str::EndsWithI(f, L".prc");
-}
-
 static void MobiTestDir(WCHAR* dir) {
     wprintf(L"Testing mobi files in '%s'\n", dir);
     DirIter di(dir, true);
-    for (const WCHAR* p = di.First(); p; p = di.Next()) {
-        if (IsMobiFile(p))
-            MobiTestFile(p);
+    for (const WCHAR* path = di.First(); path; path = di.Next()) {
+        Kind kind = GuessFileTypeFromName(path);
+        if (kind == kindFileMobi) {
+            MobiTestFile(path);
+        }
     }
 }
 
 static void MobiTest(WCHAR* dirOrFile) {
-    if (file::Exists(dirOrFile) && IsMobiFile(dirOrFile))
+    Kind kind = GuessFileTypeFromName(dirOrFile);
+    if (file::Exists(dirOrFile) && kind == kindFileMobi) {
         MobiTestFile(dirOrFile);
-    else
+    } else if (path::IsDirectory(dirOrFile)) {
         MobiTestDir(dirOrFile);
+    }
 }
 
 // we assume this is called from main sumatradirectory, e.g. as:
 // ./obj-dbg/tester.exe, so we use the known files
 void ZipCreateTest() {
-    WCHAR* zipFileName = L"tester-tmp.zip";
+    const WCHAR* zipFileName = L"tester-tmp.zip";
     file::Delete(zipFileName);
     ZipCreator zc(zipFileName);
     auto ok = zc.AddFile(L"premake5.lua");
@@ -257,8 +259,9 @@ int TesterMain() {
     while (i < argv.size()) {
         if (str::Eq(argv[i], L"-mobi")) {
             ++i;
-            if (i == argv.size())
+            if (i == argv.size()) {
                 return Usage();
+            }
             mobiTest = true;
             dirOrFile = argv[i];
             ++i;

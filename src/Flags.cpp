@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -6,6 +6,7 @@
 #include "utils/WinUtil.h"
 #include "utils/Log.h"
 
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "Flags.h"
@@ -209,8 +210,9 @@ static void EnumeratePrinters() {
 // into an interable list (returns nullptr on parsing errors)
 // caller must delete the result
 bool ParsePageRanges(const WCHAR* ranges, Vec<PageRange>& result) {
-    if (!ranges)
+    if (!ranges) {
         return false;
+    }
 
     WStrVec rangeList;
     rangeList.Split(ranges, L",", true);
@@ -218,14 +220,15 @@ bool ParsePageRanges(const WCHAR* ranges, Vec<PageRange>& result) {
 
     for (size_t i = 0; i < rangeList.size(); i++) {
         int start, end;
-        if (str::Parse(rangeList.at(i), L"%d-%d%$", &start, &end) && 0 < start && start <= end)
+        if (str::Parse(rangeList.at(i), L"%d-%d%$", &start, &end) && 0 < start && start <= end) {
             result.Append(PageRange{start, end});
-        else if (str::Parse(rangeList.at(i), L"%d-%$", &start) && 0 < start)
+        } else if (str::Parse(rangeList.at(i), L"%d-%$", &start) && 0 < start) {
             result.Append(PageRange{start, INT_MAX});
-        else if (str::Parse(rangeList.at(i), L"%d%$", &start) && 0 < start)
+        } else if (str::Parse(rangeList.at(i), L"%d%$", &start) && 0 < start) {
             result.Append(PageRange{start, start});
-        else
+        } else {
             return false;
+        }
     }
 
     return result.size() > 0;
@@ -248,7 +251,8 @@ bool IsBenchPagesInfo(const WCHAR* s) {
 
 // -view [continuous][singlepage|facing|bookview]
 static void ParseViewMode(DisplayMode* mode, const WCHAR* txt) {
-    *mode = prefs::conv::ToDisplayMode(txt, DM_AUTOMATIC);
+    AutoFreeStr s = strconv::WstrToUtf8(txt);
+    *mode = DisplayModeFromString(s.Get(), DisplayMode::Automatic);
 }
 
 static const char* zoomValues =
@@ -282,15 +286,17 @@ static void ParseZoomValue(float* zoom, const WCHAR* txtOrig) {
     str::Parse(txt, "%f", zoom);
     // prevent really small zoom and zoom values that are not valid numbers
     // (which would be parsed as 0)
-    if (*zoom < 1.f)
+    if (*zoom < 1.f) {
         *zoom = ZOOM_ACTUAL_SIZE;
+    }
 }
 
 // -scroll x,y
 static void ParseScrollValue(Point* scroll, const WCHAR* txt) {
     int x, y;
-    if (str::Parse(txt, L"%d,%d%$", &x, &y))
+    if (str::Parse(txt, L"%d,%d%$", &x, &y)) {
         *scroll = Point(x, y);
+    }
 }
 
 static int GetArgNo(const WCHAR* argName) {
@@ -396,8 +402,9 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
             ++n;
         } else if (is_arg_with_param(Plugin)) {
             // -plugin [<URL>] <parent HWND>
-            if (argCount > n + 2 && !str::IsDigit(*argList.at(n + 1)) && *argList.at(n + 2) != '-')
+            if (argCount > n + 2 && !str::IsDigit(*argList.at(n + 1)) && *argList.at(n + 2) != '-') {
                 handle_string_param(i.pluginURL);
+            }
             // the argument is a (numeric) window handle to
             // become the parent of a frameless SumatraPDF
             // (used e.g. for embedding it into a browser plugin)
@@ -411,10 +418,12 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
             //      -stress-test dir *.pdf;*.xps  render all files in dir that are either PDF or XPS
             handle_string_param(i.stressTestPath);
             int num;
-            if (has_additional_param() && str::FindChar(additional_param(), '*'))
+            if (has_additional_param() && str::FindChar(additional_param(), '*')) {
                 handle_string_param(i.stressTestFilter);
-            if (has_additional_param() && IsValidPageRange(additional_param()))
+            }
+            if (has_additional_param() && IsValidPageRange(additional_param())) {
                 handle_string_param(i.stressTestRanges);
+            }
             if (has_additional_param() && str::Parse(additional_param(), L"%dx%$", &num) && num > 0) {
                 i.stressTestCycles = num;
                 n++;
@@ -507,10 +516,12 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
         } else {
             // Remember this argument as a filename to open
             WCHAR* filePath = nullptr;
-            if (str::EndsWithI(argName, L".lnk"))
+            if (str::EndsWithI(argName, L".lnk")) {
                 filePath = ResolveLnk(argName);
-            if (!filePath)
+            }
+            if (!filePath) {
                 filePath = str::Dup(argName);
+            }
             i.fileNames.Append(filePath);
         }
     }

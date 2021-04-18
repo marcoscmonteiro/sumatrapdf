@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct AttrInfo {
@@ -26,7 +26,7 @@ struct HtmlToken {
         Error
     };
 
-    enum ParsingError { ExpectedElement, UnclosedTag, InvalidTag };
+    enum ParsingError { NoError, ExpectedElement, UnclosedTag, InvalidTag };
 
     bool IsStartTag() const {
         return type == StartTag;
@@ -52,14 +52,14 @@ struct HtmlToken {
     void SetError(ParsingError err, const char* errContext);
     void SetText(const char* new_s, const char* end);
 
-    TokenType type;
-    ParsingError error;
-    const char* s;
-    size_t sLen;
+    TokenType type = Error;
+    ParsingError error = NoError;
+    const char* s = nullptr;
+    size_t sLen = 0;
 
     // only for tags: type and name length
-    HtmlTag tag;
-    size_t nLen;
+    HtmlTag tag = Tag_NotFound;
+    size_t nLen = 0;
 
     bool NameIs(const char* name) const;
     bool NameIsNS(const char* name, const char* ns) const;
@@ -76,18 +76,21 @@ struct HtmlToken {
 which can be one one of 3 tag types or error. If a tag has attributes,
 the caller has to parse them out (using HtmlToken::NextAttr()) */
 class HtmlPullParser {
-    const char* currPos;
-    const char* end;
+    const char* currPos = nullptr;
+    const char* end = nullptr;
 
-    const char* start;
-    size_t len;
+    const char* start = nullptr;
+    size_t len = 0;
 
-    HtmlToken currToken;
+    HtmlToken currToken{};
 
   public:
     HtmlPullParser(const char* s, size_t len) : currPos(s), end(s + len), start(s), len(len) {
     }
     HtmlPullParser(const char* s, const char* end) : currPos(s), end(end), start(s), len(end - s) {
+    }
+    HtmlPullParser(std::span<u8> d)
+        : currPos((char*)d.data()), end((char*)d.data() + d.size()), start((char*)d.data()), len(d.size()) {
     }
 
     void SetCurrPosOff(ptrdiff_t off) {
@@ -106,7 +109,7 @@ class HtmlPullParser {
 bool SkipWs(const char*& s, const char* end);
 bool SkipNonWs(const char*& s, const char* end);
 bool SkipUntil(const char*& s, const char* end, char c);
-bool SkipUntil(const char*& s, const char* end, char* term);
+bool SkipUntil(const char*& s, const char* end, const char* term);
 bool IsSpaceOnly(const char* s, const char* end);
 
 int HtmlEntityNameToRune(const char* name, size_t nameLen);

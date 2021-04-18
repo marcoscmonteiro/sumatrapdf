@@ -1,6 +1,6 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 bool IsPsEngineAvailable();
-bool IsPsEngineSupportedFile(const WCHAR* fileName, bool sniff = false);
+bool IsPsEngineSupportedFileType(Kind);
 EngineBase* CreatePsEngineFromFile(const WCHAR* fileName);

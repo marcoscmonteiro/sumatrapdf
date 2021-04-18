@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
 License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -9,6 +9,7 @@ License: GPLv3 */
 
 #include "Annotation.h"
 #include "EngineBase.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "FileHistory.h"
 #include "GlobalPrefs.h"

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 /*
@@ -17,7 +17,7 @@ The installer is good enough for production but it doesn't mean it couldn't be i
 #include <io.h>
 #include "utils/FileUtil.h"
 #include "Translations.h"
-#include "Resource.h"
+#include "resource.h"
 #include "utils/Timer.h"
 #include "Version.h"
 #include "utils/WinUtil.h"
@@ -39,6 +39,7 @@ The installer is good enough for production but it doesn't mean it couldn't be i
 #include "wingui/StaticCtrl.h"
 
 #include "SumatraConfig.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "Flags.h"
@@ -57,7 +58,7 @@ static bool gWasSearchFilterInstalled = false;
 static bool gWasPreviewInstaller = false;
 
 static void OnButtonExit() {
-    SendMessage(gHwndFrame, WM_CLOSE, 0, 0);
+    SendMessageW(gHwndFrame, WM_CLOSE, 0, 0);
 }
 
 static void CreateButtonExit(HWND hwndParent) {
@@ -260,8 +261,7 @@ static void RemoveShortcuts() {
 
 void onRaMicroUninstallerFinished();
 
-static DWORD WINAPI UninstallerThread(LPVOID data) {
-    UNUSED(data);
+static DWORD WINAPI UninstallerThread([[maybe_unused]] LPVOID data) {
     log("UninstallerThread started\n");
     // also kill the original uninstaller, if it's just spawned
     // a DELETE_ON_CLOSE copy from the temp directory
@@ -298,14 +298,14 @@ static DWORD WINAPI UninstallerThread(LPVOID data) {
 
     log("UninstallerThread finished\n");
     if (!gCli->silent) {
-        PostMessage(gHwndFrame, WM_APP_INSTALLATION_FINISHED, 0, 0);
+        PostMessageW(gHwndFrame, WM_APP_INSTALLATION_FINISHED, 0, 0);
     }
     return 0;
 }
 
 static void InvalidateFrame() {
     Rect rc = ClientRect(gHwndFrame);
-    RECT rcTmp = rc.ToRECT();
+    RECT rcTmp = ToRECT(rc);
     InvalidateRect(gHwndFrame, &rcTmp, FALSE);
 }
 
@@ -333,8 +333,8 @@ void OnUninstallationFinished() {
     CloseHandle(hThread);
 }
 
-static bool UninstallerOnWmCommand(WPARAM wParam) {
-    switch (LOWORD(wParam)) {
+static bool UninstallerOnWmCommand(WPARAM wp) {
+    switch (LOWORD(wp)) {
         case IDCANCEL:
             OnButtonExit();
             break;
@@ -352,13 +352,13 @@ static void OnCreateWindow(HWND hwnd) {
 
 static void CreateMainWindow() {
     AutoFreeWstr title = str::Format(_TR("SumatraPDF %s Uninstaller"), CURR_VERSION_STR);
-    WCHAR* winCls = INSTALLER_FRAME_CLASS_NAME;
     int x = CW_USEDEFAULT;
     int y = CW_USEDEFAULT;
     int dx = DpiScale(INSTALLER_WIN_DX);
     int dy = DpiScale(INSTALLER_WIN_DY);
     HMODULE h = GetModuleHandleW(nullptr);
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
+    auto winCls = INSTALLER_FRAME_CLASS_NAME;
     gHwndFrame = CreateWindowW(winCls, title.Get(), dwStyle, x, y, dx, dy, nullptr, nullptr, h, nullptr);
 }
 
@@ -423,8 +423,9 @@ static LRESULT CALLBACK WndProcFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
 
         case WM_COMMAND:
             handled = UninstallerOnWmCommand(wp);
-            if (!handled)
+            if (!handled) {
                 return DefWindowProc(hwnd, msg, wp, lp);
+            }
             break;
 
         case WM_APP_INSTALLATION_FINISHED:
@@ -446,10 +447,10 @@ static bool RegisterWinClass() {
 
     FillWndClassEx(wcex, INSTALLER_FRAME_CLASS_NAME, WndProcFrame);
     auto h = GetModuleHandle(nullptr);
-    auto iconName = MAKEINTRESOURCEW(GetAppIconID());
-    wcex.hIcon = LoadIcon(h, iconName);
+    WCHAR* iconName = MAKEINTRESOURCEW(GetAppIconID());
+    wcex.hIcon = LoadIconW(h, iconName);
 
-    ATOM atom = RegisterClassEx(&wcex);
+    ATOM atom = RegisterClassExW(&wcex);
     CrashIf(!atom);
     return atom != 0;
 }
@@ -458,8 +459,9 @@ static BOOL InstanceInit() {
     InitInstallerUninstaller();
 
     CreateMainWindow();
-    if (!gHwndFrame)
+    if (!gHwndFrame) {
         return FALSE;
+    }
 
     SetDefaultMsg();
 
@@ -542,7 +544,7 @@ static void RelaunchElevatedFromTempDirectory(Flags* cli) {
     AutoFreeWstr installerTempPath = GetUninstallerPathInTemp();
     AutoFreeWstr ownPath = GetExePath();
     if (str::EqI(installerTempPath, ownPath)) {
-        if (IsRunningElevated()) {
+        if (IsProcessRunningElevated()) {
             log("Already running elevated and from temp dir\n");
             return;
         }
@@ -594,8 +596,8 @@ static void InitSelfDelete() {
     script.Append("(goto) 2>nul & del \"%~f0\"\r\n");
 
     AutoFreeWstr scriptPath = GetSelfDeleteBatchPathInTemp();
-    AutoFreeStr scriptPathA = strconv::WstrToUtf8(scriptPath.as_view());
-    bool ok = file::WriteFile(scriptPathA, script.as_view());
+    AutoFreeStr scriptPathA = strconv::WstrToUtf8(scriptPath.AsView());
+    bool ok = file::WriteFile(scriptPathA, script.AsSpan());
     if (!ok) {
         logf("Failed to write '%s'\n", scriptPathA.Get());
         return;
@@ -743,18 +745,11 @@ void RaMicroUninstallerWindow::Uninstall() {
     hThread = CreateThread(nullptr, 0, UninstallerThread, nullptr, 0, 0);
 }
 
-static Rect layoutAndSize(ILayout* layout, int dx, int dy) {
+static Size layoutAndSize(ILayout* layout, int dx, int dy) {
     if (dx == 0 || dy == 0) {
         return {};
     }
-    Size windowSize{dx, dy};
-    auto c = Tight(windowSize);
-    auto size = layout->Layout(c);
-    Point min{0, 0};
-    Point max{size.dx, size.dy};
-    Rect bounds{min, max};
-    layout->SetBounds(bounds);
-    return bounds;
+    return LayoutToSize(layout, {dx, dy});
 }
 
 void RaMicroUninstallerWindow::InstallationFinished() {
@@ -788,7 +783,7 @@ void RaMicroUninstallerWindow::CloseHandler(WindowCloseEvent* ev) {
 
 void onRaMicroUninstallerFinished() {
     // called on a background thread
-    PostMessage(gRaMicroUninstallerWindow->hwnd, WM_APP_INSTALLATION_FINISHED, 0, 0);
+    PostMessageW(gRaMicroUninstallerWindow->hwnd, WM_APP_INSTALLATION_FINISHED, 0, 0);
 }
 
 void RaMicroUninstallerWindow::SizeHandler(SizeEvent* ev) {
@@ -803,20 +798,20 @@ void RaMicroUninstallerWindow::SizeHandler(SizeEvent* ev) {
 
 void onRaMicroUnistallerFinished() {
     // called on a background thread
-    PostMessage(gRaMicroUninstallerWindow->hwnd, WM_APP_INSTALLATION_FINISHED, 0, 0);
+    PostMessageW(gRaMicroUninstallerWindow->hwnd, WM_APP_INSTALLATION_FINISHED, 0, 0);
 }
 
 static Gdiplus::Bitmap* LoadRaMicroSplash() {
-    std::string_view d = LoadDataResource(IDD_RAMICRO_SPLASH);
+    auto d = LoadDataResource(IDD_RAMICRO_SPLASH);
     if (d.empty()) {
         return nullptr;
     }
-    return BitmapFromData(d.data(), d.size());
+    return BitmapFromData(d);
 }
 
 static bool CreateRaMicroUninstallerWindow() {
     HMODULE h = GetModuleHandleW(nullptr);
-    LPCWSTR iconName = MAKEINTRESOURCEW(GetAppIconID());
+    WCHAR* iconName = MAKEINTRESOURCEW(GetAppIconID());
     HICON hIcon = LoadIconW(h, iconName);
 
     auto win = new RaMicroUninstallerWindow();
@@ -863,8 +858,8 @@ static bool CreateRaMicroUninstallerWindow() {
     */
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "Uninstall RA-Micro", [win]() { win->Uninstall(); });
-        buttons->AddChild(l);
+        auto b = CreateButton(hwnd, "Uninstall RA-Micro", [win]() { win->Uninstall(); });
+        buttons->AddChild(b);
         win->btnInstall = b;
     }
 
@@ -876,8 +871,7 @@ static bool CreateRaMicroUninstallerWindow() {
     splashCtrl->bmp = win->bmpSplash;
     ok = splashCtrl->Create();
     CrashIf(!ok);
-    ILayout* splashLayout = NewImageLayout(splashCtrl);
-    main->AddChild(splashLayout);
+    main->AddChild(splashCtrl);
 
     win->finishedText = new StaticCtrl(hwnd);
     win->finishedText->SetText("RA-MICRO was uninstalled!");
@@ -885,15 +879,12 @@ static bool CreateRaMicroUninstallerWindow() {
     // win->finishedText->SetFont();
     win->finishedText->Create();
     win->finishedText->SetIsVisible(false);
-    ILayout* finishedTextLayout = NewStaticLayout(win->finishedText);
 
-    main->AddChild(finishedTextLayout);
+    main->AddChild(win->finishedText);
 
     main->AddChild(buttons);
 
-    auto* padding = new Padding();
-    padding->insets = DefaultInsets();
-    padding->child = main;
+    auto padding = new Padding(main, DpiScaledInsets(hwnd, 8));
     win->mainLayout = padding;
 
     w->onClose = std::bind(&RaMicroUninstallerWindow::CloseHandler, win, _1);
@@ -903,8 +894,8 @@ static bool CreateRaMicroUninstallerWindow() {
 }
 
 int RunUninstallerRaMicro() {
-    int ret = 1;
-
+    int ret{1};
+    bool ok{false};
     const WCHAR* msgFmt = _TR("Are you sure you want to uninstall %s?");
     const WCHAR* appName = GetAppName();
     gDefaultMsg = str::Format(msgFmt, appName);
@@ -933,7 +924,7 @@ int RunUninstallerRaMicro() {
         goto Exit;
     }
 
-    bool ok = CreateRaMicroUninstallerWindow();
+    ok = CreateRaMicroUninstallerWindow();
     if (!ok) {
         goto Exit;
     }

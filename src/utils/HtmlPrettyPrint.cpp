@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -17,66 +17,74 @@ static void HtmlAddWithNesting(str::Str* out, HtmlToken* tok, size_t nesting) {
     }
     // indent the tag if it starts on a new line
     if (onNewLine) {
-        for (size_t i = 0; i < nesting; i++)
+        for (size_t i = 0; i < nesting; i++) {
             out->AppendChar('\t');
-        if (tok->IsEndTag() && nesting > 0)
-            out->Pop();
+        }
+        if (tok->IsEndTag() && nesting > 0) {
+            out->RemoveLast();
+        }
     }
     // output the tag and all its attributes
     out->AppendChar('<');
-    if (tok->IsEndTag())
+    if (tok->IsEndTag()) {
         out->AppendChar('/');
+    }
     // TODO: normalize whitespace between attributes?
     out->Append(tok->s, tok->sLen);
-    if (tok->IsEmptyElementEndTag())
+    if (tok->IsEmptyElementEndTag()) {
         out->AppendChar('/');
+    }
     out->AppendChar('>');
     // add a newline after block end tags
-    if (!isInline && !tok->IsStartTag())
+    if (!isInline && !tok->IsStartTag()) {
         out->AppendChar('\n');
+    }
 }
 
 static bool IsWsText(const char* s, size_t len) {
     const char* end = s + len;
-    for (; s < end && str::IsWs(*s); s++)
+    for (; s < end && str::IsWs(*s); s++) {
         ;
+    }
     return s == end;
 }
 
-char* PrettyPrintHtml(const char* s, size_t len, size_t& lenOut) {
-    if ((size_t)-1 == len)
-        len = str::Len(s);
-
-    str::Str res(len);
-    HtmlPullParser parser(s, len);
+std::span<u8> PrettyPrintHtml(std::span<u8> d) {
+    size_t n = d.size();
+    str::Str res(n);
+    HtmlPullParser parser(d);
     Vec<HtmlTag> tagNesting;
     HtmlToken* t;
     while ((t = parser.Next()) != nullptr && !t->IsError()) {
         if (t->IsText()) {
             // TODO: normalize whitespace instead?
-            if (!IsWsText(t->s, t->sLen))
+            if (!IsWsText(t->s, t->sLen)) {
                 res.Append(t->s, t->sLen);
+            }
         }
-        if (!t->IsTag())
+        if (!t->IsTag()) {
             continue;
+        }
 
         HtmlAddWithNesting(&res, t, tagNesting.size());
 
         if (t->IsStartTag()) {
-            if (!IsTagSelfClosing(t->tag))
+            if (!IsTagSelfClosing(t->tag)) {
                 tagNesting.Append(t->tag);
+            }
         } else if (t->IsEndTag()) {
             // when closing a tag, if the top tag doesn't match but
             // there are only potentially self-closing tags on the
             // stack between the matching tag, we pop all of them
             if (tagNesting.Contains(t->tag)) {
-                while (tagNesting.Last() != t->tag)
+                while (tagNesting.Last() != t->tag) {
                     tagNesting.Pop();
+                }
             }
-            if (tagNesting.size() > 0 && tagNesting.Last() == t->tag)
+            if (tagNesting.size() > 0 && tagNesting.Last() == t->tag) {
                 tagNesting.Pop();
+            }
         }
     }
-    lenOut = res.size();
-    return res.StealData();
+    return res.StealAsSpan();
 }

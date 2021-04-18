@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -95,7 +95,7 @@ SplitterCtrl::~SplitterCtrl() {
 }
 
 static void SplitterCtrlWndProc(WndEvent* ev) {
-    UINT msg = ev->msg;
+    uint msg = ev->msg;
     if (WM_ERASEBKGND == msg) {
         ev->didHandle = true;
         // TODO: should this be FALSE?
@@ -155,7 +155,7 @@ static void SplitterCtrlWndProc(WndEvent* ev) {
                 DrawResizeLine(w->hwnd, w->brush, w->type, true, true, w->prevResizeLinePos);
             }
         }
-        SetCursor(curId);
+        SetCursorCached(curId);
         ev->didHandle = true;
         return;
     }

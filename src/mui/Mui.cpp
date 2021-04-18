@@ -1,8 +1,9 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
 #include "utils/HtmlParserLookup.h"
+#include "utils/GdiPlusUtil.h"
 #include "utils/Log.h"
 #include "Mui.h"
 
@@ -62,15 +63,13 @@ bool IsDebugPaint() {
     return gDebugPaint;
 }
 
-#define RECTFromRect(r) \
-    { r.GetLeft(), r.GetTop(), r.GetRight(), r.GetBottom() }
-
 HwndWrapper* GetRootHwndWnd(const Control* c) {
     while (c->parent) {
         c = c->parent;
     }
-    if (!c->hwndParent)
+    if (!c->hwndParent) {
         return nullptr;
+    }
     return (HwndWrapper*)c;
 }
 
@@ -78,17 +77,19 @@ HwndWrapper* GetRootHwndWnd(const Control* c) {
 // this window
 HWND GetHwndParent(const Control* c) {
     HwndWrapper* wHwnd = GetRootHwndWnd(c);
-    if (wHwnd)
+    if (wHwnd) {
         return wHwnd->hwndParent;
+    }
     return nullptr;
 }
 
 void CollectWindowsBreathFirst(Control* c, int offX, int offY, WndFilter* wndFilter, Vec<CtrlAndOffset>* ctrls) {
-    if (wndFilter->skipInvisibleSubtrees && !c->IsVisible())
+    if (wndFilter->skipInvisibleSubtrees && !c->IsVisible()) {
         return;
+    }
 
-    offX += c->pos.X;
-    offY += c->pos.Y;
+    offX += c->pos.x;
+    offY += c->pos.y;
     if (wndFilter->Matches(c, offX, offY)) {
         CtrlAndOffset coff = {c, offX, offY};
         ctrls->Append(coff);
@@ -108,60 +109,62 @@ void CollectWindowsBreathFirst(Control* c, int offX, int offY, WndFilter* wndFil
 // in windows array before child windows. In most cases caller can use the last
 // window in returned array (but can use a custom logic as well).
 // Returns number of matched windows as a convenience.
-size_t CollectWindowsAt(Control* wndRoot, int x, int y, uint16_t wantedInputMask, Vec<CtrlAndOffset>* controls) {
+size_t CollectWindowsAt(Control* wndRoot, int x, int y, u16 wantedInputMask, Vec<CtrlAndOffset>* controls) {
     WndInputWantedFilter filter(x, y, wantedInputMask);
     controls->Reset();
     CollectWindowsBreathFirst(wndRoot, 0, 0, &filter, controls);
     return controls->size();
 }
 
-static void DrawLine(Graphics* gfx, const Gdiplus::Point& p1, const Gdiplus::Point& p2, float width, Brush* br) {
-    if (0 == width)
+static void DrawLine(Graphics* gfx, const Point p1, const Point p2, float width, Brush* br) {
+    if (0 == width) {
         return;
+    }
     Pen p(br, width);
-    gfx->DrawLine(&p, p1, p2);
+    gfx->DrawLine(&p, ToGdipPoint(p1), ToGdipPoint(p2));
 }
 
-void DrawBorder(Graphics* gfx, const Gdiplus::Rect r, CachedStyle* s) {
-    Gdiplus::Point p1, p2;
+void DrawBorder(Graphics* gfx, const Rect r, CachedStyle* s) {
+    Point p1, p2;
     float width;
 
+    Gdiplus::RectF rf = ToGdipRectF(r);
     // top
-    p1.X = r.X;
-    p1.Y = r.Y;
-    p2.X = r.X + r.Width;
-    p2.Y = p1.Y;
+    p1.x = r.x;
+    p1.y = r.y;
+    p2.x = r.x + r.dx;
+    p2.y = p1.y;
     width = s->borderWidth.top;
-    Brush* br = BrushFromColorData(s->borderColors.top, r);
+    Brush* br = BrushFromColorData(s->borderColors.top, rf);
     DrawLine(gfx, p1, p2, width, br);
 
     // right
     p1 = p2;
-    p2.X = p1.X;
-    p2.Y = p1.Y + r.Height;
+    p2.x = p1.x;
+    p2.y = p1.y + r.dy;
     width = s->borderWidth.right;
-    br = BrushFromColorData(s->borderColors.right, r);
+    br = BrushFromColorData(s->borderColors.right, rf);
     DrawLine(gfx, p1, p2, width, br);
 
     // bottom
     p1 = p2;
-    p2.X = r.X;
-    p2.Y = p1.Y;
+    p2.x = r.x;
+    p2.y = p1.y;
     width = s->borderWidth.bottom;
-    br = BrushFromColorData(s->borderColors.bottom, r);
+    br = BrushFromColorData(s->borderColors.bottom, rf);
     DrawLine(gfx, p1, p2, width, br);
 
     // left
     p1 = p2;
-    p2.X = p1.X;
-    p2.Y = r.Y;
+    p2.x = p1.x;
+    p2.y = r.y;
     width = s->borderWidth.left;
-    br = BrushFromColorData(s->borderColors.left, r);
+    br = BrushFromColorData(s->borderColors.left, rf);
     DrawLine(gfx, p1, p2, width, br);
 }
 
-static void InvalidateAtOff(HWND hwnd, const Gdiplus::Rect* r, int offX, int offY) {
-    RECT rc = RECTFromRect((*r));
+static void InvalidateAtOff(HWND hwnd, const Rect r, int offX, int offY) {
+    RECT rc = ToRECT(r);
     rc.left += offX;
     rc.right += offX;
     rc.top += offY;
@@ -170,13 +173,14 @@ static void InvalidateAtOff(HWND hwnd, const Gdiplus::Rect* r, int offX, int off
 }
 
 // r1 and r2 are relative to w. If both are nullptr, we invalidate the whole w
-void RequestRepaint(Control* c, const Gdiplus::Rect* r1, const Gdiplus::Rect* r2) {
+void RequestRepaint(Control* c, const Rect* r1, const Rect* r2) {
     // we might be called when the control hasn't yet been
     // placed in the window hierarchy
-    if (!c->parent && !c->hwndParent)
+    if (!c->parent && !c->hwndParent) {
         return;
+    }
 
-    Gdiplus::Rect wRect(0, 0, c->pos.Width, c->pos.Height);
+    Rect wRect(0, 0, c->pos.dx, c->pos.dy);
 
     int offX = 0, offY = 0;
     c->MapMyToRootPos(offX, offY);
@@ -186,30 +190,33 @@ void RequestRepaint(Control* c, const Gdiplus::Rect* r1, const Gdiplus::Rect* r2
     HWND hwnd = c->hwndParent;
     CrashIf(!hwnd);
     HwndWrapper* wnd = GetRootHwndWnd(c);
-    if (wnd)
+    if (wnd) {
         wnd->MarkForRepaint();
+    }
 
     // if we have r1 or r2, invalidate those, else invalidate w
     bool didInvalidate = false;
     if (r1) {
-        InvalidateAtOff(hwnd, r1, offX, offY);
+        InvalidateAtOff(hwnd, *r1, offX, offY);
         didInvalidate = true;
     }
 
     if (r2) {
-        InvalidateAtOff(hwnd, r2, offX, offY);
+        InvalidateAtOff(hwnd, *r2, offX, offY);
         didInvalidate = true;
     }
 
-    if (didInvalidate)
+    if (didInvalidate) {
         return;
+    }
 
-    InvalidateAtOff(hwnd, &wRect, offX, offY);
+    InvalidateAtOff(hwnd, wRect, offX, offY);
 }
 
 void RequestLayout(Control* c) {
     HwndWrapper* wnd = GetRootHwndWnd(c);
-    if (wnd)
+    if (wnd) {
         wnd->RequestLayout();
+    }
 }
 } // namespace mui

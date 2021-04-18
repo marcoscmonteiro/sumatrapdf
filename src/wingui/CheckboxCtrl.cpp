@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -12,14 +12,6 @@
 // https://docs.microsoft.com/en-us/windows/win32/controls/buttons
 
 static Kind kindCheckbox = "checkbox";
-
-bool IsCheckbox(Kind kind) {
-    return kind == kindCheckbox;
-}
-
-bool IsCheckbox(ILayout* l) {
-    return IsLayoutOfKind(l, kindCheckbox);
-}
 
 static CheckState GetButtonCheckState(HWND hwnd) {
     auto res = Button_GetCheck(hwnd);
@@ -40,9 +32,21 @@ CheckboxCtrl::CheckboxCtrl(HWND parent) : WindowBase(parent) {
 CheckboxCtrl::~CheckboxCtrl() {
 }
 
-static void DispatchWM_COMMAND(void* user, WndEvent* ev) {
+static void Handle_WM_COMMAND(void* user, WndEvent* ev) {
     auto w = (CheckboxCtrl*)user;
-    w->HandleWM_COMMAND(ev);
+    uint msg = ev->msg;
+    CrashIf(msg != WM_COMMAND);
+    WPARAM wp = ev->wp;
+    auto code = HIWORD(wp);
+    if (code == BN_CLICKED) {
+        if (w->onCheckStateChanged) {
+            auto state = w->GetCheckState();
+            w->onCheckStateChanged(state);
+        }
+        ev->didHandle = true;
+        ev->result = 0;
+        return;
+    }
 }
 
 bool CheckboxCtrl::Create() {
@@ -51,24 +55,8 @@ bool CheckboxCtrl::Create() {
         return false;
     }
     void* user = this;
-    RegisterHandlerForMessage(hwnd, WM_COMMAND, DispatchWM_COMMAND, user);
+    RegisterHandlerForMessage(hwnd, WM_COMMAND, Handle_WM_COMMAND, user);
     return ok;
-}
-
-void CheckboxCtrl::HandleWM_COMMAND(WndEvent* ev) {
-    UINT msg = ev->msg;
-    CrashIf(msg != WM_COMMAND);
-    WPARAM wp = ev->wparam;
-    auto code = HIWORD(wp);
-    if (code == BN_CLICKED) {
-        if (OnCheckStateChanged) {
-            auto state = GetCheckState();
-            OnCheckStateChanged(state);
-        }
-        ev->didHandle = true;
-        ev->result = 0;
-        return;
-    }
 }
 
 Size CheckboxCtrl::GetIdealSize() {
@@ -97,8 +85,4 @@ bool CheckboxCtrl::IsChecked() const {
     CrashIf(!hwnd);
     auto state = GetCheckState();
     return state == CheckState::Checked;
-}
-
-ILayout* NewCheckboxLayout(CheckboxCtrl* w) {
-    return new WindowBaseLayout(w, kindCheckbox);
 }

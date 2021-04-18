@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -6,7 +6,10 @@
 #include "utils/Dpi.h"
 #include "utils/WinUtil.h"
 
-#include "TabsCtrl.h"
+#include "wingui/WinGui.h"
+#include "wingui/Layout.h"
+#include "wingui/Window.h"
+#include "wingui/TabsCtrl.h"
 
 #define COL_BLACK RGB(0x00, 0x00, 0x00)
 #define COL_WHITE RGB(0xff, 0xff, 0xff)
@@ -34,8 +37,8 @@ enum class Tab {
 };
 
 static str::WStr wstrFromUtf8(const str::Str& str) {
-    AutoFreeWstr s = strconv::Utf8ToWstr(str.c_str());
-    return str::WStr(s.as_view());
+    AutoFreeWstr s = strconv::Utf8ToWstr(str.Get());
+    return str::WStr(s.AsView());
 }
 
 TabItem::TabItem(const std::string_view title, const std::string_view toolTip) {
@@ -106,8 +109,8 @@ static HWND CreateTooltipForRect(HWND parent, const WCHAR* s, RECT& r) {
     ti.hinst = h;
     ti.lpszText = (WCHAR*)s;
     ti.rect = r;
-    SendMessage(hwnd, TTM_ADDTOOLW, 0, (LPARAM)&ti);
-    SendMessage(hwnd, TTM_ACTIVATE, TRUE, 0);
+    SendMessageW(hwnd, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+    SendMessageW(hwnd, TTM_ACTIVATE, TRUE, 0);
     return hwnd;
 }
 
@@ -121,12 +124,6 @@ void LayoutTabs(TabsCtrl* ctrl) {
     int padRight = PADDING_RIGHT;
     DpiScale(priv->hwnd, padLeft, padRight);
 
-    // position y of title text and 'x' circle
-    long titleY = 0;
-    if (dy > priv->fontDy) {
-        titleY = (dy - priv->fontDy) / 2;
-    }
-
     long closeButtonDy = (priv->fontMetrics.tmAscent / 2) + DpiScale(priv->hwnd, 1);
     long closeButtonY = (dy - closeButtonDy) / 2;
     if (closeButtonY < 0) {
@@ -139,7 +136,8 @@ void LayoutTabs(TabsCtrl* ctrl) {
         x += padLeft;
 
         auto sz = ti->titleSize;
-        titleY = 0;
+        // position y of title text and 'x' circle
+        long titleY = 0;
         if (dy > sz.cy) {
             titleY = (dy - sz.cy) / 2;
         }
@@ -157,7 +155,7 @@ void LayoutTabs(TabsCtrl* ctrl) {
             if (ti->hwndTooltip) {
                 DestroyWindow(ti->hwndTooltip);
             }
-            ti->hwndTooltip = CreateTooltipForRect(priv->hwnd, ti->toolTip.c_str(), ti->tabRect);
+            ti->hwndTooltip = CreateTooltipForRect(priv->hwnd, ti->toolTip.Get(), ti->tabRect);
         }
     }
     priv->idealSize = MakeSize(x, idealDy);
@@ -165,11 +163,8 @@ void LayoutTabs(TabsCtrl* ctrl) {
     TriggerRepaint(priv->hwnd);
 }
 
-static LRESULT CALLBACK TabsParentProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uIdSubclass,
-                                       DWORD_PTR dwRefData) {
-    UNUSED(uIdSubclass);
-    UNUSED(dwRefData);
-
+static LRESULT CALLBACK TabsParentProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[maybe_unused]] UINT_PTR uIdSubclass,
+                                       [[maybe_unused]] DWORD_PTR dwRefData) {
     // TabsCtrl *w = (TabsCtrl *)dwRefData;
     // CrashIf(GetParent(ctrl->hwnd) != (HWND)lp);
 
@@ -217,7 +212,7 @@ static void Paint(TabsCtrl* ctrl) {
     FillRect(hdc, &rc, brush);
 
     ScopedSelectFont f(hdc, priv->font);
-    UINT opts = ETO_OPAQUE;
+    uint opts = ETO_OPAQUE;
 
     int padLeft = PADDING_LEFT;
     DpiScale(priv->hwnd, padLeft);
@@ -264,8 +259,8 @@ static void Paint(TabsCtrl* ctrl) {
         auto pos = ti->titlePos;
         int x = pos.x;
         int y = pos.y;
-        const WCHAR* s = ti->title.c_str();
-        UINT sLen = (UINT)ti->title.size();
+        const WCHAR* s = ti->title.Get();
+        uint sLen = (uint)ti->title.size();
         ExtTextOutW(hdc, x, y, opts, nullptr, s, sLen, nullptr);
 
         if (paintClose) {
@@ -333,8 +328,8 @@ static void OnLeftButtonUp(TabsCtrl* ctrl) {
     }
 }
 
-static LRESULT CALLBACK TabsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
-    UNUSED(uIdSubclass);
+static LRESULT CALLBACK TabsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[maybe_unused]] UINT_PTR uIdSubclass,
+                                 DWORD_PTR dwRefData) {
     TabsCtrl* ctrl = (TabsCtrl*)dwRefData;
     TabsCtrlPrivate* priv = ctrl->priv;
     // CrashIf(ctrl->hwnd != (HWND)lp);
@@ -426,11 +421,10 @@ bool CreateTabsCtrl(TabsCtrl* ctrl) {
     auto y = r.top;
     auto dx = RectDx(r);
     auto dy = RectDy(r);
-    DWORD dwExStyle = 0;
-    DWORD dwStyle = WS_CHILD | WS_CLIPSIBLINGS | WS_VISIBLE | TCS_FOCUSNEVER | TCS_FIXEDWIDTH | TCS_FORCELABELLEFT;
-
-    auto hwnd = CreateWindowExW(dwExStyle, WC_TABCONTROL, L"", dwStyle, x, y, dx, dy, ctrl->parent, nullptr,
-                                GetModuleHandle(nullptr), ctrl);
+    DWORD exStyle = 0;
+    DWORD style = WS_CHILD | WS_CLIPSIBLINGS | WS_VISIBLE | TCS_FOCUSNEVER | TCS_FIXEDWIDTH | TCS_FORCELABELLEFT;
+    HINSTANCE h = GetModuleHandleW(nullptr);
+    auto hwnd = CreateWindowExW(exStyle, WC_TABCONTROL, L"", style, x, y, dx, dy, ctrl->parent, nullptr, h, ctrl);
 
     if (hwnd == nullptr) {
         return false;
@@ -469,7 +463,7 @@ void SetState(TabsCtrl* ctrl, TabsCtrlState* state) {
         ti->titleSize = MakeSize(0, 0);
         if (!tab->title.IsEmpty()) {
             ti->title = wstrFromUtf8(tab->title);
-            const WCHAR* s = ti->title.c_str();
+            const WCHAR* s = ti->title.Get();
             ti->titleSize = TextSizeInHwnd2(priv->hwnd, s, priv->font);
         }
         if (!tab->toolTip.IsEmpty()) {
@@ -488,4 +482,156 @@ SIZE GetIdealSize(TabsCtrl* ctrl) {
 
 void SetPos(TabsCtrl* ctrl, RECT& r) {
     MoveWindow(ctrl->priv->hwnd, &r);
+}
+
+/* ----- */
+
+Kind kindTabs = "tabs";
+
+TabsCtrl2::TabsCtrl2(HWND p) : WindowBase(p) {
+    dwStyle = WS_CHILD | WS_CLIPSIBLINGS | TCS_FOCUSNEVER | TCS_FIXEDWIDTH | TCS_FORCELABELLEFT | WS_VISIBLE;
+    winClass = WC_TABCONTROLW;
+    kind = kindTabs;
+}
+
+TabsCtrl2::~TabsCtrl2() {
+}
+
+static void Handle_WM_NOTIFY(void* user, WndEvent* ev) {
+    CrashIf(ev->msg != WM_NOTIFY);
+    TabsCtrl2* w = (TabsCtrl2*)user;
+    ev->w = w; // TODO: is this needed?
+    CrashIf(GetParent(w->hwnd) != (HWND)ev->hwnd);
+}
+
+bool TabsCtrl2::Create() {
+    if (createToolTipsHwnd) {
+        dwStyle |= TCS_TOOLTIPS;
+    }
+    bool ok = WindowBase::Create();
+    if (!ok) {
+        return false;
+    }
+
+    void* user = this;
+    RegisterHandlerForMessage(hwnd, WM_NOTIFY, Handle_WM_NOTIFY, user);
+
+    return true;
+}
+
+void TabsCtrl2::WndProc(WndEvent* ev) {
+    HWND hwnd = ev->hwnd;
+#if 0
+    UINT msg = ev->msg;
+    WPARAM wp = ev->wp;
+    LPARAM lp = ev->lp;
+    DbgLogMsg("tree:", hwnd, msg, wp, ev->lp);
+#endif
+
+    TabsCtrl2* w = this;
+    CrashIf(w->hwnd != (HWND)hwnd);
+}
+
+Size TabsCtrl2::GetIdealSize() {
+    Size sz{32, 128};
+    return sz;
+}
+
+int TabsCtrl2::GetTabCount() {
+    int n = TabCtrl_GetItemCount(hwnd);
+    return n;
+}
+
+// TODO: remove in favor of std::string_view version
+int TabsCtrl2::InsertTab(int idx, const WCHAR* ws) {
+    CrashIf(idx < 0);
+
+    TCITEMW item{0};
+    item.mask = TCIF_TEXT;
+    item.pszText = (WCHAR*)ws;
+    int insertedIdx = TabCtrl_InsertItem(hwnd, idx, &item);
+    return insertedIdx;
+}
+
+int TabsCtrl2::InsertTab(int idx, std::string_view sv) {
+    CrashIf(idx < 0);
+
+    TCITEMW item{0};
+    item.mask = TCIF_TEXT;
+    AutoFreeWstr s = strconv::Utf8ToWstr(sv);
+    item.pszText = s.Get();
+    int insertedIdx = TabCtrl_InsertItem(hwnd, idx, &item);
+    return insertedIdx;
+}
+
+void TabsCtrl2::RemoveTab(int idx) {
+    CrashIf(idx < 0);
+    CrashIf(idx >= GetTabCount());
+    BOOL ok = TabCtrl_DeleteItem(hwnd, idx);
+    CrashIf(!ok);
+}
+
+void TabsCtrl2::RemoveAllTabs() {
+    TabCtrl_DeleteAllItems(hwnd);
+}
+
+// TODO: remove in favor of std::string_view version
+void TabsCtrl2::SetTabText(int idx, const WCHAR* ws) {
+    CrashIf(idx < 0);
+    CrashIf(idx >= GetTabCount());
+
+    TCITEMW item{0};
+    item.mask = TCIF_TEXT;
+    item.pszText = (WCHAR*)ws;
+    TabCtrl_SetItem(hwnd, idx, &item);
+}
+
+void TabsCtrl2::SetTabText(int idx, std::string_view sv) {
+    CrashIf(idx < 0);
+    CrashIf(idx >= GetTabCount());
+
+    TCITEMW item{0};
+    item.mask = TCIF_TEXT;
+    AutoFreeWstr s = strconv::Utf8ToWstr(sv);
+    item.pszText = s.Get();
+    TabCtrl_SetItem(hwnd, idx, &item);
+}
+
+// result is valid until next call to GetTabText()
+// TODO:
+WCHAR* TabsCtrl2::GetTabText(int idx) {
+    CrashIf(idx < 0);
+    CrashIf(idx >= GetTabCount());
+
+    WCHAR buf[512]{0};
+    TCITEMW item{0};
+    item.mask = TCIF_TEXT;
+    item.pszText = buf;
+    item.cchTextMax = dimof(buf) - 1; // -1 just in case
+    TabCtrl_GetItem(hwnd, idx, &item);
+    lastTabText.Set(buf);
+    return lastTabText.Get();
+}
+
+int TabsCtrl2::GetSelectedTabIndex() {
+    int idx = TabCtrl_GetCurSel(hwnd);
+    return idx;
+}
+
+int TabsCtrl2::SetSelectedTabByIndex(int idx) {
+    int prevSelectedIdx = TabCtrl_SetCurSel(hwnd, idx);
+    return prevSelectedIdx;
+}
+
+void TabsCtrl2::SetItemSize(Size sz) {
+    TabCtrl_SetItemSize(hwnd, sz.dx, sz.dy);
+}
+
+void TabsCtrl2::SetToolTipsHwnd(HWND hwndTooltip) {
+    TabCtrl_SetToolTips(hwnd, hwndTooltip);
+}
+
+HWND TabsCtrl2::GetToolTipsHwnd() {
+    HWND res = TabCtrl_GetToolTips(hwnd);
+    return res;
 }

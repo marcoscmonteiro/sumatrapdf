@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #define CANVAS_CLASS_NAME L"SUMATRA_PDF_CANVAS"
@@ -73,11 +73,11 @@ enum MenuToolbarFlags {
 #define RIGHT_TXT_FONT L"Arial Black"
 #define RIGHT_TXT_FONT_SIZE 12
 
-class Controller;
+struct Controller;
 class Favorites;
 struct FileHistory;
-class WindowInfo;
-class NotificationWnd;
+struct WindowInfo;
+struct NotificationWnd;
 class RenderCache;
 struct TabInfo;
 struct LabelWithCloseWnd;
@@ -112,16 +112,17 @@ void AssociateExeWithPdfExtension();
 void CloseTab(WindowInfo* win, bool quitIfLast = false);
 bool MayCloseWindow(WindowInfo* win);
 void CloseWindow(WindowInfo* win, bool quitIfLast, bool forceClose = false);
-void SetSidebarVisibility(WindowInfo* win, bool tocVisible, bool favVisible);
+void SetSidebarVisibility(WindowInfo* win, bool tocVisible, bool showFavorites);
 void RememberFavTreeExpansionState(WindowInfo* win);
 void LayoutTreeContainer(LabelWithCloseWnd* l, DropDownCtrl*, HWND hwndTree);
 void AdvanceFocus(WindowInfo* win);
 bool WindowInfoStillValid(WindowInfo* win);
 void SetCurrentLanguageAndRefreshUI(const char* langCode);
 void UpdateDocumentColors();
-void UpdateTabFileDisplayStateForTab(TabInfo* td);
-bool FrameOnKeydown(WindowInfo* win, WPARAM key, LPARAM lparam, bool inTextfield = false);
-void ReloadDocument(WindowInfo* win, bool autorefresh = false);
+void UpdateFixedPageScrollbarsVisibility();
+void UpdateTabFileDisplayStateForTab(TabInfo* tab);
+bool FrameOnKeydown(WindowInfo* win, WPARAM key, LPARAM lp, bool inTextfield = false);
+void ReloadDocument(WindowInfo* win, bool autoRefresh);
 void OnMenuViewFullscreen(WindowInfo* win, bool presentation = false);
 void RelayoutWindow(WindowInfo* win);
 
@@ -141,26 +142,41 @@ struct LoadArgs {
         this->win = win;
     }
 
-    // we don't own those values
-    EngineBase* engine = nullptr;
-    const WCHAR* fileName = nullptr;
-    WindowInfo* win = nullptr;
+    explicit LoadArgs(const char* fileName, WindowInfo* win) {
+        this->win = win;
+        fileNameToFree = strconv::Utf8ToWstr(fileName);
+        this->fileName = fileNameToFree;
+    }
 
-    bool showWin = true;
-    bool forceReuse = false;
+    ~LoadArgs() {
+        str::Free(fileNameToFree);
+    }
+
+    // we don't own those values
+    EngineBase* engine{nullptr};
+    const WCHAR* fileName{nullptr};
+    WindowInfo* win{nullptr};
+
+    const WCHAR* fileNameToFree{nullptr};
+
+    bool showWin{true};
+    bool forceReuse{false};
     // over-writes placeWindow and other flags and forces no changing
     // of window location after loading
-    bool noPlaceWindow = false;
+    bool noPlaceWindow{false};
 
     // for internal use
-    bool isNewWindow = false;
-    bool placeWindow = true;
+    bool isNewWindow{false};
+    bool placeWindow{true};
+    // TODO: this is hacky. I save prefs too frequently. Need to go over
+    // and rationalize all prefs::Save() calls
+    bool noSavePrefs{false};
 };
 
 WindowInfo* LoadDocument(LoadArgs& args);
 WindowInfo* CreateAndShowWindowInfo(SessionData* data = nullptr);
 
-UINT MbRtlReadingMaybe();
+uint MbRtlReadingMaybe();
 void MessageBoxWarning(HWND hwnd, const WCHAR* msg, const WCHAR* title = nullptr);
 void UpdateCursorPositionHelper(WindowInfo* win, Point pos, NotificationWnd* wnd);
 bool DocumentPathExists(const WCHAR* path);
@@ -172,5 +188,9 @@ void GetEbookUiColors(COLORREF& text, COLORREF& bg);
 void RebuildMenuBarForWindow(WindowInfo* win);
 void UpdateCheckAsync(WindowInfo* win, bool autoCheck);
 void DeleteWindowInfo(WindowInfo* win);
+void SwitchToDisplayMode(WindowInfo* win, DisplayMode displayMode, bool keepContinuous = false);
+void WindowInfoRerender(WindowInfo* win, bool includeNonClientArea = false);
 
-LRESULT CALLBACK WndProcFrame(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK WndProcFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+void ShutdownCleanup();

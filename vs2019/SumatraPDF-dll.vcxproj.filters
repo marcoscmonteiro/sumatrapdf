@@ -24,6 +24,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\Accelerators.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\Actions.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -48,7 +51,13 @@
     <ClInclude Include="..\src\ChmModel.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\Commands.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\CrashHandler.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\DisplayMode.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\DisplayModel.h">
@@ -133,9 +142,6 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\SumatraAbout.h">
-      <Filter>src</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\SumatraAbout2.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="..\src\SumatraDialogs.h">
@@ -260,6 +266,9 @@
     <ClCompile Include="..\ext\synctex\synctex_parser_utils.c">
       <Filter>ext\synctex</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\Accelerators.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\Actions.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -278,6 +287,9 @@
     <ClCompile Include="..\src\Canvas.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\CanvasAboutUI.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\Caption.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -285,6 +297,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\CrashHandler.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\DisplayMode.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\DisplayModel.cpp">
@@ -329,6 +344,9 @@
     <ClCompile Include="..\src\Installer.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\MemLeakDetect.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\Menu.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -365,16 +383,10 @@
     <ClCompile Include="..\src\Selection.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\SettingsStructs.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\StressTesting.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\SumatraAbout.cpp">
-      <Filter>src</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\SumatraAbout2.cpp">
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\SumatraConfig.cpp">
@@ -491,9 +503,6 @@
     <ClCompile Include="..\src\testcode\TestApp.cpp">
       <Filter>src\testcode</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\testcode\TestDirectDraw.cpp">
-      <Filter>src\testcode</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\testcode\TestLayout.cpp">
       <Filter>src\testcode</Filter>
     </ClCompile>
@@ -520,6 +529,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\src\log.txt">
+      <Filter>src</Filter>
+    </None>
     <None Include="..\src\todo.txt">
       <Filter>src</Filter>
     </None>

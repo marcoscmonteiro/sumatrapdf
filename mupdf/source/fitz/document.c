@@ -274,6 +274,8 @@ fz_drop_document(fz_context *ctx, fz_document *doc)
 {
 	if (fz_drop_imp(ctx, doc, &doc->refs))
 	{
+		if (doc->open)
+			fz_warn(ctx, "There are still open pages in the document!");
 		if (doc->drop_document)
 			doc->drop_document(ctx, doc);
 		fz_free(ctx, doc);
@@ -513,14 +515,23 @@ fz_load_chapter_page(fz_context *ctx, fz_document *doc, int chapter, int number)
 {
 	fz_page *page;
 
+	if (doc == NULL)
+		return NULL;
+
 	fz_ensure_layout(ctx, doc);
 
-	if (doc)
-		for (page = doc->open; page; page = page->next)
-			if (page->chapter == chapter && page->number == number)
-				return fz_keep_page(ctx, page);
+	/* Protect modifications to the page list to cope with
+	 * destruction of pages on other threads. */
+	fz_lock(ctx, FZ_LOCK_ALLOC);
+	for (page = doc->open; page; page = page->next)
+		if (page->chapter == chapter && page->number == number)
+		{
+			fz_unlock(ctx, FZ_LOCK_ALLOC);
+			return fz_keep_page(ctx, page);
+		}
+	fz_unlock(ctx, FZ_LOCK_ALLOC);
 
-	if (doc && doc->load_page)
+	if (doc->load_page)
 	{
 		page = doc->load_page(ctx, doc, chapter, number);
 		page->chapter = chapter;
@@ -529,10 +540,12 @@ fz_load_chapter_page(fz_context *ctx, fz_document *doc, int chapter, int number)
 		/* Insert new page at the head of the list of open pages. */
 		if (!page->incomplete)
 		{
+			fz_lock(ctx, FZ_LOCK_ALLOC);
 			if ((page->next = doc->open) != NULL)
 				doc->open->prev = &page->next;
 			doc->open = page;
 			page->prev = &doc->open;
+			fz_unlock(ctx, FZ_LOCK_ALLOC);
 		}
 		return page;
 	}
@@ -619,10 +632,11 @@ fz_run_page(fz_context *ctx, fz_page *page, fz_device *dev, fz_matrix transform,
 }
 
 fz_page *
-fz_new_page_of_size(fz_context *ctx, int size)
+fz_new_page_of_size(fz_context *ctx, int size, fz_document *doc)
 {
 	fz_page *page = Memento_label(fz_calloc(ctx, 1, size), "fz_page");
 	page->refs = 1;
+	page->doc = fz_keep_document(ctx, doc);
 	return page;
 }
 
@@ -638,13 +652,17 @@ fz_drop_page(fz_context *ctx, fz_page *page)
 	if (fz_drop_imp(ctx, page, &page->refs))
 	{
 		/* Remove page from the list of open pages */
+		fz_lock(ctx, FZ_LOCK_ALLOC);
 		if (page->next != NULL)
 			page->next->prev = page->prev;
 		if (page->prev != NULL)
 			*page->prev = page->next;
+		fz_unlock(ctx, FZ_LOCK_ALLOC);
 
 		if (page->drop_page)
 			page->drop_page(ctx, page);
+
+		fz_drop_document(ctx, page->doc);
 
 		fz_free(ctx, page);
 	}
@@ -676,4 +694,15 @@ int fz_page_uses_overprint(fz_context *ctx, fz_page *page)
 	if (page && page->overprint)
 		return page->overprint(ctx, page);
 	return 0;
+}
+
+fz_link *fz_create_link(fz_context *ctx, fz_page *page, fz_rect bbox, const char *uri)
+{
+	if (page == NULL)
+		return NULL;
+	if (page->create_link == NULL)
+		fz_throw(ctx, FZ_ERROR_GENERIC, "This format of document does not support creating links");
+	if (uri && !fz_is_external_link(ctx, uri))
+		fz_throw(ctx, FZ_ERROR_GENERIC, "URI should be NULL, or an external link");
+	return page->create_link(ctx, page, bbox, uri);
 }

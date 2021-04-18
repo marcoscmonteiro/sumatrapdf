@@ -6,8 +6,6 @@
 #include "wingui/Window.h"
 #include "wingui/ButtonCtrl.h"
 
-// in TestDirectDraw.cpp
-extern int TestDirectDraw(HINSTANCE hInstance, int nCmdShow);
 // in TestTab.cpp
 extern int TestTab(HINSTANCE hInstance, int nCmdShow);
 // in TestLayout.cpp
@@ -16,10 +14,6 @@ extern int TestLayout(HINSTANCE hInstance, int nCmdShow);
 extern int TestLice(HINSTANCE hInstance, int nCmdShow);
 
 HINSTANCE gHinst = nullptr;
-
-static void LaunchDirectDraw() {
-    TestDirectDraw(gHinst, SW_SHOW);
-}
 
 static void LaunchTabs() {
     TestTab(gHinst, SW_SHOW);
@@ -38,28 +32,22 @@ static ILayout* CreateMainLayout(HWND hwnd) {
 
     vbox->alignMain = MainAxisAlign::MainCenter;
     vbox->alignCross = CrossAxisAlign::CrossCenter;
+
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "DirectDraw test", LaunchDirectDraw);
-        vbox->AddChild(l);
+        auto b = CreateButton(hwnd, "Tabs test", LaunchTabs);
+        vbox->AddChild(b);
     }
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "Tabs test", LaunchTabs);
-        vbox->AddChild(l);
+        auto b = CreateButton(hwnd, "Layout test", LaunchLayout);
+        vbox->AddChild(b);
     }
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "Layout test", LaunchLayout);
-        vbox->AddChild(l);
+        auto b = CreateButton(hwnd, "Lice test", LaunchLice);
+        vbox->AddChild(b);
     }
-
-    {
-        auto [l, b] = CreateButtonLayout(hwnd, "Lice test", LaunchLice);
-        vbox->AddChild(l);
-    }
-    auto* padding = new Padding();
-    padding->child = vbox;
-    padding->insets = DefaultInsets();
+    auto padding = new Padding(vbox, DefaultInsets());
     return padding;
 }
 
@@ -86,14 +74,7 @@ void TestApp(HINSTANCE hInstance) {
         if (dx == 0 || dy == 0) {
             return;
         }
-        //auto c = Loose(Size{dx, dy});
-        Size windowSize{dx, dy};
-        auto c = Tight(windowSize);
-        auto size = l->Layout(c);
-        Point min{0, 0};
-        Point max{size.dx, size.dy};
-        Rect bounds{min, max};
-        l->SetBounds(bounds);
+        LayoutToSize(l, {dx, dy});
         InvalidateRect(hwnd, nullptr, false);
     };
 

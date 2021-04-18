@@ -1,10 +1,10 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 namespace webp {
 
-bool HasSignature(const char* data, size_t len);
-Gdiplus::Size SizeFromData(const char* data, size_t len);
-Gdiplus::Bitmap* ImageFromData(const char* data, size_t len);
+bool HasSignature(std::span<u8>);
+Size SizeFromData(std::span<u8>);
+Gdiplus::Bitmap* ImageFromData(std::span<u8>);
 
 } // namespace webp

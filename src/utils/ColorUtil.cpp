@@ -1,9 +1,11 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
-
 #include "utils/WinUtil.h"
+#include "utils/ColorUtil.h"
+
+// #define RGB(r,g,b)          ((COLORREF)(((BYTE)(r)|((WORD)((BYTE)(g))<<8))|(((DWORD)(BYTE)(b))<<16)))
 
 COLORREF MkRgb(u8 r, u8 g, u8 b) {
     return RGB(r, g, b);
@@ -37,55 +39,6 @@ void UnpackRgb(COLORREF c, u8& r, u8& g, u8& b) {
     g = (u8)(c & 0xff);
     c = c >> 8;
     b = (u8)(c & 0xff);
-}
-
-static COLORREF MkRgbaFloat(float r, float g, float b, float a) {
-    u8 rb = (u8)(r * 255.0f);
-    u8 gb = (u8)(g * 255.0f);
-    u8 bb = (u8)(b * 255.0f);
-    u8 aa = (u8)(a * 255.0f);
-    return MkRgba(rb, gb, bb, aa);
-}
-
-static void UnpackRgbaFloat(COLORREF c, float& r, float& g, float& b, float& a) {
-    r = (float)(c & 0xff);
-    c = c >> 8;
-    r /= 255.0f;
-    g = (float)(c & 0xff);
-    g /= 255.0f;
-    c = c >> 8;
-    b = (float)(c & 0xff);
-    b /= 255.0f;
-    c = c >> 8;
-    a = (float)(c & 0xff);
-    a /= 255.0f;
-}
-
-static void UnpackRgbFloat(COLORREF c, float& r, float& g, float& b) {
-    r = (float)(c & 0xff);
-    r /= 255.0f;
-    c = c >> 8;
-    g = (float)(c & 0xff);
-    g /= 255.0f;
-    c = c >> 8;
-    b = (float)(c & 0xff);
-    b /= 255.0f;
-}
-
-COLORREF FromPdfColorRgba(float color[4]) {
-    return MkRgbaFloat(color[0], color[1], color[2], color[3]);
-}
-
-COLORREF FromPdfColorRgb(float color[3]) {
-    return MkRgbaFloat(color[0], color[1], color[2], 0);
-}
-
-void ToPdfRgb(COLORREF c, float col[3]) {
-    UnpackRgbFloat(c, col[0], col[1], col[2]);
-}
-
-void ToPdfRgba(COLORREF c, float col[4]) {
-    UnpackRgbaFloat(c, col[0], col[1], col[2], col[3]);
 }
 
 #if 0
@@ -256,8 +209,9 @@ COLORREF AdjustLightness(COLORREF c, float factor) {
 COLORREF AdjustLightness2(COLORREF c, float units) {
     float lightness = GetLightness(c);
     units = limitValue(units, -lightness, 255.0f - lightness);
-    if (0.0f == lightness)
+    if (0.0f == lightness) {
         return RGB(BYTE(units + 0.5f), BYTE(units + 0.5f), BYTE(units + 0.5f));
+    }
     return AdjustLightness(c, 1.0f + units / lightness);
 }
 
@@ -270,18 +224,23 @@ float GetLightness(COLORREF c) {
 }
 
 #if OS_WIN
-BYTE GetRValueSafe(COLORREF rgb) {
+u8 GetRed(COLORREF rgb) {
     rgb = rgb & 0xff;
     return (u8)rgb;
 }
 
-BYTE GetGValueSafe(COLORREF rgb) {
+u8 GetGreen(COLORREF rgb) {
     rgb = (rgb >> 8) & 0xff;
     return (u8)rgb;
 }
 
-BYTE GetBValueSafe(COLORREF rgb) {
+u8 GetBlue(COLORREF rgb) {
     rgb = (rgb >> 16) & 0xff;
+    return (u8)rgb;
+}
+
+u8 GetAlpha(COLORREF rgb) {
+    rgb = (rgb >> 24) & 0xff;
     return (u8)rgb;
 }
 #endif

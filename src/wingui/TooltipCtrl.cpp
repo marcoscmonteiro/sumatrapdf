@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -29,6 +29,7 @@ TooltipCtrl::~TooltipCtrl() {
 
 bool TooltipCtrl::Create() {
     bool ok = WindowBase::Create();
+    SetDelayTime(TTDT_AUTOPOP, 32767);
     return ok;
 }
 
@@ -65,8 +66,8 @@ void TooltipCtrl::Show(const WCHAR* text, Rect& rc, bool multiline) {
     ti.hwnd = parent;
     ti.uFlags = TTF_SUBCLASS;
     ti.lpszText = (WCHAR*)text;
-    ti.rect = rc.ToRECT();
-    UINT msg = isShowing ? TTM_NEWTOOLRECT : TTM_ADDTOOL;
+    ti.rect = ToRECT(rc);
+    uint msg = isShowing ? TTM_NEWTOOLRECT : TTM_ADDTOOL;
     SendMessageW(hwnd, msg, 0, (LPARAM)&ti);
 
     isShowing = true;
@@ -82,4 +83,14 @@ void TooltipCtrl::Hide() {
     ti.hwnd = parent;
     SendMessageW(hwnd, TTM_DELTOOL, 0, (LPARAM)&ti);
     isShowing = false;
+}
+
+// https://docs.microsoft.com/en-us/windows/win32/controls/ttm-setdelaytime
+// type is: TTDT_AUTOPOP, TTDT_INITIAL, TTDT_RESHOW, TTDT_AUTOMATIC
+// timeInMs is max 32767 (~32 secs)
+void TooltipCtrl::SetDelayTime(int type, int timeInMs) {
+    CrashIf(!IsValidDelayType(type));
+    CrashIf(timeInMs < 0);
+    CrashIf(timeInMs > 32767); // TODO: or is it 65535?
+    SendMessageW(hwnd, TTM_SETDELAYTIME, type, (LPARAM)timeInMs);
 }

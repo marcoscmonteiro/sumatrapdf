@@ -62,7 +62,7 @@ color.convert = function (c, colorspace) {
 }
 
 color.equal = function (a, b) {
-	var i, n
+	var i, n;
 	if (a[0] === 'G')
 		a = color.convert(a, b[0]);
 	else
@@ -369,6 +369,7 @@ function AFParseTime(string, date) {
 
 function AFMakeDate(out, year, month, date, time)
 {
+	year = year | 0; // force type to integer
 	if (year < 50)
 		year += 2000;
 	if (year < 100)

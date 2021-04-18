@@ -23,12 +23,14 @@ enum pdf_annot_type
 	PDF_ANNOT_FILE_ATTACHMENT,
 	PDF_ANNOT_SOUND,
 	PDF_ANNOT_MOVIE,
+	PDF_ANNOT_RICH_MEDIA,
 	PDF_ANNOT_WIDGET,
 	PDF_ANNOT_SCREEN,
 	PDF_ANNOT_PRINTER_MARK,
 	PDF_ANNOT_TRAP_NET,
 	PDF_ANNOT_WATERMARK,
 	PDF_ANNOT_3D,
+	PDF_ANNOT_PROJECTION,
 	PDF_ANNOT_UNKNOWN = -1
 };
 
@@ -224,6 +226,12 @@ fz_matrix pdf_annot_transform(fz_context *ctx, pdf_annot *annot);
 pdf_annot *pdf_create_annot_raw(fz_context *ctx, pdf_page *page, enum pdf_annot_type type);
 
 /*
+	create a new link on the specified page. The returned fz_link
+	structure is owned by the page and does not need to be freed.
+*/
+fz_link *pdf_create_link(fz_context *ctx, pdf_page *page, fz_rect bbox, const char *uri);
+
+/*
 	create a new annotation of the specified type on the
 	specified page. Populate it with sensible defaults per the type.
 
@@ -242,6 +250,15 @@ pdf_annot *pdf_create_annot(fz_context *ctx, pdf_page *page, enum pdf_annot_type
 	on a borrowed reference.
 */
 void pdf_delete_annot(fz_context *ctx, pdf_page *page, pdf_annot *annot);
+
+/*
+	Edit the associated Popup annotation rectangle.
+
+	Popup annotations are used to store the size and position of the
+	popup box that is used to edit the contents of the markup annotation.
+*/
+void pdf_set_annot_popup(fz_context *ctx, pdf_annot *annot, fz_rect rect);
+fz_rect pdf_annot_popup(fz_context *ctx, pdf_annot *annot);
 
 /*
 	Check to see if an annotation has an ink list.
@@ -391,7 +408,7 @@ void pdf_set_annot_opacity(fz_context *ctx, pdf_annot *annot, float opacity);
 	n components, each between 0 and 1.
 	n = 1 (grey), 3 (rgb) or 4 (cmyk).
 */
-void pdf_set_annot_color(fz_context *ctx, pdf_annot *annot, int n, const float color[4]);
+void pdf_set_annot_color(fz_context *ctx, pdf_annot *annot, int n, const float *color);
 
 /*
 	Set the annotation interior color.
@@ -399,7 +416,7 @@ void pdf_set_annot_color(fz_context *ctx, pdf_annot *annot, int n, const float c
 	n components, each between 0 and 1.
 	n = 1 (grey), 3 (rgb) or 4 (cmyk).
 */
-void pdf_set_annot_interior_color(fz_context *ctx, pdf_annot *annot, int n, const float color[4]);
+void pdf_set_annot_interior_color(fz_context *ctx, pdf_annot *annot, int n, const float *color);
 
 /*
 	Set the quadding (justification) to use for the annotation.
@@ -495,9 +512,10 @@ void pdf_set_annot_contents(fz_context *ctx, pdf_annot *annot, const char *text)
 const char *pdf_annot_author(fz_context *ctx, pdf_annot *annot);
 void pdf_set_annot_author(fz_context *ctx, pdf_annot *annot, const char *author);
 
-void pdf_format_date(fz_context *ctx, char *s, int n, int64_t secs);
 int64_t pdf_annot_modification_date(fz_context *ctx, pdf_annot *annot);
 void pdf_set_annot_modification_date(fz_context *ctx, pdf_annot *annot, int64_t time);
+int64_t pdf_annot_creation_date(fz_context *ctx, pdf_annot *annot);
+void pdf_set_annot_creation_date(fz_context *ctx, pdf_annot *annot, int64_t time);
 
 void pdf_parse_default_appearance(fz_context *ctx, const char *da, const char **font, float *size, float color[3]);
 void pdf_print_default_appearance(fz_context *ctx, char *buf, int nbuf, const char *font, float size, const float color[3]);
@@ -506,11 +524,28 @@ void pdf_set_annot_default_appearance(fz_context *ctx, pdf_annot *annot, const c
 
 void pdf_dirty_annot(fz_context *ctx, pdf_annot *annot);
 
+int pdf_annot_field_flags(fz_context *ctx, pdf_annot *annot);
+const char *pdf_annot_field_value(fz_context *ctx, pdf_annot *annot);
+const char *pdf_annot_field_label(fz_context *ctx, pdf_annot *widget);
+
+int pdf_set_annot_field_value(fz_context *ctx, pdf_document *doc, pdf_widget *widget, const char *text, int ignore_trigger_events);
+
 /*
 	Recreate the appearance stream for an annotation, if necessary.
 */
+fz_text *pdf_layout_fit_text(fz_context *ctx, fz_font *font, fz_text_language lang, const char *str, fz_rect bounds);
 void pdf_update_appearance(fz_context *ctx, pdf_annot *annot);
-void pdf_update_signature_appearance(fz_context *ctx, pdf_annot *annot, const char *name, const char *text, const char *date);
+void pdf_update_appearance_from_display_list(fz_context *ctx, pdf_annot *annot, fz_rect rect, fz_display_list *disp_list);
+
+/*
+	Start/Stop using the annotation-local xref. This allows us to
+	generate appearance streams that don't actually hit the underlying
+	document.
+*/
+void pdf_annot_push_local_xref(fz_context *ctx, pdf_annot *annot);
+void pdf_annot_pop_local_xref(fz_context *ctx, pdf_annot *annot);
+void pdf_annot_ensure_local_xref(fz_context *ctx, pdf_annot *annot);
+void pdf_annot_pop_and_discard_local_xref(fz_context *ctx, pdf_annot *annot);
 
 /*
 	Regenerate any appearance streams that are out of date and check for
@@ -589,8 +624,6 @@ struct pdf_annot
 	pdf_page *page;
 	pdf_obj *obj;
 
-	pdf_obj *ap;
-
 	int is_hot;
 	int is_active;
 
@@ -614,5 +647,11 @@ void pdf_annot_MK_BC(fz_context *ctx, pdf_annot *annot, int *n, float color[4]);
 int pdf_annot_MK_BG_rgb(fz_context *ctx, pdf_annot *annot, float rgb[3]);
 int pdf_annot_MK_BC_rgb(fz_context *ctx, pdf_annot *annot, float rgb[3]);
 
+pdf_obj *pdf_annot_ap(fz_context *ctx, pdf_annot *annot);
+
+int pdf_annot_active(fz_context *ctx, pdf_annot *annot);
+void pdf_annot_set_active(fz_context *ctx, pdf_annot *annot, int active);
+int pdf_annot_hot(fz_context *ctx, pdf_annot *annot);
+void pdf_annot_set_hot(fz_context *ctx, pdf_annot *annot, int hot);
 
 #endif

@@ -30,6 +30,13 @@ pdf_widget *pdf_first_widget(fz_context *ctx, pdf_page *page);
 pdf_widget *pdf_next_widget(fz_context *ctx, pdf_widget *previous);
 int pdf_update_widget(fz_context *ctx, pdf_widget *widget);
 
+/*
+	create a new signature widget on the specified page, with the
+	specified name. The returned pdf_widget structure is owned by
+	the page and does not need to be freed
+*/
+pdf_widget *pdf_create_signature_widget(fz_context *ctx, pdf_page *page, char *name);
+
 enum pdf_widget_type pdf_widget_type(fz_context *ctx, pdf_widget *widget);
 
 fz_rect pdf_bound_widget(fz_context *ctx, pdf_widget *widget);
@@ -80,6 +87,7 @@ int pdf_choice_field_option_count(fz_context *ctx, pdf_obj *field);
 const char *pdf_choice_field_option(fz_context *ctx, pdf_obj *field, int exportval, int i);
 
 int pdf_widget_is_signed(fz_context *ctx, pdf_widget *widget);
+int pdf_widget_is_readonly(fz_context *ctx, pdf_widget *widget);
 
 /* Field flags */
 enum
@@ -125,6 +133,7 @@ int pdf_field_flags(fz_context *ctx, pdf_obj *field);
 */
 char *pdf_field_name(fz_context *ctx, pdf_obj *field);
 const char *pdf_field_value(fz_context *ctx, pdf_obj *field);
+void pdf_create_field_name(fz_context *ctx, pdf_document *doc, const char *prefix, char *buf, size_t len);
 
 char *pdf_field_border_style(fz_context *ctx, pdf_obj *field);
 void pdf_field_set_border_style(fz_context *ctx, pdf_obj *field, const char *text);
@@ -169,9 +178,6 @@ typedef enum
 	PDF_SIGNATURE_ERROR_NOT_TRUSTED,
 	PDF_SIGNATURE_ERROR_UNKNOWN
 } pdf_signature_error;
-
-/* Object that can perform the cryptographic operation necessary for document signing */
-typedef struct pdf_pkcs7_signer pdf_pkcs7_signer;
 
 /* Increment the reference count for a signer object */
 typedef pdf_pkcs7_signer *(pdf_pkcs7_keep_signer_fn)(fz_context *ctx, pdf_pkcs7_signer *signer);
@@ -222,6 +228,9 @@ char *pdf_signature_error_description(pdf_signature_error err);
 pdf_pkcs7_designated_name *pdf_signature_get_signatory(fz_context *ctx, pdf_pkcs7_verifier *verifier, pdf_document *doc, pdf_obj *signature);
 void pdf_signature_drop_designated_name(fz_context *ctx, pdf_pkcs7_designated_name *name);
 char *pdf_signature_format_designated_name(fz_context *ctx, pdf_pkcs7_designated_name *name);
+char *pdf_signature_info(fz_context *ctx, const char *name, pdf_pkcs7_designated_name *dn, const char *reason, const char *location, int64_t date, int include_labels);
+fz_display_list *pdf_signature_appearance(fz_context *ctx, fz_rect rect, fz_text_language lang, fz_image *img, const char *left_text, const char *right_text, int include_logo);
+fz_display_list *pdf_signature_appearance_unsigned(fz_context *ctx, fz_rect rect, fz_text_language lang);
 
 pdf_signature_error pdf_check_digest(fz_context *ctx, pdf_pkcs7_verifier *verifier, pdf_document *doc, pdf_obj *signature);
 pdf_signature_error pdf_check_certificate(fz_context *ctx, pdf_pkcs7_verifier *verifier, pdf_document *doc, pdf_obj *signature);
@@ -256,6 +265,8 @@ int pdf_field_event_keystroke(fz_context *ctx, pdf_document *doc, pdf_obj *field
 int pdf_field_event_validate(fz_context *ctx, pdf_document *doc, pdf_obj *field, const char *value);
 void pdf_field_event_calculate(fz_context *ctx, pdf_document *doc, pdf_obj *field);
 char *pdf_field_event_format(fz_context *ctx, pdf_document *doc, pdf_obj *field);
+
+int pdf_annot_field_event_keystroke(fz_context *ctx, pdf_document *doc, pdf_annot *annot, pdf_keystroke_event *evt);
 
 /* Call these to trigger actions from various UI events: */
 

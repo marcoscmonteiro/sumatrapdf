@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -41,12 +41,12 @@ struct ISzAllocatorAlloc : ISzAlloc {
 
 /* code adapted from https://gnunet.org/svn/gnunet/src/util/crypto_crc.c (public domain) */
 static bool crc_table_ready = false;
-static uint32_t crc_table[256];
+static u32 crc_table[256];
 
-uint32_t lzma_crc32(uint32_t crc32, const unsigned char* data, size_t data_len) {
+u32 lzma_crc32(u32 crc32, const u8* data, size_t data_len) {
     if (!crc_table_ready) {
-        uint32_t i, j;
-        uint32_t h = 1;
+        u32 i, j;
+        u32 h = 1;
         crc_table[0] = 0;
         for (i = 128; i; i >>= 1) {
             h = (h >> 1) ^ ((h & 1) ? 0xEDB88320 : 0);
@@ -70,15 +70,15 @@ uint32_t lzma_crc32(uint32_t crc32, const unsigned char* data, size_t data_len) 
 #define LZMA_HEADER_SIZE (1 + LZMA_PROPS_SIZE)
 
 // the first compressed byte indicates whether compression is LZMA (0), LZMA+BJC (1) or none (-1)
-static bool Decompress(const char* compressed, size_t compressedSize, char* uncompressed, size_t uncompressedSize,
+static bool Decompress(const u8* compressed, size_t compressedSize, u8* uncompressed, size_t uncompressedSize,
                        Allocator* allocator) {
     if (compressedSize < 1) {
         return false;
     }
 
-    uint8_t usesX86Filter = compressed[0];
+    u8 usesX86Filter = compressed[0];
     // handle stored data
-    if (usesX86Filter == (uint8_t)-1) {
+    if (usesX86Filter == (u8)-1) {
         if (uncompressedSize != compressedSize - 1) {
             return false;
         }
@@ -141,33 +141,33 @@ Integers are little-endian.
 // 4 * u32 + FILETIME + name
 #define FILE_ENTRY_MIN_SIZE (4 * 4 + 8 + 1)
 
-bool ParseSimpleArchive(const char* archiveHeader, size_t dataLen, SimpleArchive* archiveOut) {
+bool ParseSimpleArchive(const u8* archiveHeader, size_t dataLen, SimpleArchive* archiveOut) {
     if (dataLen < HEADER_START_SIZE) {
         return false;
     }
-    if (dataLen > (uint32_t)-1) {
+    if (dataLen > (u32)-1) {
         return false;
     }
 
     ByteOrderDecoder br(archiveHeader, dataLen, ByteOrderDecoder::LittleEndian);
-    uint32_t magic_id = br.UInt32();
+    u32 magic_id = br.UInt32();
     if (magic_id != LZMA_MAGIC_ID) {
         return false;
     }
 
-    uint32_t filesCount = br.UInt32();
+    u32 filesCount = br.UInt32();
     archiveOut->filesCount = filesCount;
     if (filesCount > dimof(archiveOut->files)) {
         return false;
     }
 
     FileInfo* fi;
-    for (uint32_t i = 0; i < filesCount; i++) {
+    for (u32 i = 0; i < filesCount; i++) {
         if (br.Offset() + FILE_ENTRY_MIN_SIZE > dataLen) {
             return false;
         }
 
-        uint32_t fileHeaderSize = br.UInt32();
+        u32 fileHeaderSize = br.UInt32();
         if (fileHeaderSize < FILE_ENTRY_MIN_SIZE || fileHeaderSize > 1024) {
             return false;
         }
@@ -181,7 +181,7 @@ bool ParseSimpleArchive(const char* archiveHeader, size_t dataLen, SimpleArchive
         fi->uncompressedCrc32 = br.UInt32();
         fi->ftModified.dwLowDateTime = br.UInt32();
         fi->ftModified.dwHighDateTime = br.UInt32();
-        fi->name = archiveHeader + br.Offset();
+        fi->name = (char*)archiveHeader + br.Offset();
         br.Skip(fileHeaderSize - FILE_ENTRY_MIN_SIZE);
         if (br.Char() != '\0') {
             return false;
@@ -193,13 +193,13 @@ bool ParseSimpleArchive(const char* archiveHeader, size_t dataLen, SimpleArchive
     }
 
     size_t headerSize = br.Offset();
-    uint32_t headerCrc32 = br.UInt32();
-    uint32_t realCrc = lzma_crc32(0, (const uint8_t*)archiveHeader, (uint32_t)headerSize);
+    u32 headerCrc32 = br.UInt32();
+    u32 realCrc = lzma_crc32(0, (const u8*)archiveHeader, (u32)headerSize);
     if (headerCrc32 != realCrc) {
         return false;
     }
 
-    for (uint32_t i = 0; i < filesCount; i++) {
+    for (u32 i = 0; i < filesCount; i++) {
         fi = &archiveOut->files[i];
         // overflow check
         if (fi->compressedSize > dataLen || br.Offset() + fi->compressedSize > dataLen) {
@@ -222,14 +222,14 @@ int GetIdxFromName(SimpleArchive* archive, const char* fileName) {
     return -1;
 }
 
-char* GetFileDataByIdx(SimpleArchive* archive, int idx, Allocator* allocator) {
+u8* GetFileDataByIdx(SimpleArchive* archive, int idx, Allocator* allocator) {
     if (idx >= archive->filesCount) {
         return nullptr;
     }
 
     FileInfo* fi = &archive->files[idx];
 
-    char* uncompressed = (char*)Allocator::Alloc(allocator, fi->uncompressedSize);
+    u8* uncompressed = (u8*)Allocator::Alloc(allocator, fi->uncompressedSize);
     if (!uncompressed) {
         return nullptr;
     }
@@ -240,7 +240,7 @@ char* GetFileDataByIdx(SimpleArchive* archive, int idx, Allocator* allocator) {
         return nullptr;
     }
 
-    uint32_t realCrc = lzma_crc32(0, (const uint8_t*)uncompressed, fi->uncompressedSize);
+    u32 realCrc = lzma_crc32(0, (const u8*)uncompressed, fi->uncompressedSize);
     if (realCrc != fi->uncompressedCrc32) {
         Allocator::Free(allocator, uncompressed);
         return nullptr;
@@ -249,7 +249,7 @@ char* GetFileDataByIdx(SimpleArchive* archive, int idx, Allocator* allocator) {
     return uncompressed;
 }
 
-char* GetFileDataByName(SimpleArchive* archive, const char* fileName, Allocator* allocator) {
+u8* GetFileDataByName(SimpleArchive* archive, const char* fileName, Allocator* allocator) {
     int idx = GetIdxFromName(archive, fileName);
     if (-1 != idx) {
         return GetFileDataByIdx(archive, idx, allocator);
@@ -260,7 +260,7 @@ char* GetFileDataByName(SimpleArchive* archive, const char* fileName, Allocator*
 static bool ExtractFileByIdx(SimpleArchive* archive, int idx, const char* dstDir, Allocator* allocator) {
     FileInfo* fi = &archive->files[idx];
 
-    char* uncompressed = GetFileDataByIdx(archive, idx, allocator);
+    u8* uncompressed = GetFileDataByIdx(archive, idx, allocator);
     if (!uncompressed) {
         return false;
     }
@@ -268,7 +268,7 @@ static bool ExtractFileByIdx(SimpleArchive* archive, int idx, const char* dstDir
     bool ok = false;
     char* filePath = path::JoinUtf(dstDir, fi->name, allocator);
     if (filePath) {
-        std::string_view d = {uncompressed, fi->uncompressedSize};
+        std::span<u8> d = {(u8*)uncompressed, fi->uncompressedSize};
         ok = file::WriteFile(filePath, d);
     }
 

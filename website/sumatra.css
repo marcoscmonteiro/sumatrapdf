@@ -52,6 +52,24 @@ h1, h2, h3 {
   padding-top: 15px;
   padding-left: 15px;
   padding-right: 15px;
+  position: relative;
+}
+
+#donate {
+  position: absolute;
+  top: 4px;
+  right: 16px;
+  /*border: 1px solid #CC6600; */
+  padding: 4px 8px;
+  text-decoration: none;
+  color: orangered;
+  color: red;
+}
+
+#donate:hover {
+  background-color: orange;
+  background-color: red;
+  color: #fff100;
 }
 
 #banner h1 {
@@ -329,4 +347,30 @@ a.for-nav-icon:hover {
   height: 24px;
   pointer-events: none;
   display: block;
+}
+
+.testimonials {
+  display: flex;
+  flex-direction: row;
+  /* justify-content: center; */
+  align-items: center;
+  align-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.testimonial {
+  width: 30%;
+  /* background-color: #FBF0FA; */
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.testimonials-text {
+  font-style: italic;
+}
+
+.testimonial-who {
+  font-size: 90%;
+  float: right;
 }

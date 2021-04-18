@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
 License: Simplified BSD (see COPYING.BSD) */
 
 /*
@@ -31,8 +31,8 @@ The intent is to standardize how we do it.
 
 #define API_DECLARATION(name) extern Sig_##name Dyn##name;
 
-#define API_DECLARATION2(name)            \
-    typedef decltype(##name)* Sig_##name; \
+#define API_DECLARATION2(name)          \
+    typedef decltype(name)* Sig_##name; \
     extern Sig_##name Dyn##name;
 
 // ntdll.dll
@@ -146,7 +146,7 @@ namespace dwm {
 
 BOOL IsCompositionEnabled();
 HRESULT ExtendFrameIntoClientArea(HWND hwnd, const MARGINS* pMarInset);
-BOOL DefWindowProc_(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* plResult);
+BOOL DefWindowProc_(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT* plResult);
 HRESULT GetWindowAttribute(HWND hwnd, DWORD dwAttribute, void* pvAttribute, DWORD cbAttribute);
 }; // namespace dwm
 

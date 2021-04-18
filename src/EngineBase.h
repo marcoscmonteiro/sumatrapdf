@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 extern Kind kindEnginePdf;
@@ -78,12 +78,21 @@ extern Kind kindDestinationZoomToDialog;
 
 Kind resolveDestKind(char* s);
 
+// text on a page
+// a character and its bounding box in page coordinates
+struct PageText {
+    WCHAR* text{nullptr};
+    Rect* coords{nullptr};
+    int len{0}; // number of chars in text and bounding boxes in coords
+};
+
+void FreePageText(PageText*);
+
 // a link destination
-class PageDestination {
-  public:
+struct PageDestination {
     Kind kind = nullptr;
     int pageNo = 0;
-    RectD rect{};
+    RectF rect{};
     WCHAR* value = nullptr;
     WCHAR* name = nullptr;
 
@@ -94,7 +103,7 @@ class PageDestination {
     // page the destination points to (0 for external destinations such as URLs)
     int GetPageNo() const;
     // rectangle of the destination on the above returned page
-    RectD GetRect() const;
+    RectF GetRect() const;
     // string value associated with the destination (e.g. a path or a URL)
     WCHAR* GetValue() const;
     // the name of this destination (reverses EngineBase::GetNamedDest) or nullptr
@@ -102,44 +111,58 @@ class PageDestination {
     WCHAR* GetName() const;
 };
 
-PageDestination* newSimpleDest(int pageNo, RectD rect, const WCHAR* value = nullptr);
+PageDestination* newSimpleDest(int pageNo, RectF rect, const WCHAR* value = nullptr);
 PageDestination* clonePageDestination(PageDestination* dest);
 
 // use in PageDestination::GetDestRect for values that don't matter
-#define DEST_USE_DEFAULT -999.9
+#define DEST_USE_DEFAULT -999.9f
 
 extern Kind kindPageElementDest;
 extern Kind kindPageElementImage;
 extern Kind kindPageElementComment;
 
+struct IPageElement {
+    virtual ~IPageElement(){};
+
+    // the type of this page element
+    bool Is(Kind expectedKind);
+
+    virtual Kind GetKind() = 0;
+    // page this element lives on (0 for elements in a ToC)
+    virtual int GetPageNo() = 0;
+    // rectangle that can be interacted with
+    virtual RectF GetRect() = 0;
+    // string value associated with this element (e.g. displayed in an infotip)
+    // caller must free() the result
+    virtual WCHAR* GetValue() = 0;
+    // if this element is a link, this returns information about the link's destination
+    // (the result is owned by the PageElement and MUST NOT be deleted)
+    virtual PageDestination* AsLink() = 0;
+    virtual IPageElement* Clone() = 0;
+};
+
 // hoverable (and maybe interactable) element on a single page
-class PageElement {
-  public:
-    Kind kind = nullptr;
+struct PageElement : IPageElement {
+    Kind kind_ = nullptr;
     int pageNo = 0;
-    RectD rect{};
+    RectF rect{};
     WCHAR* value = nullptr;
     // only set if kindPageElementDest
     PageDestination* dest = nullptr;
 
     int imageID = 0;
 
-    ~PageElement();
-    // the type of this page element
-    bool Is(Kind expectedKind) const;
-    // page this element lives on (0 for elements in a ToC)
-    int GetPageNo() const;
-    // rectangle that can be interacted with
-    RectD GetRect() const;
-    // string value associated with this element (e.g. displayed in an infotip)
-    // caller must free() the result
-    WCHAR* GetValue() const;
-    // if this element is a link, this returns information about the link's destination
-    // (the result is owned by the PageElement and MUST NOT be deleted)
-    PageDestination* AsLink();
+    ~PageElement() override;
+
+    Kind GetKind() override;
+    int GetPageNo() override;
+    RectF GetRect() override;
+    WCHAR* GetValue() override;
+    PageDestination* AsLink() override;
+    IPageElement* Clone() override;
 };
 
-PageElement* clonePageElement(PageElement*);
+IPageElement* clonePageElement(IPageElement*);
 
 // those are the same as F font bitmask in PDF docs
 // for TocItem::fontFlags
@@ -261,11 +284,11 @@ struct RenderPageArgs {
     float zoom = 0;
     int rotation = 0;
     /* if nullptr: defaults to the page's mediabox */
-    RectD* pageRect = nullptr;
+    RectF* pageRect = nullptr;
     RenderTarget target = RenderTarget::View;
     AbortCookie** cookie_out = nullptr;
 
-    RenderPageArgs(int pageNo, float zoom, int rotation, RectD* pageRect = nullptr,
+    RenderPageArgs(int pageNo, float zoom, int rotation, RectF* pageRect = nullptr,
                    RenderTarget target = RenderTarget::View, AbortCookie** cookie_out = nullptr);
 };
 
@@ -280,19 +303,10 @@ class EngineBase {
     bool isImageCollection = false;
     bool allowsPrinting = true;
     bool allowsCopyingText = true;
-    // TODO: generalize from PageAnnotation to PageModification
-    // whether this engine supports adding user annotations of all available types
-    // (either for rendering or for saving)
-    bool supportsAnnotations = false;
-    bool supportsAnnotationsForSaving = false;
     bool isPasswordProtected = false;
     char* decryptionKey = nullptr;
     bool hasPageLabels = false;
     int pageCount = -1;
-
-    // annotations from .smx file and added by the user
-    // owned by DisplayModel
-    Vec<Annotation*>* userAnnots = nullptr;
 
     // TODO: migrate other engines to use this
     AutoFreeWstr fileNameBase;
@@ -304,11 +318,11 @@ class EngineBase {
     // number of pages the loaded document contains
     int PageCount() const;
 
-    // the box containing the visible page content (usually RectD(0, 0, pageWidth, pageHeight))
-    virtual RectD PageMediabox(int pageNo) = 0;
+    // the box containing the visible page content (usually RectF(0, 0, pageWidth, pageHeight))
+    virtual RectF PageMediabox(int pageNo) = 0;
     // the box inside PageMediabox that actually contains any relevant content
     // (used for auto-cropping in Fit Content mode, can be PageMediabox)
-    virtual RectD PageContentBox(int pageNo, RenderTarget target = RenderTarget::View);
+    virtual RectF PageContentBox(int pageNo, RenderTarget target = RenderTarget::View);
 
     // renders a page into a cacheable RenderedBitmap
     // (*cookie_out must be deleted after the call returns)
@@ -316,13 +330,13 @@ class EngineBase {
 
     // applies zoom and rotation to a point in user/page space converting
     // it into device/screen space - or in the inverse direction
-    PointD Transform(PointD pt, int pageNo, float zoom, int rotation, bool inverse = false);
-    virtual RectD Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse = false) = 0;
+    PointF Transform(PointF pt, int pageNo, float zoom, int rotation, bool inverse = false);
+    virtual RectF Transform(const RectF& rect, int pageNo, float zoom, int rotation, bool inverse = false) = 0;
 
     // returns the binary data for the current file
     // (e.g. for saving again when the file has already been deleted)
     // caller needs to free() the result
-    virtual std::string_view GetFileData() = 0;
+    virtual std::span<u8> GetFileData() = 0;
 
     // saves a copy of the current file under a different name (overwriting an existing file)
     // (includeUserAnnots only has an effect if SupportsAnnotation(true) returns true)
@@ -334,7 +348,7 @@ class EngineBase {
     // extracts all text found in the given page (and optionally also the
     // coordinates of the individual glyphs)
     // caller needs to free() the result and *coordsOut (if coordsOut is non-nullptr)
-    virtual WCHAR* ExtractPageText(int pageNo, Rect** coordsOut = nullptr) = 0;
+    virtual PageText ExtractPageText(int pageNo) = 0;
     // pages where clipping doesn't help are rendered in larger tiles
     virtual bool HasClipOptimizations(int pageNo) = 0;
 
@@ -345,13 +359,6 @@ class EngineBase {
 
     // access to various document properties (such as Author, Title, etc.)
     virtual WCHAR* GetProperty(DocumentProperty prop) = 0;
-
-    // Get annotations saved in the document (only applies to PDF docs)
-    virtual void GetAnnotations(Vec<Annotation*>* annotsOut);
-
-    // informs the engine about annotations the user made so that they can be rendered, etc.
-    // (this call supercedes any prior call to SetUserAnnotations)
-    void SetUserAnnotations(Vec<Annotation*>* annots);
 
     // TODO: needs a more general interface
     // whether it is allowed to print the current document
@@ -366,10 +373,10 @@ class EngineBase {
 
     // returns a list of all available elements for this page
     // caller must delete the result (including all elements contained in the Vec)
-    virtual Vec<PageElement*>* GetElements(int pageNo) = 0;
+    virtual Vec<IPageElement*>* GetElements(int pageNo) = 0;
     // returns the element at a given point or nullptr if there's none
     // caller must delete the result
-    virtual PageElement* GetElementAtPos(int pageNo, PointD pt) = 0;
+    virtual IPageElement* GetElementAtPos(int pageNo, PointF pt) = 0;
 
     // creates a PageDestination from a name (or nullptr for invalid names)
     // caller must delete the result
@@ -408,16 +415,17 @@ class EngineBase {
     // the name of the file this engine handles
     const WCHAR* FileName() const;
 
-    virtual RenderedBitmap* GetImageForPageElement(PageElement*);
+    virtual RenderedBitmap* GetImageForPageElement(IPageElement*);
 
-  protected:
+    // protected:
     void SetFileName(const WCHAR* s);
 };
 
 class PasswordUI {
   public:
-    virtual WCHAR* GetPassword(const WCHAR* fileName, unsigned char* fileDigest, unsigned char decryptionKeyOut[32],
-                               bool* saveKey) = 0;
+    virtual WCHAR* GetPassword(const WCHAR* fileName, u8* fileDigest, u8 decryptionKeyOut[32], bool* saveKey) = 0;
     virtual ~PasswordUI() {
     }
 };
+
+const WCHAR* SkipFileProtocol(const WCHAR*);

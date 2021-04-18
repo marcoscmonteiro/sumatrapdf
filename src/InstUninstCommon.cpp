@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // code used in both Installer.cpp and Uninstaller.cpp
@@ -34,10 +34,11 @@
 #include "previewer/PdfPreview.h"
 
 #include "SumatraConfig.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "Flags.h"
-#include "Resource.h"
+#include "resource.h"
 #include "Version.h"
 #include "Installer.h"
 
@@ -88,10 +89,6 @@ using Gdiplus::StringAlignmentCenter;
 using Gdiplus::StringFormat;
 using Gdiplus::StringFormatFlagsDirectionRightToLeft;
 
-using Gdiplus::PointF;
-using Gdiplus::RectF;
-using Gdiplus::SizeF;
-
 Color gCol1(196, 64, 50);
 Color gCol1Shadow(134, 48, 39);
 Color gCol2(227, 107, 35);
@@ -131,7 +128,7 @@ static WStrVec gProcessesToClose;
 // clang-format off
 const WCHAR* gSupportedExtsSumatra[] = {
     L".pdf",  L".xps",  L".oxps", L".cbz",  L".cbr",  L".cb7", L".cbt",
-    L".djvu", L".chm", L".mobi", L".epub", L".azw",  L".azw3", L"azw4",
+    L".djvu", L".chm", L".mobi", L".epub", L".azw",  L".azw3", L".azw4",
     L".fb2", L".fb2z", L".prc",  L".tif", L".tiff", L".jp2",  L".png",
     L".jpg",  L".jpeg", L".tga", L".gif",  nullptr
 };
@@ -167,7 +164,7 @@ static HFONT CreateDefaultGuiFont() {
 
 static void InvalidateFrame() {
     Rect rc = ClientRect(gHwndFrame);
-    RECT rcTmp = rc.ToRECT();
+    RECT rcTmp = ToRECT(rc);
     InvalidateRect(gHwndFrame, &rcTmp, FALSE);
 }
 
@@ -255,7 +252,6 @@ static bool IsProcessUsingFiles(DWORD procId, WCHAR* file1, WCHAR* file2) {
     BOOL cont = Module32First(snap, &mod);
     while (cont) {
         WCHAR* exePath = mod.szExePath;
-        const WCHAR* exeName = path::GetBaseNameNoFree(exePath);
         if (file1 && path::IsSame(file1, exePath)) {
             return true;
         }
@@ -557,7 +553,7 @@ static void SetCloseProcessMsg() {
             procNames.Set(str::Join(procNames, L" and ", name));
         }
     }
-    AutoFreeWstr s = str::Format(_TR("Please close %s to proceed!"), procNames.get());
+    AutoFreeWstr s = str::Format(_TR("Please close %s to proceed!"), procNames.Get());
     SetMsg(s, COLOR_MSG_FAILED);
 }
 
@@ -658,7 +654,7 @@ static void RandomizeLetters()
 #endif
 
 static void SetLettersSumatraUpTo(int n) {
-    char* s = "SUMATRAPDF";
+    const char* s = "SUMATRAPDF";
     for (int i = 0; i < dimof(gLetters); i++) {
         if (i < n) {
             gLetters[i].c = s[i];
@@ -726,8 +722,8 @@ static void CalcLettersLayout(Graphics& g, Font* f, int dx) {
     const float letterSpacing = -12.f;
     float totalDx = -letterSpacing; // counter last iteration of the loop
     WCHAR s[2] = {0};
-    PointF origin(0.f, 0.f);
-    RectF bbox;
+    Gdiplus::PointF origin(0.f, 0.f);
+    Gdiplus::RectF bbox;
     for (int i = 0; i < dimof(gLetters); i++) {
         li = &gLetters[i];
         s[0] = li->c;
@@ -753,8 +749,8 @@ static float DrawMessage(Graphics& g, const WCHAR* msg, float y, float dx, Color
     AutoFreeWstr s = str::Dup(msg);
 
     Font f(L"Impact", 16, FontStyleRegular);
-    RectF maxbox(0, y, dx, 0);
-    RectF bbox;
+    Gdiplus::RectF maxbox(0, y, dx, 0);
+    Gdiplus::RectF bbox;
     g.MeasureString(s, -1, &f, maxbox, &bbox);
 
     bbox.X += (dx - bbox.Width) / 2.f;
@@ -793,12 +789,12 @@ static void DrawSumatraLetters(Graphics& g, Font* f, Font* fVer, float y) {
 #if DRAW_TEXT_SHADOW
         // draw shadow first
         SolidBrush b2(li->colShadow);
-        PointF o2(li->x - 3.f, y + 4.f + li->dyOff);
+        Gdiplus::PointF o2(li->x - 3.f, y + 4.f + li->dyOff);
         g.DrawString(s, 1, f, o2, &b2);
 #endif
 
         SolidBrush b1(li->col);
-        PointF o1(li->x, y + li->dyOff);
+        Gdiplus::PointF o1(li->x, y + li->dyOff);
         g.DrawString(s, 1, f, o1, &b1);
         g.RotateTransform(li->rotation, MatrixOrderAppend);
         g.ResetTransform();
@@ -811,13 +807,13 @@ static void DrawSumatraLetters(Graphics& g, Font* f, Font* fVer, float y) {
     float x2 = 15;
     float y2 = -34;
 
-    WCHAR* ver_s = L"v" CURR_VERSION_STR;
+    const WCHAR* ver_s = L"v" CURR_VERSION_STR;
 #if DRAW_TEXT_SHADOW
     SolidBrush b1(Color(0, 0, 0));
-    g.DrawString(ver_s, -1, fVer, PointF(x2 - 2, y2 - 1), &b1);
+    g.DrawString(ver_s, -1, fVer, Gdiplus::PointF(x2 - 2, y2 - 1), &b1);
 #endif
     SolidBrush b2(Color(0xff, 0xff, 0xff));
-    g.DrawString(ver_s, -1, fVer, PointF(x2, y2), &b2);
+    g.DrawString(ver_s, -1, fVer, Gdiplus::PointF(x2, y2), &b2);
     g.ResetTransform();
 }
 
@@ -832,7 +828,7 @@ static void DrawFrame2(Graphics& g, Rect r) {
     Gdiplus::Color bgCol;
     bgCol.SetFromCOLORREF(WIN_BG_COLOR);
     SolidBrush bgBrush(bgCol);
-    Gdiplus::Rect r2(r.ToGdipRect());
+    Gdiplus::Rect r2(ToGdipRect(r));
     r2.Inflate(1, 1);
     g.FillRectangle(&bgBrush, r2);
 

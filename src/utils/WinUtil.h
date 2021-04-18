@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // the following are only defined if _WIN32_WINNT >= 0x0600 and we use 0x0500
@@ -90,11 +90,12 @@ bool LaunchBrowser(const WCHAR* url);
 HANDLE LaunchProcess(const WCHAR* cmdLine, const WCHAR* currDir = nullptr, DWORD flags = 0);
 bool CreateProcessHelper(const WCHAR* exe, const WCHAR* args);
 bool LaunchElevated(const WCHAR* path, const WCHAR* cmdline);
-bool IsRunningElevated();
+bool IsProcessRunningElevated();
+bool CanTalkToProcess(DWORD procId);
 
-void PaintRect(HDC, const Rect&);
-void PaintLine(HDC, const Rect&);
-void DrawCenteredText(HDC hdc, const Rect& r, const WCHAR* txt, bool isRTL = false);
+void PaintRect(HDC, const Rect);
+void PaintLine(HDC, const Rect);
+void DrawCenteredText(HDC hdc, const Rect r, const WCHAR* txt, bool isRTL = false);
 void DrawCenteredText(HDC, const RECT& r, const WCHAR* txt, bool isRTL = false);
 Size TextSizeInHwnd(HWND, const WCHAR*, HFONT = nullptr);
 SIZE TextSizeInHwnd2(HWND, const WCHAR*, HFONT);
@@ -103,6 +104,7 @@ Size TextSizeInDC(HDC, const WCHAR*);
 bool IsFocused(HWND);
 bool IsCursorOverWindow(HWND);
 bool GetCursorPosInHwnd(HWND, Point&);
+POINT GetCursorPosInHwnd(HWND);
 void CenterDialog(HWND hDlg, HWND hParent = nullptr);
 WCHAR* GetDefaultPrinterName();
 bool CopyTextToClipboard(const WCHAR* text, bool appendOnly = false);
@@ -117,15 +119,17 @@ bool IsRtl(HWND hwnd);
 void SetRtl(HWND hwnd, bool isRtl);
 
 Rect ChildPosWithinParent(HWND);
+
+int GetSizeOfDefaultGuiFont();
 HFONT GetDefaultGuiFont();
 HFONT GetDefaultGuiFont(bool bold, bool italic);
-long GetDefaultGuiFontSize();
+HFONT GetDefaultGuiFontOfSize(int size);
 
-IStream* CreateStreamFromData(std::string_view);
-std::string_view GetDataFromStream(IStream* stream, HRESULT* resOpt);
-std::string_view GetStreamOrFileData(IStream* stream, const WCHAR* filePath);
+IStream* CreateStreamFromData(std::span<u8>);
+std::span<u8> GetDataFromStream(IStream* stream, HRESULT* resOpt);
+std::span<u8> GetStreamOrFileData(IStream* stream, const WCHAR* filePath);
 bool ReadDataFromStream(IStream* stream, void* buffer, size_t len, size_t offset = 0);
-UINT GuessTextCodepage(const char* data, size_t len, UINT defVal = CP_ACP);
+uint GuessTextCodepage(const char* data, size_t len, uint defVal = CP_ACP);
 WCHAR* NormalizeString(const WCHAR* str, int /* NORM_FORM */ form);
 void ResizeHwndToClientArea(HWND hwnd, int dx, int dy, bool hasMenu);
 void ResizeWindow(HWND, int dx, int dy);
@@ -169,26 +173,29 @@ bool HasFrameThickness(HWND hwnd);
 bool HasCaption(HWND hwnd);
 
 namespace menu {
-void SetChecked(HMENU m, UINT id, bool isChecked);
-bool SetEnabled(HMENU m, UINT id, bool isEnabled);
-void Remove(HMENU m, UINT id);
+void SetChecked(HMENU m, int id, bool isChecked);
+bool SetEnabled(HMENU m, int id, bool isEnabled);
+void Remove(HMENU m, int id);
+// TODO: this doesn't recognize enum Cmd, why?
+// void Remove(HMENU m, enum Cmd id);
 void Empty(HMENU m);
-void SetText(HMENU m, UINT id, WCHAR* s);
+void SetText(HMENU m, int id, const WCHAR* s);
 const WCHAR* ToSafeString(AutoFreeWstr& s);
 
 } // namespace menu
 
 } // namespace win
 
-class DoubleBuffer {
+struct DoubleBuffer {
     HWND hTarget = nullptr;
     HDC hdcCanvas = nullptr;
     HDC hdcBuffer = nullptr;
     HBITMAP doubleBuffer = nullptr;
     Rect rect{};
 
-  public:
     DoubleBuffer(HWND hwnd, Rect rect);
+    DoubleBuffer(const DoubleBuffer&) = delete;
+    DoubleBuffer& operator=(const DoubleBuffer&) = delete;
     ~DoubleBuffer();
 
     HDC GetDC() const;
@@ -202,7 +209,8 @@ class DeferWinPosHelper {
     DeferWinPosHelper();
     ~DeferWinPosHelper();
     void End();
-    void SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int x, int y, int cx, int cy, UINT uFlags);
+    void SetWindowPos(HWND hwnd, const Rect rc);
+    void SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
     void MoveWindow(HWND hWnd, int x, int y, int cx, int cy, BOOL bRepaint = TRUE);
     void MoveWindow(HWND hWnd, Rect r);
 };
@@ -225,31 +233,47 @@ BitmapPixels* GetBitmapPixels(HBITMAP hbmp);
 void FinalizeBitmapPixels(BitmapPixels* bitmapPixels);
 COLORREF GetPixel(BitmapPixels* bitmap, int x, int y);
 void UpdateBitmapColors(HBITMAP hbmp, COLORREF textColor, COLORREF bgColor);
-unsigned char* SerializeBitmap(HBITMAP hbmp, size_t* bmpBytesOut);
+std::span<u8> SerializeBitmap(HBITMAP hbmp);
 HBITMAP CreateMemoryBitmap(Size size, HANDLE* hDataMapping = nullptr);
 bool BlitHBITMAP(HBITMAP hbmp, HDC hdc, Rect target);
 double GetProcessRunningTime();
 
 void RunNonElevated(const WCHAR* exePath);
 void VariantInitBstr(VARIANT& urlVar, const WCHAR* s);
-// TODO: this should be std::span<u8>
-std::string_view LoadDataResource(int resId);
+std::span<u8> LoadDataResource(int resId);
 bool DDEExecute(const WCHAR* server, const WCHAR* topic, const WCHAR* command);
 
 void RectInflateTB(RECT& r, int top, int bottom);
 void DivideRectH(const RECT& r, int y, int dy, RECT& r1, RECT& r2, RECT& r3);
 void DivideRectV(const RECT& r, int x, int dx, RECT& r1, RECT& r2, RECT& r3);
 
-HCURSOR GetCursor(LPWSTR id);
-void SetCursor(LPWSTR id);
+HCURSOR GetCachedCursor(LPWSTR id);
+void SetCursorCached(LPWSTR id);
 void DeleteCachedCursors();
 
 int GetMeasurementSystem();
 bool TrackMouseLeave(HWND);
 
 void TriggerRepaint(HWND);
-POINT GetCursorPosInHwnd(HWND);
 HINSTANCE GetInstance();
-void hwndDpiAdjust(HWND hwnd, float* x, float* y);
 Size ButtonGetIdealSize(HWND hwnd);
-std::tuple<const char*, DWORD, HGLOBAL> LockDataResource(int id);
+std::tuple<const u8*, DWORD, HGLOBAL> LockDataResource(int id);
+bool IsValidDelayType(int type);
+
+void HwndDpiAdjust(HWND, float* x, float* y);
+void HwndSetText(HWND, std::string_view s);
+HICON HwndSetIcon(HWND, HICON);
+HICON HwndGetIcon(HWND);
+void HwndInvalidate(HWND);
+void HwndSetFont(HWND, HFONT);
+HFONT HwndGetFont(HWND);
+Size HwndMeasureText(HWND hwnd, const WCHAR* txt, HFONT font);
+void HwndPositionToTheRightOf(HWND hwnd, HWND hwndRelative);
+void HwndSendCommand(HWND hwnd, int cmdId);
+
+void TbSetButtonInfo(HWND hwnd, int buttonId, TBBUTTONINFO* info);
+void TbGetPadding(HWND, int* padX, int* padY);
+void TbSetPadding(HWND, int padX, int padY);
+void TbGetMetrics(HWND hwnd, TBMETRICS* metrics);
+void TbSetMetrics(HWND hwnd, TBMETRICS* metrics);
+void TbGetRect(HWND hwnd, int buttonId, RECT* rc);

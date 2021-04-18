@@ -21,7 +21,6 @@ pdf_crypt *pdf_new_encrypt(fz_context *ctx, const char *opwd_utf8, const char *u
 void pdf_drop_crypt(fz_context *ctx, pdf_crypt *crypt);
 
 void pdf_crypt_obj(fz_context *ctx, pdf_crypt *crypt, pdf_obj *obj, int num, int gen);
-void pdf_crypt_buffer(fz_context *ctx, pdf_crypt *crypt, fz_buffer *buf, int num, int gen);
 fz_stream *pdf_open_crypt(fz_context *ctx, fz_stream *chain, pdf_crypt *crypt, int num, int gen);
 fz_stream *pdf_open_crypt_with_filter(fz_context *ctx, fz_stream *chain, pdf_crypt *crypt, pdf_obj *name, int num, int gen);
 
@@ -40,7 +39,7 @@ unsigned char *pdf_crypt_key(fz_context *ctx, pdf_crypt *crypt);
 
 void pdf_print_crypt(fz_context *ctx, fz_output *out, pdf_crypt *crypt);
 
-void pdf_write_digest(fz_context *ctx, fz_output *out, pdf_obj *byte_range, size_t digest_offset, size_t digest_length, pdf_pkcs7_signer *signer);
+void pdf_write_digest(fz_context *ctx, fz_output *out, pdf_obj *byte_range, pdf_obj *field, size_t digest_offset, size_t digest_length, pdf_pkcs7_signer *signer);
 
 /*
 	User access permissions from PDF reference.
@@ -74,7 +73,17 @@ int pdf_signature_incremental_change_since_signing(fz_context *ctx, pdf_document
 */
 size_t pdf_signature_contents(fz_context *ctx, pdf_document *doc, pdf_obj *signature, char **contents);
 
-void pdf_sign_signature(fz_context *ctx, pdf_widget *widget, pdf_pkcs7_signer *signer);
+/*
+	Sign a signature field, while assigning it a default appearance, consisting of a central logo,
+	the signer's name on the left and the full designated-name information on the left
+*/
+void pdf_sign_signature(fz_context *ctx, pdf_widget *widget, pdf_pkcs7_signer *signer, fz_image *image);
+
+/*
+	Sign a signature field, while assigning it an arbitrary apparance determined by a display list.
+	The function pdf_signature_appearance can generate a variety of common signature appearances.
+*/
+void pdf_sign_signature_with_appearance(fz_context *ctx, pdf_widget *widget, pdf_pkcs7_signer *signer, int64_t t, fz_display_list *disp_list);
 
 void pdf_clear_signature(fz_context *ctx, pdf_widget *widget);
 

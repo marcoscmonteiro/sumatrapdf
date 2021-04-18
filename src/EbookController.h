@@ -1,25 +1,24 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 struct DrawInstr;
 struct EbookControls;
 struct EbookFormattingData;
-class FrameRateWnd;
+struct FrameRateWnd;
 
-class EbookController;
+struct EbookController;
 class EbookFormattingThread;
 class HtmlFormatter;
-class HtmlFormatterArgs;
-class HtmlPage;
+struct HtmlFormatterArgs;
+struct HtmlPage;
 
 namespace mui {
 class Control;
 }
 using namespace mui;
 
-class EbookController : public Controller {
-  public:
-    EbookController(Doc doc, EbookControls* ctrls, ControllerCallback* cb);
+struct EbookController : Controller {
+    EbookController(const Doc& doc, EbookControls* ctrls, ControllerCallback* cb);
     ~EbookController() override;
 
     const WCHAR* FilePath() const override {
@@ -44,21 +43,18 @@ class EbookController : public Controller {
 
     void SetDisplayMode(DisplayMode mode, bool keepContinuous = false) override;
     DisplayMode GetDisplayMode() const override {
-        return IsDoublePage() ? DM_FACING : DM_SINGLE_PAGE;
+        return IsDoublePage() ? DisplayMode::Facing : DisplayMode::SinglePage;
     }
-    void SetPresentationMode(bool enable) override {
-        UNUSED(enable); /* not supported */
+    void SetPresentationMode([[maybe_unused]] bool enable) override {
+        /* not supported */
     }
-    void SetZoomVirtual(float zoom, Point* fixPt) override {
-        UNUSED(zoom);
-        UNUSED(fixPt); /* not supported */
+    void SetZoomVirtual([[maybe_unused]] float zoom, [[maybe_unused]] Point* fixPt) override {
+        /* not supported */
     }
-    float GetZoomVirtual(bool absolute = false) const override {
-        UNUSED(absolute);
+    float GetZoomVirtual([[maybe_unused]] bool absolute = false) const override {
         return 100;
     }
-    float GetNextZoomStep(float towards) const override {
-        UNUSED(towards);
+    float GetNextZoomStep([[maybe_unused]] float towards) const override {
         return 100;
     }
     void SetViewPortSize(Size size) override;
@@ -77,31 +73,29 @@ class EbookController : public Controller {
         return this;
     }
 
-  public:
     // the following is specific to EbookController
 
     DocType GetDocType() const {
         return doc.Type();
     }
-    LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam, bool& wasHandled);
+    LRESULT HandleMessage(UINT msg, WPARAM wp, LPARAM lp, bool& wasHandled);
     void EnableMessageHandling(bool enable) {
         handleMsgs = enable;
     }
     void UpdateDocumentColors();
     void RequestRepaint();
-    void HandlePagesFromEbookLayout(EbookFormattingData* ebookLayout);
+    void HandlePagesFromEbookLayout(EbookFormattingData* ft);
     void TriggerLayout();
-    void StartLayouting(int startReparseIdxArg = -1, DisplayMode displayMode = DM_AUTOMATIC);
+    void StartLayouting(int startReparseIdxArg = -1, DisplayMode displayMode = DisplayMode::Automatic);
     int ResolvePageAnchor(const WCHAR* id);
     void CopyNavHistory(EbookController& orig);
     int CurrentTocPageNo() const;
 
     // call StartLayouting before using this EbookController
-    static EbookController* Create(Doc doc, HWND hwnd, ControllerCallback* cb, FrameRateWnd*);
+    static EbookController* Create(const Doc& doc, HWND hwnd, ControllerCallback* cb, FrameRateWnd*);
 
     static void DeleteEbookFormattingData(EbookFormattingData* data);
 
-  protected:
     EbookControls* ctrls = nullptr;
 
     TocTree* tocTree = nullptr;
@@ -159,4 +153,4 @@ class EbookController : public Controller {
     void ClickedPage2(Control* c, int x, int y);
 };
 
-HtmlFormatterArgs* CreateFormatterArgsDoc(Doc doc, int dx, int dy, Allocator* textAllocator = nullptr);
+HtmlFormatterArgs* CreateFormatterArgsDoc(const Doc& doc, int dx, int dy, Allocator* textAllocator = nullptr);

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -183,9 +183,101 @@ static void ParseUntilTest() {
     }
 }
 
+void strStrTest() {
+    {
+        // verify that we use buf for initial allocations
+        str::Str str;
+        char* buf = str.Get();
+        str.Append("blah");
+        char* buf2 = str.Get();
+        utassert(buf == buf2);
+        str::Eq(buf2, "blah");
+        str.Append("lost");
+        buf2 = str.Get();
+        str::Eq(buf2, "blahlost");
+        utassert(buf == buf2);
+        str.Reset();
+        for (int i = 0; i < str::Str::kBufChars + 4; i++) {
+            str.AppendChar((char)i);
+        }
+        buf2 = str.Get();
+        // we should have allocated buf on the heap
+        utassert(buf != buf2);
+        for (int i = 0; i < str::Str::kBufChars + 4; i++) {
+            char c = str.at(i);
+            utassert(c == (char)i);
+        }
+    }
+
+    {
+        // verify that initialCapacity hint works
+        str::Str str(1024);
+        char* buf = nullptr;
+
+        for (int i = 0; i < 50; i++) {
+            str.Append("01234567890123456789");
+            if (i == 2) {
+                // we filled Str::buf (32 bytes) by putting 20 bytes
+                // and allocated heap for 1024 bytes. Remember the
+                buf = str.Get();
+            }
+        }
+        // we've appended 100*10 = 1000 chars, which is less than 1024
+        // so Str::buf should be the same as buf
+        char* buf2 = str.Get();
+        utassert(buf == buf2);
+    }
+}
+
+void strWStrTest() {
+    {
+        // verify that we use buf for initial allocations
+        str::WStr str;
+        WCHAR* buf = str.Get();
+        str.Append(L"blah");
+        WCHAR* buf2 = str.Get();
+        utassert(buf == buf2);
+        str::Eq(buf2, L"blah");
+        str.Append(L"lost");
+        buf2 = str.Get();
+        str::Eq(buf2, L"blahlost");
+        utassert(buf == buf2);
+        str.Reset();
+        for (int i = 0; i < str::Str::kBufChars + 4; i++) {
+            str.AppendChar((WCHAR)i);
+        }
+        buf2 = str.Get();
+        // we should have allocated buf on the heap
+        utassert(buf != buf2);
+        for (int i = 0; i < str::Str::kBufChars + 4; i++) {
+            WCHAR c = str.at(i);
+            utassert(c == (WCHAR)i);
+        }
+    }
+
+    {
+        // verify that initialCapacity hint works
+        str::WStr str(1024);
+        WCHAR* buf = nullptr;
+
+        for (int i = 0; i < 50; i++) {
+            str.Append(L"01234567890123456789");
+            if (i == 2) {
+                // we filled Str::buf (32 bytes) by putting 20 bytes
+                // and allocated heap for 1024 bytes. Remember the
+                buf = str.Get();
+            }
+        }
+        // we've appended 100*10 = 1000 chars, which is less than 1024
+        // so WStr::buf should be the same as buf
+        WCHAR* buf2 = str.Get();
+        utassert(buf == buf2);
+    }
+}
+
 void StrTest() {
     WCHAR buf[32];
-    WCHAR* str = L"a string";
+    const WCHAR* str = L"a string";
     utassert(str::Len(str) == 8);
     utassert(str::Eq(str, L"a string") && str::Eq(str, str));
     utassert(!str::Eq(str, nullptr) && !str::Eq(str, L"A String"));
@@ -206,19 +298,19 @@ void StrTest() {
 
     str = str::Dup(buf);
     utassert(str::Eq(str, buf));
-    free(str);
+    str::Free(str);
     str = str::DupN(buf, 4);
     utassert(str::Eq(str, L"a st"));
-    free(str);
+    str::Free(str);
     str = str::Format(L"%s", buf);
     utassert(str::Eq(str, buf));
-    free(str);
+    str::Free(str);
     {
         AutoFreeWstr large(AllocArray<WCHAR>(2000));
         memset(large, 0x11, 1998);
-        str = str::Format(L"%s", large.get());
+        str = str::Format(L"%s", large.Get());
         utassert(str::Eq(str, large));
-        free(str);
+        str::Free(str);
     }
 #if 0
     // TODO: this test slows down DEBUG builds significantly
@@ -229,13 +321,13 @@ void StrTest() {
 #endif
     str = str::Join(buf, buf);
     utassert(str::Len(str) == 2 * str::Len(buf));
-    free(str);
+    str::Free(str);
     str = str::Join(nullptr, L"ab");
     utassert(str::Eq(str, L"ab"));
-    free(str);
+    str::Free(str);
     str = str::Join(L"\uFDEF", L"\uFFFF");
     utassert(str::Eq(str, L"\uFDEF\uFFFF"));
-    free(str);
+    str::Free(str);
 
     str::BufSet(buf, dimof(buf), L"abc\1efg\1");
     size_t count = str::TransChars(buf, L"ace", L"ACE");
@@ -266,7 +358,7 @@ void StrTest() {
 
     str = L"[Open(\"filename.pdf\",0,1,0)]";
     {
-        UINT u1 = 0;
+        uint u1 = 0;
         WCHAR* str1 = nullptr;
         const WCHAR* end = str::Parse(str, L"[Open(\"%s\",%? 0,%u,0)]", &str1, &u1);
         utassert(end && !*end);
@@ -275,7 +367,7 @@ void StrTest() {
     }
 
     {
-        UINT u1 = 0;
+        uint u1 = 0;
         AutoFreeWstr str1;
         const WCHAR* end = str::Parse(str, L"[Open(\"%S\",0%?,%u,0)]", &str1, &u1);
         utassert(end && !*end);
@@ -387,7 +479,7 @@ void StrTest() {
     utassert(str::Eq(strA.Get(), TEST_STRING));
     str = strconv::FromAnsi(strA.Get());
     utassert(str::Eq(str, TEXT(TEST_STRING)));
-    free(str);
+    str::Free(str);
 #undef TEST_STRING
 
     utassert(str::IsDigit('0') && str::IsDigit(TEXT('5')) && str::IsDigit(L'9'));
@@ -526,7 +618,7 @@ void StrTest() {
 
     {
         AutoFree tmp = strconv::ToMultiByte("abc", 9876, 123456);
-        utassert(!tmp.get());
+        utassert(!tmp.Get());
     }
     {
         AutoFree tmp = strconv::WstrToCodePage(L"abc", 98765);
@@ -573,7 +665,7 @@ void StrTest() {
 
     {
         for (int c = 0x00; c < 0x100; c++) {
-            utassert(!!isspace((unsigned char)c) == str::IsWs((char)c));
+            utassert(!!isspace((u8)c) == str::IsWs((char)c));
         }
         for (int c = 0x00; c < 0x10000; c++) {
             utassert(!!iswspace((WCHAR)c) == str::IsWs((WCHAR)c));
@@ -600,6 +692,8 @@ void StrTest() {
         utassert(str::Eq(str::FindI("test", "st"), "st"));
     }
 
+    strStrTest();
+    strWStrTest();
     StrIsDigitTest();
     StrReplaceTest();
     StrSeqTest();

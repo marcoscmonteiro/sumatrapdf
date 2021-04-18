@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -60,14 +60,12 @@ static bool IsRegularFile(DWORD fileAttr) {
     return true;
 }
 
-#if 0
-static bool IsDirectory(DWORD fileAttr) {
+bool IsDirectory(DWORD fileAttr) {
     if (fileAttr & FILE_ATTRIBUTE_DIRECTORY) {
         return true;
     }
     return false;
 }
-#endif
 
 // "." and ".." are special
 static bool IsSpecialDir(const WCHAR* s) {
@@ -165,13 +163,13 @@ bool CollectFilesFromDirectory(std::string_view dir, VecStr& files,
         isFile = IsRegularFile(fdata.dwFileAttributes);
         if (isFile) {
             AutoFreeStr name = strconv::WstrToUtf8(fdata.cFileName);
-            AutoFreeStr filePath = path::JoinUtf(dir.data(), name.get(), nullptr);
+            AutoFreeStr filePath = path::JoinUtf(dir.data(), name.Get(), nullptr);
             bool matches = true;
             if (fileMatchesFn) {
-                matches = fileMatchesFn(filePath.as_view());
+                matches = fileMatchesFn(filePath.AsView());
             }
             if (matches) {
-                files.Append(filePath.as_view());
+                files.Append(filePath.AsView());
             }
         }
     } while (FindNextFileW(hfind, &fdata));

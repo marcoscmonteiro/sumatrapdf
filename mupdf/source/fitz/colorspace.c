@@ -773,6 +773,7 @@ fz_make_hash_link_key(fz_context *ctx, fz_store_hash *hash, void *key_)
 
 static fz_store_type fz_link_store_type =
 {
+	"fz_icc_link",
 	fz_make_hash_link_key,
 	fz_keep_link_key,
 	fz_drop_link_key,
@@ -874,6 +875,29 @@ static void separation_via_base(fz_context *ctx, fz_color_converter *cc, const f
 	cc->convert_via(ctx, cc, base, dst);
 }
 
+static void indexed_via_separation_via_base(fz_context *ctx, fz_color_converter *cc, const float *src, float *dst)
+{
+	fz_colorspace *ss = cc->ss_via;
+	fz_colorspace *ssep = cc->ss_via->u.indexed.base;
+	const unsigned char *lookup = ss->u.indexed.lookup;
+	int high = ss->u.indexed.high;
+	int n = ss->u.indexed.base->n;
+	float base[4], mid[FZ_MAX_COLORS];
+	int i, k;
+
+	/* First map through the index. */
+	i = src[0] * 255;
+	i = fz_clampi(i, 0, high);
+	for (k = 0; k < n; ++k)
+		mid[k] = lookup[i * n + k] / 255.0f;
+
+	/* Then map through the separation. */
+	ssep->u.separation.eval(ctx, ssep->u.separation.tint, mid, ssep->n, base, ssep->u.separation.base->n);
+
+	/* Then convert in the base. */
+	cc->convert_via(ctx, cc, base, dst);
+}
+
 static void
 fz_init_process_color_converter(fz_context *ctx, fz_color_converter *cc, fz_colorspace *ss, fz_colorspace *ds, fz_colorspace *is, fz_color_params params)
 {
@@ -937,17 +961,28 @@ fz_find_color_converter(fz_context *ctx, fz_color_converter *cc, fz_colorspace *
 
 	if (ss->type == FZ_COLORSPACE_INDEXED)
 	{
-		cc->ss = ss->u.indexed.base;
-		cc->ss_via = ss;
-		fz_init_process_color_converter(ctx, cc, ss->u.indexed.base, ds, is, params);
-		cc->convert_via = cc->convert;
-		cc->convert = indexed_via_base;
+		if (ss->u.indexed.base->type == FZ_COLORSPACE_SEPARATION)
+		{
+			cc->ss = ss->u.indexed.base->u.separation.base;
+			cc->ss_via = ss;
+			fz_init_process_color_converter(ctx, cc, cc->ss, ds, is, params);
+			cc->convert_via = cc->convert;
+			cc->convert = indexed_via_separation_via_base;
+		}
+		else
+		{
+			cc->ss = ss->u.indexed.base;
+			cc->ss_via = ss;
+			fz_init_process_color_converter(ctx, cc, cc->ss, ds, is, params);
+			cc->convert_via = cc->convert;
+			cc->convert = indexed_via_base;
+		}
 	}
 	else if (ss->type == FZ_COLORSPACE_SEPARATION)
 	{
 		cc->ss = ss->u.separation.base;
 		cc->ss_via = ss;
-		fz_init_process_color_converter(ctx, cc, ss->u.separation.base, ds, is, params);
+		fz_init_process_color_converter(ctx, cc, cc->ss, ds, is, params);
 		cc->convert_via = cc->convert;
 		cc->convert = separation_via_base;
 	}
@@ -1054,7 +1089,7 @@ void fz_fin_cached_color_converter(fz_context *ctx, fz_color_converter *cc_)
 /* Pixmap color conversion */
 
 void
-fz_convert_slow_pixmap_samples(fz_context *ctx, fz_pixmap *src, fz_pixmap *dst, fz_colorspace *is, fz_color_params params, int copy_spots)
+fz_convert_slow_pixmap_samples(fz_context *ctx, const fz_pixmap *src, fz_pixmap *dst, fz_colorspace *is, fz_color_params params, int copy_spots)
 {
 	float srcv[FZ_MAX_COLORS];
 	float dstv[FZ_MAX_COLORS];
@@ -1319,7 +1354,7 @@ fz_convert_slow_pixmap_samples(fz_context *ctx, fz_pixmap *src, fz_pixmap *dst, 
 }
 
 void
-fz_convert_pixmap_samples(fz_context *ctx, fz_pixmap *src, fz_pixmap *dst,
+fz_convert_pixmap_samples(fz_context *ctx, const fz_pixmap *src, fz_pixmap *dst,
 	fz_colorspace *prf,
 	const fz_default_colorspaces *default_cs,
 	fz_color_params params,

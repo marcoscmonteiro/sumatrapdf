@@ -12,7 +12,6 @@ public class Page
 
 	public void destroy() {
 		finalize();
-		pointer = 0;
 	}
 
 	protected Page(long p) {
@@ -51,5 +50,5 @@ public class Page
 
 	public native byte[] textAsHtml();
 
-	public native Separations getSeparations();
+	public native Link createLink(Rect bbox, String uri);
 }

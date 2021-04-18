@@ -680,6 +680,8 @@ static int pdfapp_save(pdfapp_t *app)
 			}
 			fz_catch(app->ctx)
 			{
+				/* Ignore any error, so we drop out with
+				 * failure below. */
 			}
 
 			if (written)
@@ -974,7 +976,7 @@ static void pdfapp_showpage(pdfapp_t *app, int loadpage, int drawpage, int repai
 		sprintf(buf2, " - %d/%d (%g dpi)",
 				app->pageno, app->pagecount, app->resolution);
 		len = MAX_TITLE-strlen(buf2);
-		if (strlen(app->doctitle) > len)
+		if (strlen(app->doctitle) >= len)
 		{
 			fz_strlcpy(buf, app->doctitle, len-3);
 			fz_strlcat(buf, "...", MAX_TITLE);
@@ -1030,7 +1032,7 @@ static void pdfapp_showpage(pdfapp_t *app, int loadpage, int drawpage, int repai
 			cookie.errors++;
 	}
 
-	if (transition)
+	if (transition && drawpage)
 	{
 		app->new_image = app->image;
 		app->image = NULL;
@@ -1048,7 +1050,7 @@ static void pdfapp_showpage(pdfapp_t *app, int loadpage, int drawpage, int repai
 		app->duration = 0;
 		fz_page_presentation(app->ctx, app->page, &app->transition, &app->duration);
 		if (app->duration == 0)
-			app->duration = 5;
+			app->duration = app->presentation_time_in_seconds;
 		app->in_transit = fz_generate_transition(app->ctx, app->image, app->old_image, app->new_image, 0, &app->transition);
 		if (!app->in_transit)
 		{
@@ -1543,6 +1545,7 @@ void pdfapp_onkey(pdfapp_t *app, int c, int modifiers)
 
 	case 'p':
 		app->presentation_mode = !app->presentation_mode;
+		app->presentation_time_in_seconds = (app->numberlen > 0) ? atoi(app->number) : 5;
 		break;
 
 	/*

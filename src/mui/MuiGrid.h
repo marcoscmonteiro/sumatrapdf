@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // Grid consits of cells arranged as an array of rows and columns
@@ -7,34 +7,44 @@
 class Grid : public Control {
   public:
     struct CellData {
-        Control* el;
-        CachedStyle* cachedStyle;
-        int row, col;
-        int colSpan;
+        Control* el{nullptr};
+        CachedStyle* cachedStyle{nullptr};
+        int row{0}, col{0};
+        int colSpan{1};
         // cell of the grid can be bigger than the element.
         // vertAlign and horizAlign define how the element
         // is laid out within the cell
         ElAlignData vertAlign;
         ElAlignData horizAlign;
 
-        CellData()
-            : el(nullptr),
-              cachedStyle(nullptr),
-              row(0),
-              col(0),
-              colSpan(1),
-              vertAlign(GetElAlignTop()),
-              horizAlign(GetElAlignLeft()) {
+        CellData() {
+            vertAlign = GetElAlignTop();
+            horizAlign = GetElAlignLeft();
         }
 
-        CellData(const CellData& other)
-            : el(other.el),
-              cachedStyle(other.cachedStyle),
-              row(other.row),
-              col(other.col),
-              colSpan(other.colSpan),
-              vertAlign(other.vertAlign),
-              horizAlign(other.horizAlign) {
+        // TODO: make it default?
+        CellData(const CellData& other) {
+            CrashIf(this == &other);
+            el = other.el;
+            cachedStyle = other.cachedStyle;
+            row = other.row;
+            col = other.col;
+            colSpan = other.colSpan;
+            vertAlign = other.vertAlign;
+            horizAlign = other.horizAlign;
+        }
+
+        // TODO: make it default?
+        CellData& operator=(const CellData& other) {
+            CrashIf(this == &other);
+            el = other.el;
+            cachedStyle = other.cachedStyle;
+            row = other.row;
+            col = other.col;
+            colSpan = other.colSpan;
+            vertAlign = other.vertAlign;
+            horizAlign = other.horizAlign;
+            return *this;
         }
 
         void Set(Control* el, int row, int col, ElAlign horizAlign = ElAlign::Left,
@@ -56,30 +66,28 @@ class Grid : public Control {
     };
 
     struct Cell {
-        Gdiplus::Size desiredSize;
+        Size desiredSize;
         // TODO: more data
     };
 
   private:
-    int rows;
-    int cols;
+    int rows{0};
+    int cols{0};
 
     // if dirty is true, rows/cols and ld must be rebuilt from els
-    bool dirty;
+    bool dirty{true};
     // cells is rows * cols in size
-    Cell* cells;
+    Cell* cells{nullptr};
     // maxColWidth is an array of cols size and contains
     // maximum width of each column (the width of the widest
     // cell in that column)
-    int* maxColWidth;
-    int* maxRowHeight;
-
-    Gdiplus::Size desiredSize; // calculated in Measure()
+    int* maxColWidth{nullptr};
+    int* maxRowHeight{nullptr};
 
     void RebuildCellDataIfNeeded();
     Cell* GetCell(int row, int col) const;
-    Gdiplus::Point GetCellPos(int row, int col) const;
-    Gdiplus::Rect GetCellBbox(Grid::CellData* d);
+    Point GetCellPos(int row, int col) const;
+    Rect GetCellBbox(Grid::CellData* d);
 
   public:
     Vec<CellData> els;
@@ -90,12 +98,12 @@ class Grid : public Control {
     Grid& Add(CellData&);
 
     // Control
-    virtual void Paint(Graphics* gfx, int offX, int offY);
+    void Paint(Graphics* gfx, int offX, int offY) override;
 
     // ILayout
-    virtual Gdiplus::Size Measure(const Gdiplus::Size availableSize);
-    virtual Gdiplus::Size DesiredSize() {
+    Size Measure(const Size availableSize) override;
+    Size DesiredSize() override {
         return desiredSize;
     }
-    virtual void Arrange(const Gdiplus::Rect finalRect);
+    void Arrange(const Rect finalRect) override;
 };

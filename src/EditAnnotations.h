@@ -1,5 +1,8 @@
-
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-void StartEditAnnotations(TabInfo* tab);
+struct EditAnnotationsWindow;
+
+void StartEditAnnotations(TabInfo*, Annotation*);
+void CloseAndDeleteEditAnnotationsWindow(EditAnnotationsWindow*);
+bool IsEditAnnotationsWindowOpen(TabInfo*);

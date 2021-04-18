@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -87,8 +87,9 @@ void SetAppDataPath(const WCHAR* path) {
 /* Generate the full path for a filename used by the app in the userdata path. */
 /* Caller needs to free() the result. */
 WCHAR* AppGenDataFilename(const WCHAR* fileName) {
-    if (!fileName)
+    if (!fileName) {
         return nullptr;
+    }
 
     if (gAppDataDir && dir::Exists(gAppDataDir)) {
         return path::Join(gAppDataDir, fileName);
@@ -374,13 +375,15 @@ WCHAR* AutoDetectInverseSearchCommands(HWND hwndCombo) {
             // remove file part
             AutoFreeWstr dir(path::GetDir(path));
             exePath.Set(path::Join(dir, editor_rules[i].BinaryFilename));
-        } else if (editor_rules[i].Type == BinaryDir)
+        } else if (editor_rules[i].Type == BinaryDir) {
             exePath.Set(path::Join(path, editor_rules[i].BinaryFilename));
-        else // if (editor_rules[i].Type == BinaryPath)
+        } else { // if (editor_rules[i].Type == BinaryPath)
             exePath.Set(path.StealData());
+        }
         // don't show duplicate entries
-        if (foundExes.FindI(exePath) != -1)
+        if (foundExes.FindI(exePath) != -1) {
             continue;
+        }
         // don't show inexistent paths (and don't try again for them)
         if (!file::Exists(exePath)) {
             foundExes.Append(exePath.StealData());
@@ -395,16 +398,18 @@ WCHAR* AutoDetectInverseSearchCommands(HWND hwndCombo) {
         }
 
         ComboBox_AddString(hwndCombo, editorCmd);
-        if (!firstEditor)
+        if (!firstEditor) {
             firstEditor = editorCmd.StealData();
+        }
         foundExes.Append(exePath.StealData());
     }
 
     // Fall back to notepad as a default handler
     if (!firstEditor) {
         firstEditor = str::Dup(L"notepad %f");
-        if (hwndCombo)
+        if (hwndCombo) {
             ComboBox_AddString(hwndCombo, firstEditor);
+        }
     }
     return firstEditor;
 }
@@ -415,12 +420,10 @@ WCHAR* AutoDetectInverseSearchCommands(HWND hwndCombo) {
 // selects all text in an edit box if it's selected either
 // through a keyboard shortcut or a non-selecting mouse click
 // (or responds to Ctrl+Backspace as nowadays expected)
-bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    UNUSED(lParam);
-
+bool ExtendedEditWndProc(HWND hwnd, UINT msg, WPARAM wp, [[maybe_unused]] LPARAM lp) {
     static bool delayFocus = false;
 
-    switch (message) {
+    switch (msg) {
         case WM_LBUTTONDOWN:
             delayFocus = !IsFocused(hwnd);
             return true;
@@ -428,8 +431,9 @@ bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
         case WM_LBUTTONUP:
             if (delayFocus) {
                 DWORD sel = Edit_GetSel(hwnd);
-                if (LOWORD(sel) == HIWORD(sel))
-                    PostMessage(hwnd, UWM_DELAYED_SET_FOCUS, 0, 0);
+                if (LOWORD(sel) == HIWORD(sel)) {
+                    PostMessageW(hwnd, UWM_DELAYED_SET_FOCUS, 0, 0);
+                }
                 delayFocus = false;
             }
             return true;
@@ -438,8 +442,9 @@ bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             return false; // for easier debugging (make setting a breakpoint possible)
 
         case WM_SETFOCUS:
-            if (!delayFocus)
-                PostMessage(hwnd, UWM_DELAYED_SET_FOCUS, 0, 0);
+            if (!delayFocus) {
+                PostMessageW(hwnd, UWM_DELAYED_SET_FOCUS, 0, 0);
+            }
             return true;
 
         case UWM_DELAYED_SET_FOCUS:
@@ -447,9 +452,10 @@ bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
             return true;
 
         case WM_KEYDOWN:
-            if (VK_BACK != wParam || !IsCtrlPressed() || IsShiftPressed())
+            if (VK_BACK != wp || !IsCtrlPressed() || IsShiftPressed()) {
                 return false;
-            PostMessage(hwnd, UWM_DELAYED_CTRL_BACK, 0, 0);
+            }
+            PostMessageW(hwnd, UWM_DELAYED_CTRL_BACK, 0, 0);
             return true;
 
         case UWM_DELAYED_CTRL_BACK: {
@@ -462,12 +468,14 @@ bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 selStart = selEnd = selStart - 1;
             }
             // remove the previous word (and any spacing after it)
-            for (; selStart > 0 && str::IsWs(text[selStart - 1]); selStart--)
+            for (; selStart > 0 && str::IsWs(text[selStart - 1]); selStart--) {
                 ;
-            for (; selStart > 0 && !str::IsWs(text[selStart - 1]); selStart--)
+            }
+            for (; selStart > 0 && !str::IsWs(text[selStart - 1]); selStart--) {
                 ;
+            }
             Edit_SetSel(hwnd, selStart, selEnd);
-            SendMessage(hwnd, WM_CLEAR, 0, 0);
+            SendMessageW(hwnd, WM_CLEAR, 0, 0);
         }
             return true;
 
@@ -487,17 +495,20 @@ void EnsureAreaVisibility(Rect& r) {
     Rect work = GetWorkAreaRect(r);
 
     // make sure that the window is neither too small nor bigger than the monitor
-    if (r.dx < MIN_WIN_DX || r.dx > work.dx)
+    if (r.dx < MIN_WIN_DX || r.dx > work.dx) {
         r.dx = std::min((int)((double)work.dy * DEF_PAGE_RATIO), work.dx);
-    if (r.dy < MIN_WIN_DY || r.dy > work.dy)
+    }
+    if (r.dy < MIN_WIN_DY || r.dy > work.dy) {
         r.dy = work.dy;
+    }
 
     // check whether the lower half of the window's title bar is
     // inside a visible working area
     int captionDy = GetSystemMetrics(SM_CYCAPTION);
     Rect halfCaption(r.x, r.y + captionDy / 2, r.dx, captionDy / 2);
-    if (halfCaption.Intersect(work).IsEmpty())
+    if (halfCaption.Intersect(work).IsEmpty()) {
         r = Rect(work.TL(), r.Size());
+    }
 }
 
 Rect GetDefaultWindowPos() {
@@ -518,7 +529,7 @@ void SaveCallstackLogs() {
         return;
     }
     AutoFreeWstr filePath(AppGenDataFilename(L"callstacks.txt"));
-    file::WriteFile(filePath.Get(), s.as_view());
+    file::WriteFile(filePath.Get(), s.AsSpan());
 }
 
 // TODO: this can be used for extracting other data
@@ -544,11 +555,11 @@ static const WCHAR* Md5OfAppExe() {
         return nullptr;
     }
 
-    unsigned char md5[16] = {0};
+    u8 md5[16] = {0};
     CalcMD5DigestWin(d.data, d.size(), md5);
 
     AutoFree md5HexA(_MemToHex(&md5));
-    AutoFreeWstr md5Hex = strconv::Utf8ToWchar(md5HexA.as_view());
+    AutoFreeWstr md5Hex = strconv::Utf8ToWchar(md5HexA.AsView());
 
     return md5Hex.StealData();
 }
@@ -615,7 +626,7 @@ const WCHAR* ExractUnrarDll() {
 
     HGLOBAL res = 0;
     auto h = GetModuleHandle(nullptr);
-    auto resName = MAKEINTRESOURCEW(1);
+    WCHAR* resName = MAKEINTRESOURCEW(1);
     HRSRC resSrc = FindResourceW(h, resName, RT_RCDATA);
     if (!resSrc) {
         return nullptr;

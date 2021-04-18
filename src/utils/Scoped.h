@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // include BaseUtil.h instead of including directly
@@ -20,9 +20,6 @@ class ScopedMem {
         ptr = newPtr;
     }
     T* Get() const {
-        return ptr;
-    }
-    T* get() const {
         return ptr;
     }
     T* StealData() {
@@ -88,7 +85,7 @@ struct AutoDelete {
         return o;
     }
 
-    T* get() const {
+    T* Get() const {
         return o;
     }
 };
@@ -109,7 +106,7 @@ struct AutoFree {
         len = str::Len(data);
     }
 
-    AutoFree(const unsigned char* p) {
+    AutoFree(const u8* p) {
         data = (char*)p;
         len = str::Len(data);
     }
@@ -119,10 +116,21 @@ struct AutoFree {
         len = s.size();
     }
 
+    AutoFree(std::span<u8> s) {
+        data = (char*)s.data();
+        len = s.size();
+    }
+
     void Set(const char* newPtr) {
         free(data);
         data = (char*)newPtr;
         len = str::Len(data);
+    }
+
+    void Set(std::span<u8> d) {
+        free(data);
+        data = (char*)d.data();
+        len = d.size();
     }
 
     void SetCopy(const char* newPtr) {
@@ -154,10 +162,6 @@ struct AutoFree {
     // AutoFree& operator=(const AutoFree& other) = delete;
     // AutoFree& operator=(const AutoFree&& other) = delete;
 
-    [[nodiscard]] char* get() const {
-        return data;
-    }
-
     [[nodiscard]] char* Get() const {
         return data;
     }
@@ -176,8 +180,12 @@ struct AutoFree {
         return (data == nullptr) || (len == 0);
     }
 
-    [[nodiscard]] std::string_view as_view() {
+    [[nodiscard]] std::string_view AsView() {
         return {data, len};
+    }
+
+    [[nodiscard]] std::span<u8> AsSpan() {
+        return {(u8*)data, len};
     }
 
     void Reset() {
@@ -186,7 +194,7 @@ struct AutoFree {
         len = 0;
     }
 
-    [[nodiscard]] char* release() {
+    [[nodiscard]] char* Release() {
         char* res = data;
         data = nullptr;
         len = 0;
@@ -247,10 +255,6 @@ struct AutoFreeWstr {
     AutoFreeWstr& operator=(const AutoFreeWstr&& other) = delete;
 #endif
 
-    WCHAR* get() const {
-        return data;
-    }
-
     WCHAR* Get() const {
         return data;
     }
@@ -286,7 +290,7 @@ struct AutoFreeWstr {
         return (data == nullptr) || (size() == 0);
     }
 
-    std::wstring_view as_view() {
+    std::wstring_view AsView() {
         size_t sz = str::Len(data);
         return {data, sz};
     }

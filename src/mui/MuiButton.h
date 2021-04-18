@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // Button is a combined label/button control. It can have 2 visual states:
@@ -20,11 +20,11 @@ class Button : public Control {
 
     void RecalculateSize(bool repaintIfSizeDidntChange);
 
-    virtual Gdiplus::Size Measure(const Gdiplus::Size availableSize);
-    virtual void Paint(Graphics* gfx, int offX, int offY);
+    Size Measure(const Size availableSize) override;
+    void Paint(Graphics* gfx, int offX, int offY) override;
 
-    virtual void NotifyMouseEnter();
-    virtual void NotifyMouseLeave();
+    void NotifyMouseEnter() override;
+    void NotifyMouseLeave() override;
 
     void SetDefaultStyle(Style* style);
     void SetMouseOverStyle(Style* style);
@@ -54,11 +54,11 @@ class ButtonVector : public Control {
 
     void RecalculateSize(bool repaintIfSizeDidntChange);
 
-    virtual Gdiplus::Size Measure(const Gdiplus::Size availableSize);
-    virtual void Paint(Graphics* gfx, int offX, int offY);
+    Size Measure(const Size availableSize) override;
+    void Paint(Graphics* gfx, int offX, int offY) override;
 
-    virtual void NotifyMouseEnter();
-    virtual void NotifyMouseLeave();
+    void NotifyMouseEnter() override;
+    void NotifyMouseLeave() override;
 
     void SetDefaultStyle(Style* style);
     void SetMouseOverStyle(Style* style);

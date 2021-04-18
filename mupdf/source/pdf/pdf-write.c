@@ -71,6 +71,7 @@ typedef struct
 	int do_linear;
 	int do_clean;
 	int do_encrypt;
+	int dont_regenerate_id;
 
 	int list_len;
 	int *use_list;
@@ -137,6 +138,9 @@ expand_lists(fz_context *ctx, pdf_write_state *opts, int num)
 
 	/* objects are numbered 0..num and maybe two additional objects for linearization */
 	num += 3;
+	if (num <= opts->list_len)
+		return;
+
 	opts->use_list = fz_realloc_array(ctx, opts->use_list, num, int);
 	opts->ofs_list = fz_realloc_array(ctx, opts->ofs_list, num, int64_t);
 	opts->gen_list = fz_realloc_array(ctx, opts->gen_list, num, int);
@@ -974,6 +978,33 @@ static void page_objects_list_renumber(pdf_write_state *opts)
 }
 
 static void
+swap_indirect_obj(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, pdf_obj **obj)
+{
+	pdf_obj *o = pdf_new_indirect(ctx, doc, opts->renumber_map[pdf_to_num(ctx, *obj)], 0);
+
+	pdf_drop_obj(ctx, *obj);
+	*obj = o;
+}
+
+static void
+renumber_pages(fz_context *ctx, pdf_document *doc, pdf_write_state *opts)
+{
+	fz_page *page;
+
+	for (page = doc->super.open; page != NULL; page = page->next)
+	{
+		pdf_page *ppage = (pdf_page *)page;
+		pdf_annot *annot;
+		swap_indirect_obj(ctx, doc, opts, &ppage->obj);
+
+		for (annot = ppage->annots; annot != NULL; annot = annot->next)
+			swap_indirect_obj(ctx, doc, opts, &annot->obj);
+		for (annot = ppage->widgets; annot != NULL; annot = annot->next)
+			swap_indirect_obj(ctx, doc, opts, &annot->obj);
+	}
+}
+
+static void
 mark_all(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, pdf_obj *val, int flag, int page)
 {
 	if (pdf_mark_obj(ctx, val))
@@ -997,11 +1028,19 @@ mark_all(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, pdf_obj *val
 
 		if (pdf_is_dict(ctx, val))
 		{
-			int i, n = pdf_dict_len(ctx, val);
+			int i, n;
+			n = pdf_dict_len(ctx, val);
 
 			for (i = 0; i < n; i++)
 			{
-				mark_all(ctx, doc, opts, pdf_dict_get_val(ctx, val, i), flag, page);
+				pdf_obj *v = pdf_dict_get_val(ctx, val, i);
+				pdf_obj *type = pdf_dict_get(ctx, v, PDF_NAME(Type));
+
+				/* Don't walk through the Page tree, or direct to a page. */
+				if (pdf_name_eq(ctx, PDF_NAME(Pages), type) || pdf_name_eq(ctx, PDF_NAME(Page), type))
+					continue;
+
+				mark_all(ctx, doc, opts, v, flag, page);
 			}
 		}
 		else if (pdf_is_array(ctx, val))
@@ -1010,7 +1049,14 @@ mark_all(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, pdf_obj *val
 
 			for (i = 0; i < n; i++)
 			{
-				mark_all(ctx, doc, opts, pdf_array_get(ctx, val, i), flag, page);
+				pdf_obj *v = pdf_array_get(ctx, val, i);
+				pdf_obj *type = pdf_dict_get(ctx, v, PDF_NAME(Type));
+
+				/* Don't walk through the Page tree, or direct to a page. */
+				if (pdf_name_eq(ctx, PDF_NAME(Pages), type) || pdf_name_eq(ctx, PDF_NAME(Page), type))
+					continue;
+
+				mark_all(ctx, doc, opts, v, flag, page);
 			}
 		}
 	}
@@ -1191,6 +1237,8 @@ add_linearization_objs(fz_context *ctx, pdf_document *doc, pdf_write_state *opts
 
 	fz_try(ctx)
 	{
+		pdf_xref_entry *xe;
+
 		/* Linearization params */
 		params_obj = pdf_new_dict(ctx, doc, 10);
 		params_ref = pdf_add_object(ctx, doc, params_obj);
@@ -1241,7 +1289,12 @@ add_linearization_objs(fz_context *ctx, pdf_document *doc, pdf_write_state *opts
 		pdf_dict_put(ctx, hint_obj, PDF_NAME(Filter), PDF_NAME(FlateDecode));
 		opts->hints_length = pdf_new_int(ctx, INT_MIN);
 		pdf_dict_put(ctx, hint_obj, PDF_NAME(Length), opts->hints_length);
-		pdf_get_xref_entry(ctx, doc, hint_num)->stm_ofs = 0;
+		xe = pdf_get_xref_entry(ctx, doc, hint_num);
+		xe->stm_ofs = 0;
+		/* Empty stream, required so that we write the object as
+		 * a stream during the first pass. Without this, offsets
+		 * for the xref will be wrong. */
+		xe->stm_buf = fz_new_buffer(ctx, 1);
 	}
 	fz_always(ctx)
 	{
@@ -1499,6 +1552,7 @@ linearize(fz_context *ctx, pdf_document *doc, pdf_write_state *opts)
 	/* Apply the renumber_map */
 	page_objects_list_renumber(opts);
 	renumberobjs(ctx, doc, opts);
+	renumber_pages(ctx, doc, opts);
 
 	page_objects_list_sort_and_dedupe(ctx, opts->page_object_lists);
 }
@@ -1567,21 +1621,22 @@ static int is_bitmap_stream(fz_context *ctx, pdf_obj *obj, size_t len, int *w, i
 	stride = (*w + 7) >> 3;
 	if ((size_t)stride * (*h) != len)
 		return 0;
-	bpc = pdf_dict_get(ctx, obj, PDF_NAME(BitsPerComponent));
-	if (pdf_is_int(ctx, bpc))
+	if (pdf_dict_get_bool(ctx, obj, PDF_NAME(ImageMask)))
 	{
+		return 1;
+	}
+	else
+	{
+		bpc = pdf_dict_get(ctx, obj, PDF_NAME(BitsPerComponent));
+		if (!pdf_is_int(ctx, bpc))
+			return 0;
 		if (pdf_to_int(ctx, bpc) != 1)
 			return 0;
 		cs = pdf_dict_get(ctx, obj, PDF_NAME(ColorSpace));
 		if (!pdf_name_eq(ctx, cs, PDF_NAME(DeviceGray)))
 			return 0;
+		return 1;
 	}
-	else
-	{
-		if (pdf_dict_get_bool(ctx, obj, PDF_NAME(ImageMask)) != 1)
-			return 0;
-	}
-	return 1;
 }
 
 static inline int isbinary(int c)
@@ -2236,6 +2291,8 @@ static void writexrefstream(fz_context *ctx, pdf_document *doc, pdf_write_state 
 	fz_try(ctx)
 	{
 		num = pdf_create_object(ctx, doc);
+		expand_lists(ctx, opts, num);
+
 		dict = pdf_new_dict(ctx, doc, 6);
 		pdf_update_object(ctx, doc, num, dict);
 
@@ -2432,17 +2489,45 @@ static int
 my_log2(int x)
 {
 	int i = 0;
+	const int sign_bit = sizeof(int)*8-1;
 
 	if (x <= 0)
 		return 0;
 
-	while ((1<<i) <= x && (1<<i) > 0)
+	while ((1<<i) <= x && i < sign_bit)
 		i++;
 
-	if ((1<<i) <= 0)
+	if (i >= sign_bit)
 		return 0;
 
 	return i;
+}
+
+static int64_t
+offset_of_first_used_obj_after(const pdf_write_state *opts, int i, int len)
+{
+	/* The objects in the file are laid out as:
+	 *
+	 * start
+	 * ...
+	 * len-1
+	 * 1
+	 * ...
+	 * start-1
+	 *
+	 * But, some may not be present...
+	 */
+	do
+	{
+		i++;
+		if (i == len)
+			i = 1;
+		if (i == opts->start)
+			return opts->main_xref_offset;
+	}
+	while (opts->use_list[i] == 0);
+
+	return opts->ofs_list[i];
 }
 
 static void
@@ -2469,12 +2554,7 @@ make_page_offset_hints(fz_context *ctx, pdf_document *doc, pdf_write_state *opts
 		int min, max, page;
 
 		min = opts->ofs_list[i];
-		if (i == opts->start-1 || (opts->start == 1 && i == xref_len-1))
-			max = opts->main_xref_offset;
-		else if (i == xref_len-1)
-			max = opts->ofs_list[1];
-		else
-			max = opts->ofs_list[i+1];
+		max = offset_of_first_used_obj_after(opts, i, xref_len);
 
 		assert(max > min);
 
@@ -2747,7 +2827,7 @@ static void dump_object_details(fz_context *ctx, pdf_document *doc, pdf_write_st
 
 	for (i = 0; i < pdf_xref_len(ctx, doc); i++)
 	{
-		fprintf(stderr, "%d@%d: use=%d\n", i, opts->ofs_list[i], opts->use_list[i]);
+		fprintf(stderr, "%d@%ld: use=%d\n", i, opts->ofs_list[i], opts->use_list[i]);
 	}
 }
 #endif
@@ -2791,6 +2871,7 @@ static void presize_unsaved_signature_byteranges(fz_context *ctx, pdf_document *
 
 static void complete_signatures(fz_context *ctx, pdf_document *doc, pdf_write_state *opts)
 {
+	pdf_obj *byte_range = NULL;
 	char *buf = NULL, *ptr;
 	int s;
 	fz_stream *stm = NULL;
@@ -2806,7 +2887,6 @@ static void complete_signatures(fz_context *ctx, pdf_document *doc, pdf_write_st
 			if (xref->unsaved_sigs)
 			{
 				pdf_unsaved_sig *usig;
-				pdf_obj *byte_range;
 				size_t buf_size = 0;
 				size_t i;
 				size_t last_end;
@@ -2814,7 +2894,6 @@ static void complete_signatures(fz_context *ctx, pdf_document *doc, pdf_write_st
 				for (usig = xref->unsaved_sigs; usig; usig = usig->next)
 				{
 					size_t size = usig->signer->max_digest_size(ctx, usig->signer);
-
 					buf_size = fz_maxz(buf_size, size);
 				}
 
@@ -2853,10 +2932,8 @@ static void complete_signatures(fz_context *ctx, pdf_document *doc, pdf_write_st
 				fz_drop_stream(ctx, stm);
 				stm = NULL;
 
-				/* Recreate ByteRange with correct values. Initially store the
-				* recreated object in the first of the unsaved signatures */
+				/* Recreate ByteRange with correct values. */
 				byte_range = pdf_new_array(ctx, doc, 4);
-				pdf_dict_putl_drop(ctx, xref->unsaved_sigs->field, byte_range, PDF_NAME(V), PDF_NAME(ByteRange), NULL);
 
 				last_end = 0;
 				for (usig = xref->unsaved_sigs; usig; usig = usig->next)
@@ -2869,7 +2946,7 @@ static void complete_signatures(fz_context *ctx, pdf_document *doc, pdf_write_st
 				pdf_array_push_int(ctx, byte_range, xref->end_ofs - last_end);
 
 				/* Copy the new ByteRange to the other unsaved signatures */
-				for (usig = xref->unsaved_sigs->next; usig; usig = usig->next)
+				for (usig = xref->unsaved_sigs; usig; usig = usig->next)
 					pdf_dict_putl_drop(ctx, usig->field, pdf_copy_array(ctx, byte_range), PDF_NAME(V), PDF_NAME(ByteRange), NULL);
 
 				/* Write the byte range into buf, padding with spaces*/
@@ -2887,7 +2964,7 @@ static void complete_signatures(fz_context *ctx, pdf_document *doc, pdf_write_st
 
 				/* Write the digests into the file */
 				for (usig = xref->unsaved_sigs; usig; usig = usig->next)
-					pdf_write_digest(ctx, opts->out, byte_range, usig->contents_start, usig->contents_end - usig->contents_start, usig->signer);
+					pdf_write_digest(ctx, opts->out, byte_range, usig->field, usig->contents_start, usig->contents_end - usig->contents_start, usig->signer);
 
 				/* delete the unsaved_sigs records */
 				while ((usig = xref->unsaved_sigs) != NULL)
@@ -2900,10 +2977,17 @@ static void complete_signatures(fz_context *ctx, pdf_document *doc, pdf_write_st
 
 				xref->unsaved_sigs_end = NULL;
 
+				pdf_drop_obj(ctx, byte_range);
+				byte_range = NULL;
+
 				fz_free(ctx, buf);
 				buf = NULL;
 			}
 		}
+	}
+	fz_always(ctx)
+	{
+		pdf_drop_obj(ctx, byte_range);
 	}
 	fz_catch(ctx)
 	{
@@ -2962,6 +3046,7 @@ static void initialise_write_state(fz_context *ctx, pdf_document *doc, const pdf
 	opts->do_linear = in_opts->do_linear;
 	opts->do_clean = in_opts->do_clean;
 	opts->do_encrypt = in_opts->do_encrypt;
+	opts->dont_regenerate_id = in_opts->dont_regenerate_id;
 	opts->start = 0;
 	opts->main_xref_offset = INT_MIN;
 
@@ -3016,6 +3101,7 @@ const pdf_write_options pdf_default_write_options = {
 	0, /* do_sanitize */
 	0, /* do_appearance */
 	0, /* do_encrypt */
+	0, /* dont_regenerate_id */
 	~0, /* permissions */
 	"", /* opwd_utf8[128] */
 	"", /* upwd_utf8[128] */
@@ -3042,6 +3128,7 @@ const char *fz_pdf_write_options_usage =
 	"\tpermissions=NUMBER: document permissions to grant when encrypting\n"
 	"\tuser-password=PASSWORD: password required to read document\n"
 	"\towner-password=PASSWORD: password required to edit document\n"
+	"\tregenerate-id: (default yes) regenerate document id\n"
 	"\n";
 
 pdf_write_options *
@@ -3071,6 +3158,8 @@ pdf_parse_write_options(fz_context *ctx, pdf_write_options *opts, const char *ar
 		opts->do_sanitize = fz_option_eq(val, "yes");
 	if (fz_has_option(ctx, args, "incremental", &val))
 		opts->do_incremental = fz_option_eq(val, "yes");
+	if (fz_has_option(ctx, args, "regenerate-id", &val))
+		opts->dont_regenerate_id = fz_option_eq(val, "no");
 	if (fz_has_option(ctx, args, "decrypt", &val))
 		opts->do_encrypt = fz_option_eq(val, "yes") ? PDF_ENCRYPT_NONE : PDF_ENCRYPT_KEEP;
 	if (fz_has_option(ctx, args, "encrypt", &val))
@@ -3301,18 +3390,18 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, 
 	int lastfree;
 	int num;
 	int xref_len;
-	pdf_obj *id, *id1;
+	pdf_obj *id1, *id = NULL;
 
 	if (in_opts->do_incremental)
 	{
-		/* If no changes, nothing to write */
+		ensure_initial_incremental_contents(ctx, doc->file, opts->out);
+
+		/* If no changes, nothing more to write */
 		if (doc->num_incremental_sections == 0)
 		{
 			doc->save_in_progress = 0;
 			return;
 		}
-
-		ensure_initial_incremental_contents(ctx, doc->file, opts->out);
 
 		fz_seek_output(ctx, opts->out, 0, SEEK_END);
 		fz_write_string(ctx, opts->out, "\n");
@@ -3324,10 +3413,13 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, 
 	{
 		initialise_write_state(ctx, doc, in_opts, opts);
 
-		/* Update second half of ID array if it exists. */
-		id = pdf_dict_get(ctx, pdf_trailer(ctx, doc), PDF_NAME(ID));
-		if (id)
-			change_identity(ctx, doc, id);
+		if (!opts->dont_regenerate_id)
+		{
+			/* Update second half of ID array if it exists. */
+			id = pdf_dict_get(ctx, pdf_trailer(ctx, doc), PDF_NAME(ID));
+			if (id)
+				change_identity(ctx, doc, id);
+		}
 
 		/* Remove encryption dictionary if saving without encryption. */
 		if (opts->do_encrypt == PDF_ENCRYPT_NONE)
@@ -3412,6 +3504,7 @@ do_pdf_save_document(fz_context *ctx, pdf_document *doc, pdf_write_state *opts, 
 			for (i = 0; i < doc->num_incremental_sections; i++)
 			{
 				doc->xref_base = doc->num_incremental_sections - i - 1;
+				xref_len = pdf_xref_len(ctx, doc);
 
 				writeobjects(ctx, doc, opts, 0);
 
@@ -3605,12 +3698,6 @@ void pdf_save_document(fz_context *ctx, pdf_document *doc, const char *filename,
 
 	if (in_opts->do_incremental)
 	{
-		/* If no changes, nothing to write */
-		if (doc->num_incremental_sections == 0)
-		{
-			doc->save_in_progress = 0;
-			return;
-		}
 		opts.out = fz_new_output_with_path(ctx, filename, 1);
 	}
 	else

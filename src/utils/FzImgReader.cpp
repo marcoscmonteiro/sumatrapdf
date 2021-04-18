@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #pragma warning(disable : 4611) // interaction between '_setjmp' and C++ object destruction is non-portable
@@ -20,17 +20,19 @@ extern "C" {
 
 namespace fitz {
 
-static Gdiplus::Bitmap* ImageFromJpegData(fz_context* ctx, const char* data, int len) {
+static Gdiplus::Bitmap* ImageFromJpegData(fz_context* ctx, const u8* data, int len) {
     int w = 0, h = 0, xres = 0, yres = 0;
     fz_colorspace* cs = nullptr;
     fz_stream* stm = nullptr;
+    uint8_t orient = 0;
 
     fz_var(cs);
     fz_var(stm);
+    fz_var(orient);
 
     fz_try(ctx) {
-        fz_load_jpeg_info(ctx, (unsigned char*)data, len, &w, &h, &xres, &yres, &cs);
-        stm = fz_open_memory(ctx, (unsigned char*)data, len);
+        fz_load_jpeg_info(ctx, data, len, &w, &h, &xres, &yres, &cs, &orient);
+        stm = fz_open_memory(ctx, data, len);
         stm = fz_open_dctd(ctx, stm, -1, 0, nullptr);
     }
     fz_catch(ctx) {
@@ -66,11 +68,12 @@ static Gdiplus::Bitmap* ImageFromJpegData(fz_context* ctx, const char* data, int
 
     fz_try(ctx) {
         for (int y = 0; y < h; y++) {
-            unsigned char* line = (unsigned char*)bmpData.Scan0 + y * bmpData.Stride;
+            u8* line = (u8*)bmpData.Scan0 + y * bmpData.Stride;
             for (int x = 0; x < w; x++) {
                 int read = fz_read(ctx, stm, line, cs->n);
-                if (read != cs->n)
+                if (read != cs->n) {
                     fz_throw(ctx, FZ_ERROR_GENERIC, "insufficient data for image");
+                }
                 if (3 == cs->n) { // RGB -> BGR
                     std::swap(line[0], line[2]);
                     line += 3;
@@ -78,8 +81,9 @@ static Gdiplus::Bitmap* ImageFromJpegData(fz_context* ctx, const char* data, int
                     line[1] = line[2] = line[0];
                     line += 3;
                 } else if (4 == cs->n) { // CMYK color inversion
-                    for (int k = 0; k < 4; k++)
+                    for (int k = 0; k < 4; k++) {
                         line[k] = 255 - line[k];
+                    }
                     line += 4;
                 }
             }
@@ -103,8 +107,9 @@ fz_pixmap* fz_convert_pixmap2(fz_context* ctx, fz_pixmap* pix, fz_colorspace* ds
                               fz_default_colorspaces* default_cs, fz_color_params color_params, int keep_alpha) {
     fz_pixmap* cvt;
 
-    if (!ds && !keep_alpha)
+    if (!ds && !keep_alpha) {
         fz_throw(ctx, FZ_ERROR_GENERIC, "cannot both throw away and keep alpha");
+    }
 
     cvt = fz_new_pixmap(ctx, ds, pix->w, pix->h, pix->seps, keep_alpha);
 
@@ -112,10 +117,11 @@ fz_pixmap* fz_convert_pixmap2(fz_context* ctx, fz_pixmap* pix, fz_colorspace* ds
     cvt->yres = pix->yres;
     cvt->x = pix->x;
     cvt->y = pix->y;
-    if (pix->flags & FZ_PIXMAP_FLAG_INTERPOLATE)
+    if (pix->flags & FZ_PIXMAP_FLAG_INTERPOLATE) {
         cvt->flags |= FZ_PIXMAP_FLAG_INTERPOLATE;
-    else
+    } else {
         cvt->flags &= ~FZ_PIXMAP_FLAG_INTERPOLATE;
+    }
 
     fz_try(ctx) {
         fz_convert_pixmap_samples(ctx, pix, cvt, prf, default_cs, color_params, 1);
@@ -128,7 +134,7 @@ fz_pixmap* fz_convert_pixmap2(fz_context* ctx, fz_pixmap* pix, fz_colorspace* ds
     return cvt;
 }
 
-static Gdiplus::Bitmap* ImageFromJp2Data(fz_context* ctx, const char* data, int len) {
+static Gdiplus::Bitmap* ImageFromJp2Data(fz_context* ctx, const u8* data, int len) {
     fz_pixmap* pix = nullptr;
     fz_pixmap* pix_argb = nullptr;
 
@@ -136,7 +142,7 @@ static Gdiplus::Bitmap* ImageFromJp2Data(fz_context* ctx, const char* data, int 
     fz_var(pix_argb);
 
     fz_try(ctx) {
-        pix = fz_load_jpx(ctx, (unsigned char*)data, len, nullptr);
+        pix = fz_load_jpx(ctx, data, len, nullptr);
     }
     fz_catch(ctx) {
         return nullptr;
@@ -166,7 +172,7 @@ static Gdiplus::Bitmap* ImageFromJp2Data(fz_context* ctx, const char* data, int 
         // TODO: could be optimized by creating a bitmap with bmpData.Scan0 as data
         // Or creating Bitmap after a fact with pix_argb->samples
         pix_argb = fz_convert_pixmap2(ctx, pix, csdest, prf, nullptr, colparms, alpha);
-        unsigned char* bmpPixels = (unsigned char*)bmpData.Scan0;
+        u8* bmpPixels = (u8*)bmpData.Scan0;
         size_t dataSize = pix_argb->stride * h;
         memcpy(bmpPixels, pix_argb->samples, dataSize);
     }
@@ -183,19 +189,24 @@ static Gdiplus::Bitmap* ImageFromJp2Data(fz_context* ctx, const char* data, int 
     return bmp.Clone(0, 0, w, h, pixelFormat);
 }
 
-Gdiplus::Bitmap* ImageFromData(const char* data, size_t len) {
-    if (len > INT_MAX || len < 12)
+Gdiplus::Bitmap* ImageFromData(std::span<u8> d) {
+    const u8* data = (const u8*)d.data();
+    size_t len = d.size();
+    if (len > INT_MAX || len < 12) {
         return nullptr;
+    }
 
     fz_context* ctx = fz_new_context(nullptr, nullptr, 0);
-    if (!ctx)
+    if (!ctx) {
         return nullptr;
+    }
 
     Gdiplus::Bitmap* result = nullptr;
-    if (str::StartsWith(data, "\xFF\xD8"))
+    if (str::StartsWith(data, "\xFF\xD8")) {
         result = ImageFromJpegData(ctx, data, (int)len);
-    else if (memeq(data, "\0\0\0\x0CjP  \x0D\x0A\x87\x0A", 12))
+    } else if (memeq(data, "\0\0\0\x0CjP  \x0D\x0A\x87\x0A", 12)) {
         result = ImageFromJp2Data(ctx, data, (int)len);
+    }
 
     fz_drop_context(ctx);
 
@@ -207,9 +218,7 @@ Gdiplus::Bitmap* ImageFromData(const char* data, size_t len) {
 #else
 
 namespace fitz {
-Gdiplus::Bitmap* ImageFromData(const char* data, size_t len) {
-    UNUSED(data);
-    UNUSED(len);
+Gdiplus::Bitmap* ImageFromData(std::span<u8>) {
     return nullptr;
 }
 } // namespace fitz

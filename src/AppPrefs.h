@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 /* enum from windowState */
@@ -11,7 +11,7 @@ enum {
 
 namespace prefs {
 
-WCHAR* GetSettingsFileNameNoFree();
+const WCHAR* GetSettingsFileNameNoFree();
 WCHAR* GetSettingsPath();
 
 bool Load();

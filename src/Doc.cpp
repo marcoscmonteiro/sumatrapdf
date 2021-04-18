@@ -1,9 +1,11 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
 #include "utils/ScopedWin.h"
 #include "utils/Archive.h"
+#include "utils/PalmDbReader.h"
+#include "utils/GuessFileType.h"
 #include "utils/GdiPlusUtil.h"
 #include "utils/HtmlParserLookup.h"
 #include "utils/HtmlPullParser.h"
@@ -68,32 +70,36 @@ void Doc::Delete() {
 
 Doc::Doc(EpubDoc* doc) {
     Clear();
-    if (doc == nullptr)
+    if (doc == nullptr) {
         return;
+    }
     type = DocType::Epub;
     epubDoc = doc;
 }
 
 Doc::Doc(Fb2Doc* doc) {
     Clear();
-    if (doc == nullptr)
+    if (doc == nullptr) {
         return;
+    }
     type = DocType::Fb2;
     fb2Doc = doc;
 }
 
 Doc::Doc(MobiDoc* doc) {
     Clear();
-    if (doc == nullptr)
+    if (doc == nullptr) {
         return;
+    }
     type = DocType::Mobi;
     mobiDoc = doc;
 }
 
 Doc::Doc(PalmDoc* doc) {
     Clear();
-    if (doc == nullptr)
+    if (doc == nullptr) {
         return;
+    }
     type = DocType::Pdb;
     palmDoc = doc;
 }
@@ -171,7 +177,7 @@ WCHAR* Doc::GetProperty(DocumentProperty prop) const {
     }
 }
 
-std::string_view Doc::GetHtmlData() const {
+std::span<u8> Doc::GetHtmlData() const {
     switch (type) {
         case DocType::Epub:
             return epubDoc->GetHtmlData();
@@ -184,7 +190,7 @@ std::string_view Doc::GetHtmlData() const {
             return palmDoc->GetHtmlData();
         default:
             CrashIf(true);
-            return nullptr;
+            return {};
     }
 }
 
@@ -247,40 +253,52 @@ HtmlFormatter* Doc::CreateFormatter(HtmlFormatterArgs* args) const {
     }
 }
 
-Doc Doc::CreateFromFile(const WCHAR* filePath) {
+Doc Doc::CreateFromFile(const WCHAR* path) {
     Doc doc;
-    if (EpubDoc::IsSupportedFile(filePath)) {
-        doc = Doc(EpubDoc::CreateFromFile(filePath));
-    } else if (Fb2Doc::IsSupportedFile(filePath)) {
-        doc = Doc(Fb2Doc::CreateFromFile(filePath));
-    } else if (MobiDoc::IsSupportedFile(filePath)) {
-        doc = Doc(MobiDoc::CreateFromFile(filePath));
-        // MobiDoc is also used for loading PalmDoc - don't expose that to Doc users, though
-        if (doc.mobiDoc && doc.mobiDoc->GetDocType() != PdbDocType::Mobipocket) {
-            doc.Delete();
-            // .prc files can be both MobiDoc or PalmDoc
-            if (PalmDoc::IsSupportedFile(filePath)) {
-                doc = Doc(PalmDoc::CreateFromFile(filePath));
-            }
+    bool sniff = false;
+again:
+    Kind kind = GuessFileType(path, sniff);
+    if (EpubDoc::IsSupportedFileType(kind)) {
+        doc = Doc(EpubDoc::CreateFromFile(path));
+    } else if (Fb2Doc::IsSupportedFileType(kind)) {
+        doc = Doc(Fb2Doc::CreateFromFile(path));
+    } else if (MobiDoc::IsSupportedFileType(kind)) {
+        doc = Doc(MobiDoc::CreateFromFile(path));
+    } else if (PalmDoc::IsSupportedFileType(kind)) {
+        doc = Doc(PalmDoc::CreateFromFile(path));
+    } else {
+        doc.error = DocError::NotSupported;
+    }
+    if (!sniff) {
+        if (doc.IsNone()) {
+            sniff = true;
+            goto again;
         }
-    } else if (PalmDoc::IsSupportedFile(filePath)) {
-        doc = Doc(PalmDoc::CreateFromFile(filePath));
     }
 
     // if failed to load and more specific error message hasn't been
     // set above, set a generic error message
     if (doc.IsNone()) {
-        CrashIf(doc.error != DocError::None);
+        CrashIf(!((doc.error == DocError::None) || (doc.error == DocError::NotSupported)));
         doc.error = DocError::Unknown;
-        doc.filePath.SetCopy(filePath);
-    } else {
-        CrashIf(!Doc::IsSupportedFile(filePath));
+        doc.filePath.SetCopy(path);
     }
     CrashIf(!doc.generic && !doc.IsNone());
     return doc;
 }
 
-bool Doc::IsSupportedFile(const WCHAR* filePath, bool sniff) {
-    return EpubDoc::IsSupportedFile(filePath, sniff) || Fb2Doc::IsSupportedFile(filePath, sniff) ||
-           MobiDoc::IsSupportedFile(filePath, sniff) || PalmDoc::IsSupportedFile(filePath, sniff);
+bool Doc::IsSupportedFileType(Kind kind) {
+    if (EpubDoc::IsSupportedFileType(kind)) {
+        return true;
+    }
+    if (Fb2Doc::IsSupportedFileType(kind)) {
+        return true;
+    }
+    if (MobiDoc::IsSupportedFileType(kind)) {
+        return true;
+    }
+    if (PalmDoc::IsSupportedFileType(kind)) {
+        return true;
+    }
+    return false;
 }

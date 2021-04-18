@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // Manages painting process of Control window and all its children.
@@ -8,9 +8,9 @@ class Painter {
     HwndWrapper* wnd;
     // bitmap for double-buffering
     Bitmap* cacheBmp;
-    Gdiplus::Size sizeDuringLastPaint;
+    Size sizeDuringLastPaint;
 
-    void PaintBackground(Graphics* g, Gdiplus::Rect r);
+    void PaintBackground(Graphics* g, Rect r);
 
   public:
     Painter(HwndWrapper* wnd);

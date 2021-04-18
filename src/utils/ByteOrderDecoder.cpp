@@ -1,22 +1,22 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
 #include "utils/ByteOrderDecoder.h"
 
-uint16_t UInt16BE(const u8* d) {
+u16 UInt16BE(const u8* d) {
     return d[1] | (d[0] << 8);
 }
 
-uint16_t UInt16LE(const u8* d) {
+u16 UInt16LE(const u8* d) {
     return d[0] | (d[1] << 8);
 }
 
-uint32_t UInt32BE(const u8* d) {
+u32 UInt32BE(const u8* d) {
     return d[3] | (d[2] << 8) | (d[1] << 16) | (d[0] << 24);
 }
 
-uint32_t UInt32LE(const u8* d) {
+u32 UInt32LE(const u8* d) {
     return d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24);
 }
 
@@ -40,8 +40,8 @@ u8 ByteOrderDecoder::UInt8() {
     return *curr++;
 }
 
-uint16_t ByteOrderDecoder::UInt16() {
-    uint16_t v;
+u16 ByteOrderDecoder::UInt16() {
+    u16 v;
     if (left < sizeof(v)) {
         ok = false;
     }
@@ -49,18 +49,19 @@ uint16_t ByteOrderDecoder::UInt16() {
         return 0;
     }
 
-    if (LittleEndian == byteOrder)
+    if (LittleEndian == byteOrder) {
         v = UInt16LE(curr);
-    else
+    } else {
         v = UInt16BE(curr);
+    }
 
     left -= sizeof(v);
     curr += sizeof(v);
     return v;
 }
 
-uint32_t ByteOrderDecoder::UInt32() {
-    uint32_t v;
+u32 ByteOrderDecoder::UInt32() {
+    u32 v;
     if (left < sizeof(v)) {
         ok = false;
     }
@@ -68,18 +69,19 @@ uint32_t ByteOrderDecoder::UInt32() {
         return 0;
     }
 
-    if (LittleEndian == byteOrder)
+    if (LittleEndian == byteOrder) {
         v = UInt32LE(curr);
-    else
+    } else {
         v = UInt32BE(curr);
+    }
 
     left -= sizeof(v);
     curr += sizeof(v);
     return v;
 }
 
-uint64_t ByteOrderDecoder::UInt64() {
-    uint64_t v;
+u64 ByteOrderDecoder::UInt64() {
+    u64 v;
     if (left < sizeof(v)) {
         ok = false;
     }
@@ -88,7 +90,7 @@ uint64_t ByteOrderDecoder::UInt64() {
     }
 
     v = UInt32();
-    uint64_t v2 = UInt32();
+    u64 v2 = UInt32();
     if (LittleEndian == byteOrder) {
         return v | (v2 << 32);
     }

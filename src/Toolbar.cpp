@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -6,12 +6,14 @@
 #include "utils/WinDynCalls.h"
 #include "utils/Dpi.h"
 #include "utils/WinUtil.h"
+#include "utils/LogDbg.h"
 
 #include "wingui/TreeModel.h"
 
 #include "Annotation.h"
 #include "EngineBase.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "DisplayModel.h"
@@ -25,16 +27,26 @@
 #include "WindowInfo.h"
 #include "TabInfo.h"
 #include "resource.h"
+#include "Commands.h"
 #include "AppTools.h"
 #include "Menu.h"
 #include "SearchAndDDE.h"
 #include "Toolbar.h"
 #include "Translations.h"
+#include "SvgIcons.h"
+#include "SumatraConfig.h"
+
+// https://docs.microsoft.com/en-us/windows/win32/controls/toolbar-control-reference
 
 // TODO: experimenting with matching toolbar colors with theme
 // Doesn't work, probably have to implement a custom toolbar control
 // where we draw everything ourselves.
 // #define USE_THEME_COLORS 1
+
+static int cxButtonSpacing = 4;
+
+// distance between label and edit field
+constexpr int TB_TEXT_PADDING_RIGHT = 6;
 
 struct ToolbarButtonInfo {
     /* index in the toolbar bitmap (-1 for separators) */
@@ -45,40 +57,55 @@ struct ToolbarButtonInfo {
 };
 
 static ToolbarButtonInfo gToolbarButtons[] = {
-    {0, IDM_OPEN, _TRN("Open"), MF_REQ_DISK_ACCESS},
+    {0, CmdOpen, _TRN("Open"), MF_REQ_DISK_ACCESS},
     // the Open button is replaced with a Save As button in Plugin mode:
     //  { 12,  IDM_SAVEAS,            _TRN("Save As"),        MF_REQ_DISK_ACCESS },
-    {1, IDM_PRINT, _TRN("Print"), MF_REQ_PRINTER_ACCESS},
-    {-1, IDM_GOTO_PAGE, nullptr, 0},
-    {2, IDM_GOTO_PREV_PAGE, _TRN("Previous Page"), 0},
-    {3, IDM_GOTO_NEXT_PAGE, _TRN("Next Page"), 0},
+    {1, CmdPrint, _TRN("Print"), MF_REQ_PRINTER_ACCESS},
+    {-1, CmdGoToPage, nullptr, 0},
+    {2, CmdGoToPrevPage, _TRN("Previous Page"), 0},
+    {3, CmdGoToNextPage, _TRN("Next Page"), 0},
     {-1, 0, nullptr, 0},
-    {4, IDT_VIEW_FIT_WIDTH, _TRN("Fit Width and Show Pages Continuously"), 0},
-    {5, IDT_VIEW_FIT_PAGE, _TRN("Fit a Single Page"), 0},
-    {6, IDT_VIEW_ZOOMOUT, _TRN("Zoom Out"), 0},
-    {7, IDT_VIEW_ZOOMIN, _TRN("Zoom In"), 0},
-    {-1, IDM_FIND_FIRST, nullptr, 0},
-    {8, IDM_FIND_PREV, _TRN("Find Previous"), 0},
-    {9, IDM_FIND_NEXT, _TRN("Find Next"), 0},
-    {10, IDM_FIND_MATCH, _TRN("Match Case"), 0},
+    {4, CmdZoomFitWidthAndContinuous, _TRN("Fit Width and Show Pages Continuously"), 0},
+    {5, CmdZoomFitPageAndSinglePage, _TRN("Fit a Single Page"), 0},
+    {13, CmdViewRotateLeft, _TRN("Rotate &Left\tCtrl+Shift+-"), 0},
+    {14, CmdViewRotateRight, _TRN("Rotate &Right\tCtrl+Shift++"), 0},
+    {6, CmdZoomOut, _TRN("Zoom Out"), 0},
+    {7, CmdZoomIn, _TRN("Zoom In"), 0},
+    {-1, CmdFindFirst, nullptr, 0},
+    {8, CmdFindPrev, _TRN("Find Previous"), 0},
+    {9, CmdFindNext, _TRN("Find Next"), 0},
+    {10, CmdFindMatch, _TRN("Match Case"), 0},
 };
 
 #define TOOLBAR_BUTTONS_COUNT dimof(gToolbarButtons)
 
-inline bool TbIsSeparator(ToolbarButtonInfo& tbi) {
+static bool TbIsSeparator(ToolbarButtonInfo& tbi) {
     return tbi.bmpIndex < 0;
+}
+
+// which documents support rotation
+static bool NeedsRotateUI(WindowInfo* win) {
+    if (win->AsChm()) {
+        return false;
+    }
+    if (win->AsEbook()) {
+        return false;
+    }
+    return true;
 }
 
 static bool IsVisibleToolbarButton(WindowInfo* win, int buttonNo) {
     switch (gToolbarButtons[buttonNo].cmdId) {
-        case IDT_VIEW_FIT_WIDTH:
-        case IDT_VIEW_FIT_PAGE:
+        case CmdZoomFitWidthAndContinuous:
+        case CmdZoomFitPageAndSinglePage:
             return !win->AsChm();
-
-        case IDM_FIND_FIRST:
-        case IDM_FIND_NEXT:
-        case IDM_FIND_PREV:
-        case IDM_FIND_MATCH:
+        case CmdViewRotateLeft:
+        case CmdViewRotateRight:
+            return NeedsRotateUI(win);
+        case CmdFindFirst:
+        case CmdFindNext:
+        case CmdFindPrev:
+        case CmdFindMatch:
             return NeedsFindUI(win);
 
         default:
@@ -96,27 +123,27 @@ static bool IsToolbarButtonEnabled(WindowInfo* win, int buttonNo) {
 
     // If no file open, only enable open button
     if (!win->IsDocLoaded()) {
-        return IDM_OPEN == cmdId;
+        return CmdOpen == cmdId;
     }
 
     switch (cmdId) {
-        case IDM_OPEN:
+        case CmdOpen:
             // opening different files isn't allowed in plugin mode
             return !gPluginMode;
 
 #ifndef DISABLE_DOCUMENT_RESTRICTIONS
-        case IDM_PRINT:
+        case CmdPrint:
             return !win->AsFixed() || win->AsFixed()->GetEngine()->AllowsPrinting();
 #endif
 
-        case IDM_FIND_NEXT:
-        case IDM_FIND_PREV:
+        case CmdFindNext:
+        case CmdFindPrev:
             // TODO: Update on whether there's more to find, not just on whether there is text.
             return win::GetTextLen(win->hwndFindBox) > 0;
 
-        case IDM_GOTO_NEXT_PAGE:
+        case CmdGoToNextPage:
             return win->ctrl->CurrentPageNo() < win->ctrl->PageCount();
-        case IDM_GOTO_PREV_PAGE:
+        case CmdGoToPrevPage:
             return win->ctrl->CurrentPageNo() > 1;
 
         default:
@@ -125,33 +152,23 @@ static bool IsToolbarButtonEnabled(WindowInfo* win, int buttonNo) {
 }
 
 static TBBUTTON TbButtonFromButtonInfo(int i) {
-    TBBUTTON tbButton = {0};
-    tbButton.idCommand = gToolbarButtons[i].cmdId;
+    TBBUTTON info{0};
+    info.idCommand = gToolbarButtons[i].cmdId;
     if (TbIsSeparator(gToolbarButtons[i])) {
-        tbButton.fsStyle = TBSTYLE_SEP;
+        info.fsStyle = TBSTYLE_SEP;
     } else {
-        tbButton.iBitmap = gToolbarButtons[i].bmpIndex;
-        tbButton.fsState = TBSTATE_ENABLED;
-        tbButton.fsStyle = TBSTYLE_BUTTON;
-        tbButton.iString = (INT_PTR)trans::GetTranslation(gToolbarButtons[i].toolTip);
+        info.iBitmap = gToolbarButtons[i].bmpIndex;
+        info.fsState = TBSTATE_ENABLED;
+        info.fsStyle = TBSTYLE_BUTTON;
+        info.iString = (INT_PTR)trans::GetTranslation(gToolbarButtons[i].toolTip);
     }
-    return tbButton;
-}
-
-#define WS_TOOLBAR \
-    (WS_CHILD | WS_CLIPSIBLINGS | TBSTYLE_TOOLTIPS | TBSTYLE_FLAT | TBSTYLE_LIST | CCS_NODIVIDER | CCS_NOPARENTALIGN)
-
-static void BuildTBBUTTONINFO(TBBUTTONINFO& info, const WCHAR* txt) {
-    info.cbSize = sizeof(TBBUTTONINFO);
-    info.dwMask = TBIF_TEXT | TBIF_BYINDEX;
-    info.pszText = (WCHAR*)txt;
+    return info;
 }
 
 // Set toolbar button tooltips taking current language into account.
 void UpdateToolbarButtonsToolTipsForWindow(WindowInfo* win) {
-    TBBUTTONINFO buttonInfo;
+    TBBUTTONINFO binfo{};
     HWND hwnd = win->hwndToolbar;
-    LRESULT res;
     for (int i = 0; i < TOOLBAR_BUTTONS_COUNT; i++) {
         WPARAM buttonId = (WPARAM)i;
         const char* txt = gToolbarButtons[i].toolTip;
@@ -159,9 +176,10 @@ void UpdateToolbarButtonsToolTipsForWindow(WindowInfo* win) {
             continue;
         }
         const WCHAR* translation = trans::GetTranslation(txt);
-        BuildTBBUTTONINFO(buttonInfo, translation);
-        res = SendMessage(hwnd, TB_SETBUTTONINFO, buttonId, (LPARAM)&buttonInfo);
-        CrashIf(0 == res);
+        binfo.cbSize = sizeof(TBBUTTONINFO);
+        binfo.dwMask = TBIF_TEXT | TBIF_BYINDEX;
+        binfo.pszText = (WCHAR*)translation;
+        TbSetButtonInfo(hwnd, buttonId, &binfo);
     }
 }
 
@@ -174,14 +192,14 @@ void ToolbarUpdateStateForWindow(WindowInfo* win, bool showHide) {
         auto& tb = gToolbarButtons[i];
         if (showHide) {
             BOOL hide = !IsVisibleToolbarButton(win, i);
-            SendMessage(hwnd, TB_HIDEBUTTON, tb.cmdId, hide);
+            SendMessageW(hwnd, TB_HIDEBUTTON, tb.cmdId, hide);
         }
         if (TbIsSeparator(tb)) {
             continue;
         }
 
         LPARAM buttonState = IsToolbarButtonEnabled(win, i) ? enabled : disabled;
-        SendMessage(hwnd, TB_ENABLEBUTTON, tb.cmdId, buttonState);
+        SendMessageW(hwnd, TB_ENABLEBUTTON, tb.cmdId, buttonState);
     }
 
     // Find labels may have to be repositioned if some
@@ -215,33 +233,21 @@ void UpdateFindbox(WindowInfo* win) {
     UpdateWindow(win->hwndToolbar);
 
     if (!win->IsDocLoaded()) { // Avoid focus on Find box
-        SetClassLongPtr(win->hwndFindBox, GCLP_HCURSOR, (LONG_PTR)GetCursor(IDC_ARROW));
+        SetClassLongPtrW(win->hwndFindBox, GCLP_HCURSOR, (LONG_PTR)GetCachedCursor(IDC_ARROW));
         HideCaret(nullptr);
     } else {
-        SetClassLongPtr(win->hwndFindBox, GCLP_HCURSOR, (LONG_PTR)GetCursor(IDC_IBEAM));
+        SetClassLongPtrW(win->hwndFindBox, GCLP_HCURSOR, (LONG_PTR)GetCachedCursor(IDC_IBEAM));
         ShowCaret(nullptr);
     }
 }
 
-static HBITMAP LoadExternalBitmap(HINSTANCE hInst, WCHAR* fileName, INT resourceId, bool useDibSection) {
-    AutoFreeWstr path(AppGenDataFilename(fileName));
-    UINT flags = useDibSection ? LR_CREATEDIBSECTION : 0;
-    if (path) {
-        HBITMAP hBmp = (HBITMAP)LoadImageW(nullptr, path, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | flags);
-        if (hBmp) {
-            return hBmp;
-        }
-    }
-    return (HBITMAP)LoadImageW(hInst, MAKEINTRESOURCE(resourceId), IMAGE_BITMAP, 0, 0, flags);
-}
-
 static WNDPROC DefWndProcToolbar = nullptr;
-static LRESULT CALLBACK WndProcToolbar(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    if (WM_CTLCOLORSTATIC == message) {
-        HWND hStatic = (HWND)lParam;
+static LRESULT CALLBACK WndProcToolbar(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (WM_CTLCOLORSTATIC == msg) {
+        HWND hStatic = (HWND)lp;
         WindowInfo* win = FindWindowInfoByHwnd(hStatic);
         if ((win && win->hwndFindBg != hStatic && win->hwndPageBg != hStatic) || theme::IsAppThemed()) {
-            HDC hdc = (HDC)wParam;
+            HDC hdc = (HDC)wp;
 #if defined(USE_THEME_COLORS)
             SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
             SetBkColor(hdc, GetCurrentTheme()->mainWindow.backgroundColor);
@@ -256,28 +262,28 @@ static LRESULT CALLBACK WndProcToolbar(HWND hwnd, UINT message, WPARAM wParam, L
             return (LRESULT)br;
         }
     }
-    if (WM_COMMAND == message) {
-        HWND hEdit = (HWND)lParam;
+    if (WM_COMMAND == msg) {
+        HWND hEdit = (HWND)lp;
         WindowInfo* win = FindWindowInfoByHwnd(hEdit);
         // "find as you type"
-        if (EN_UPDATE == HIWORD(wParam) && hEdit == win->hwndFindBox && gGlobalPrefs->showToolbar) {
+        if (EN_UPDATE == HIWORD(wp) && hEdit == win->hwndFindBox && gGlobalPrefs->showToolbar) {
             FindTextOnThread(win, TextSearchDirection::Forward, false);
         }
     }
-    return CallWindowProc(DefWndProcToolbar, hwnd, message, wParam, lParam);
+    return CallWindowProc(DefWndProcToolbar, hwnd, msg, wp, lp);
 }
 
 static WNDPROC DefWndProcFindBox = nullptr;
-static LRESULT CALLBACK WndProcFindBox(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK WndProcFindBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     WindowInfo* win = FindWindowInfoByHwnd(hwnd);
     if (!win || !win->IsDocLoaded()) {
-        return DefWindowProc(hwnd, message, wParam, lParam);
+        return DefWindowProc(hwnd, msg, wp, lp);
     }
 
-    if (ExtendedEditWndProc(hwnd, message, wParam, lParam)) {
+    if (ExtendedEditWndProc(hwnd, msg, wp, lp)) {
         // select the whole find box on a non-selecting click
-    } else if (WM_CHAR == message) {
-        switch (wParam) {
+    } else if (WM_CHAR == msg) {
+        switch (wp) {
             case VK_ESCAPE:
                 if (win->findThread) {
                     AbortFinding(win, false);
@@ -296,7 +302,7 @@ static LRESULT CALLBACK WndProcFindBox(HWND hwnd, UINT message, WPARAM wParam, L
                 AdvanceFocus(win);
                 return 1;
         }
-    } else if (WM_ERASEBKGND == message) {
+    } else if (WM_ERASEBKGND == msg) {
         RECT r;
         Edit_GetRect(hwnd, &r);
         if (r.left == 0 && r.top == 0) { // virgin box
@@ -306,23 +312,27 @@ static LRESULT CALLBACK WndProcFindBox(HWND hwnd, UINT message, WPARAM wParam, L
             r.right -= 2;
             Edit_SetRectNoPaint(hwnd, &r);
         }
-    } else if (WM_KEYDOWN == message) {
-        if (FrameOnKeydown(win, wParam, lParam, true)) {
+    } else if (WM_KEYDOWN == msg) {
+        if (FrameOnKeydown(win, wp, lp, true)) {
             return 0;
         }
     }
 
-    LRESULT ret = CallWindowProc(DefWndProcFindBox, hwnd, message, wParam, lParam);
+    LRESULT ret = CallWindowProc(DefWndProcFindBox, hwnd, msg, wp, lp);
 
-    if (WM_CHAR == message || WM_PASTE == message || WM_CUT == message || WM_CLEAR == message || WM_UNDO == message ||
-        WM_KEYUP == message) {
-        ToolbarUpdateStateForWindow(win, false);
+    switch (msg) {
+        case WM_CHAR:
+        case WM_PASTE:
+        case WM_CUT:
+        case WM_CLEAR:
+        case WM_UNDO:
+        case WM_KEYUP:
+            ToolbarUpdateStateForWindow(win, false);
+            break;
     }
 
     return ret;
 }
-
-#define TB_TEXT_PADDING_RIGHT 6
 
 void UpdateToolbarFindText(WindowInfo* win) {
     bool showUI = NeedsFindUI(win);
@@ -338,25 +348,32 @@ void UpdateToolbarFindText(WindowInfo* win) {
 
     Rect findWndRect = WindowRect(win->hwndFindBg);
 
-    RECT r;
-    SendMessage(win->hwndToolbar, TB_GETRECT, IDT_VIEW_ZOOMIN, (LPARAM)&r);
-    int pos_x = r.right + 10;
-    int pos_y = (r.bottom - findWndRect.dy) / 2;
+    RECT r{};
+    TbGetRect(win->hwndToolbar, CmdZoomIn, &r);
+    int currX = r.right + DpiScale(win->hwndToolbar, 10);
+    int currY = (r.bottom - findWndRect.dy) / 2;
 
     Size size = TextSizeInHwnd(win->hwndFindText, text);
-    size.dx += TB_TEXT_PADDING_RIGHT;
+    size.dx += DpiScale(win->hwndFrame, TB_TEXT_PADDING_RIGHT);
+    size.dx += DpiScale(win->hwndFrame, cxButtonSpacing);
 
     int padding = GetSystemMetrics(SM_CXEDGE);
-    MoveWindow(win->hwndFindText, pos_x, (findWndRect.dy - size.dy + 1) / 2 + pos_y, size.dx, size.dy, TRUE);
-    MoveWindow(win->hwndFindBg, pos_x + size.dx, pos_y, findWndRect.dx, findWndRect.dy, FALSE);
-    MoveWindow(win->hwndFindBox, pos_x + size.dx + padding, (findWndRect.dy - size.dy + 1) / 2 + pos_y,
-               findWndRect.dx - 2 * padding, size.dy, FALSE);
+    int x = currX;
+    int y = (findWndRect.dy - size.dy + 1) / 2 + currY;
+    MoveWindow(win->hwndFindText, x, y, size.dx, size.dy, TRUE);
+    x = currX + size.dx;
+    y = currY;
+    MoveWindow(win->hwndFindBg, x, y, findWndRect.dx, findWndRect.dy, FALSE);
+    x = currX + size.dx + padding;
+    y = (findWndRect.dy - size.dy + 1) / 2 + currY;
+    int dx = findWndRect.dx - 2 * padding;
+    MoveWindow(win->hwndFindBox, x, y, dx, size.dy, FALSE);
 
-    TBBUTTONINFO bi;
+    TBBUTTONINFOW bi{};
     bi.cbSize = sizeof(bi);
     bi.dwMask = TBIF_SIZE;
     bi.cx = (WORD)(size.dx + findWndRect.dx + 12);
-    SendMessage(win->hwndToolbar, TB_SETBUTTONINFO, IDM_FIND_FIRST, (LPARAM)&bi);
+    TbSetButtonInfo(win->hwndToolbar, CmdFindFirst, &bi);
 }
 
 void UpdateToolbarState(WindowInfo* win) {
@@ -364,25 +381,25 @@ void UpdateToolbarState(WindowInfo* win) {
         return;
     }
     HWND hwnd = win->hwndToolbar;
-    WORD state = (WORD)SendMessage(hwnd, TB_GETSTATE, IDT_VIEW_FIT_WIDTH, 0);
+    WORD state = (WORD)SendMessageW(hwnd, TB_GETSTATE, CmdZoomFitWidthAndContinuous, 0);
     DisplayMode dm = win->ctrl->GetDisplayMode();
     float zoomVirtual = win->ctrl->GetZoomVirtual();
-    if (dm == DM_CONTINUOUS && zoomVirtual == ZOOM_FIT_WIDTH) {
+    if (dm == DisplayMode::Continuous && zoomVirtual == ZOOM_FIT_WIDTH) {
         state |= TBSTATE_CHECKED;
     } else {
         state &= ~TBSTATE_CHECKED;
     }
-    SendMessage(hwnd, TB_SETSTATE, IDT_VIEW_FIT_WIDTH, state);
+    SendMessageW(hwnd, TB_SETSTATE, CmdZoomFitWidthAndContinuous, state);
 
     bool isChecked = (state & TBSTATE_CHECKED);
 
-    state = (WORD)SendMessage(hwnd, TB_GETSTATE, IDT_VIEW_FIT_PAGE, 0);
-    if (dm == DM_SINGLE_PAGE && zoomVirtual == ZOOM_FIT_PAGE) {
+    state = (WORD)SendMessageW(hwnd, TB_GETSTATE, CmdZoomFitPageAndSinglePage, 0);
+    if (dm == DisplayMode::SinglePage && zoomVirtual == ZOOM_FIT_PAGE) {
         state |= TBSTATE_CHECKED;
     } else {
         state &= ~TBSTATE_CHECKED;
     }
-    SendMessage(hwnd, TB_SETSTATE, IDT_VIEW_FIT_PAGE, state);
+    SendMessageW(hwnd, TB_SETSTATE, CmdZoomFitPageAndSinglePage, state);
 
     isChecked |= (state & TBSTATE_CHECKED);
     if (!isChecked) {
@@ -391,17 +408,16 @@ void UpdateToolbarState(WindowInfo* win) {
 }
 
 #define TOOLBAR_MIN_ICON_SIZE 16
-#define FIND_BOX_WIDTH 160
 
 static void CreateFindBox(WindowInfo* win) {
-    int boxWidth = DpiScale(win->hwndFrame, FIND_BOX_WIDTH);
+    int findBoxDx = DpiScale(win->hwndFrame, 160);
     int minIconSize = DpiScale(win->hwndFrame, TOOLBAR_MIN_ICON_SIZE);
-    HWND findBg = CreateWindowEx(WS_EX_STATICEDGE, WC_STATIC, L"", WS_VISIBLE | WS_CHILD, 0, 1, boxWidth,
+    HWND findBg = CreateWindowEx(WS_EX_STATICEDGE, WC_STATIC, L"", WS_VISIBLE | WS_CHILD, 0, 1, findBoxDx,
                                  minIconSize + 4, win->hwndToolbar, (HMENU)0, GetModuleHandle(nullptr), nullptr);
 
-    HWND find = CreateWindowEx(0, WC_EDIT, L"", WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL, 0, 1,
-                               boxWidth - 2 * GetSystemMetrics(SM_CXEDGE), minIconSize + 2, win->hwndToolbar, (HMENU)0,
-                               GetModuleHandle(nullptr), nullptr);
+    int dx = findBoxDx - 2 * GetSystemMetrics(SM_CXEDGE);
+    HWND find = CreateWindowEx(0, WC_EDIT, L"", WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL, 0, 1, dx, minIconSize + 2,
+                               win->hwndToolbar, (HMENU)0, GetModuleHandle(nullptr), nullptr);
 
     HWND label = CreateWindowEx(0, WC_STATIC, L"", WS_VISIBLE | WS_CHILD, 0, 1, 0, 0, win->hwndToolbar, (HMENU)0,
                                 GetModuleHandle(nullptr), nullptr);
@@ -414,8 +430,9 @@ static void CreateFindBox(WindowInfo* win) {
     }
     SetWindowLongPtr(win->hwndToolbar, GWLP_WNDPROC, (LONG_PTR)WndProcToolbar);
 
-    if (!DefWndProcFindBox)
+    if (!DefWndProcFindBox) {
         DefWndProcFindBox = (WNDPROC)GetWindowLongPtr(find, GWLP_WNDPROC);
+    }
     SetWindowLongPtr(find, GWLP_WNDPROC, (LONG_PTR)WndProcFindBox);
 
     win->hwndFindText = label;
@@ -426,15 +443,16 @@ static void CreateFindBox(WindowInfo* win) {
 }
 
 static WNDPROC DefWndProcPageBox = nullptr;
-static LRESULT CALLBACK WndProcPageBox(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK WndProcPageBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     WindowInfo* win = FindWindowInfoByHwnd(hwnd);
-    if (!win || !win->IsDocLoaded())
-        return DefWindowProc(hwnd, message, wParam, lParam);
+    if (!win || !win->IsDocLoaded()) {
+        return DefWindowProc(hwnd, msg, wp, lp);
+    }
 
-    if (ExtendedEditWndProc(hwnd, message, wParam, lParam)) {
+    if (ExtendedEditWndProc(hwnd, msg, wp, lp)) {
         // select the whole page box on a non-selecting click
-    } else if (WM_CHAR == message) {
-        switch (wParam) {
+    } else if (WM_CHAR == msg) {
+        switch (wp) {
             case VK_RETURN: {
                 AutoFreeWstr buf(win::GetText(win->hwndPageBox));
                 int newPageNo = win->ctrl->GetPageByLabel(buf);
@@ -452,7 +470,7 @@ static LRESULT CALLBACK WndProcPageBox(HWND hwnd, UINT message, WPARAM wParam, L
                 AdvanceFocus(win);
                 return 1;
         }
-    } else if (WM_ERASEBKGND == message) {
+    } else if (WM_ERASEBKGND == msg) {
         RECT r;
         Edit_GetRect(hwnd, &r);
         if (r.left == 0 && r.top == 0) { // virgin box
@@ -462,29 +480,32 @@ static LRESULT CALLBACK WndProcPageBox(HWND hwnd, UINT message, WPARAM wParam, L
             r.right -= 2;
             Edit_SetRectNoPaint(hwnd, &r);
         }
-    } else if (WM_KEYDOWN == message) {
-        if (FrameOnKeydown(win, wParam, lParam, true))
+    } else if (WM_KEYDOWN == msg) {
+        if (FrameOnKeydown(win, wp, lp, true)) {
             return 0;
+        }
     }
 
-    return CallWindowProc(DefWndProcPageBox, hwnd, message, wParam, lParam);
+    return CallWindowProc(DefWndProcPageBox, hwnd, msg, wp, lp);
 }
 
 #define PAGE_BOX_WIDTH 40
 
 void UpdateToolbarPageText(WindowInfo* win, int pageCount, bool updateOnly) {
     const WCHAR* text = _TR("Page:");
-    if (!updateOnly)
+    if (!updateOnly) {
         win::SetText(win->hwndPageText, text);
+    }
     Size size = TextSizeInHwnd(win->hwndPageText, text);
-    size.dx += TB_TEXT_PADDING_RIGHT;
+    size.dx += DpiScale(win->hwndFrame, TB_TEXT_PADDING_RIGHT);
+    size.dx += DpiScale(win->hwndFrame, cxButtonSpacing);
 
     Rect pageWndRect = WindowRect(win->hwndPageBg);
 
-    RECT r;
-    SendMessage(win->hwndToolbar, TB_GETRECT, IDM_PRINT, (LPARAM)&r);
-    int pos_x = r.right + 10;
-    int pos_y = (r.bottom - pageWndRect.dy) / 2;
+    RECT r{};
+    SendMessageW(win->hwndToolbar, TB_GETRECT, CmdPrint, (LPARAM)&r);
+    int currX = r.right + DpiScale(win->hwndFrame, 10);
+    int currY = (r.bottom - pageWndRect.dy) / 2;
 
     WCHAR* buf;
     Size size2;
@@ -492,51 +513,66 @@ void UpdateToolbarPageText(WindowInfo* win, int pageCount, bool updateOnly) {
         // preserve hwndPageTotal's text and size
         buf = win::GetText(win->hwndPageTotal);
         size2 = ClientRect(win->hwndPageTotal).Size();
-        size2.dx -= TB_TEXT_PADDING_RIGHT;
-    } else if (!pageCount)
+        size2.dx -= DpiScale(win->hwndFrame, TB_TEXT_PADDING_RIGHT);
+        size2.dx -= DpiScale(win->hwndFrame, cxButtonSpacing);
+    } else if (!pageCount) {
         buf = str::Dup(L"");
-    else if (!win->ctrl || !win->ctrl->HasPageLabels())
+    } else if (!win->ctrl || !win->ctrl->HasPageLabels()) {
         buf = str::Format(L" / %d", pageCount);
-    else {
+    } else {
         buf = str::Format(L" (%d / %d)", win->ctrl->CurrentPageNo(), pageCount);
         AutoFreeWstr buf2(str::Format(L" (%d / %d)", pageCount, pageCount));
         size2 = TextSizeInHwnd(win->hwndPageTotal, buf2);
     }
 
     win::SetText(win->hwndPageTotal, buf);
-    if (0 == size2.dx)
+    if (0 == size2.dx) {
         size2 = TextSizeInHwnd(win->hwndPageTotal, buf);
-    size2.dx += TB_TEXT_PADDING_RIGHT;
+    }
+    size2.dx += DpiScale(win->hwndFrame, TB_TEXT_PADDING_RIGHT);
+    size2.dx += DpiScale(win->hwndFrame, cxButtonSpacing);
     free(buf);
 
     int padding = GetSystemMetrics(SM_CXEDGE);
-    MoveWindow(win->hwndPageText, pos_x, (pageWndRect.dy - size.dy + 1) / 2 + pos_y, size.dx, size.dy, FALSE);
-    if (IsUIRightToLeft())
-        pos_x += size2.dx - TB_TEXT_PADDING_RIGHT;
-    MoveWindow(win->hwndPageBg, pos_x + size.dx, pos_y, pageWndRect.dx, pageWndRect.dy, FALSE);
-    MoveWindow(win->hwndPageBox, pos_x + size.dx + padding, (pageWndRect.dy - size.dy + 1) / 2 + pos_y,
-               pageWndRect.dx - 2 * padding, size.dy, FALSE);
+    int x = currX;
+    int y = (pageWndRect.dy - size.dy + 1) / 2 + currY;
+    MoveWindow(win->hwndPageText, x, y, size.dx, size.dy, FALSE);
+    if (IsUIRightToLeft()) {
+        currX += size2.dx;
+        currX -= DpiScale(win->hwndFrame, TB_TEXT_PADDING_RIGHT);
+        currX -= DpiScale(win->hwndFrame, cxButtonSpacing);
+    }
+    x = currX + size.dx;
+    y = currY;
+    MoveWindow(win->hwndPageBg, x, y, pageWndRect.dx, pageWndRect.dy, FALSE);
+    x = currX + size.dx + padding;
+    y = (pageWndRect.dy - size.dy + 1) / 2 + currY;
+    int dx = pageWndRect.dx - 2 * padding;
+    MoveWindow(win->hwndPageBox, x, y, dx, size.dy, FALSE);
     // in right-to-left layout, the total comes "before" the current page number
     if (IsUIRightToLeft()) {
-        pos_x -= size2.dx;
-        MoveWindow(win->hwndPageTotal, pos_x + size.dx, (pageWndRect.dy - size.dy + 1) / 2 + pos_y, size2.dx, size.dy,
-                   FALSE);
-    } else
-        MoveWindow(win->hwndPageTotal, pos_x + size.dx + pageWndRect.dx, (pageWndRect.dy - size.dy + 1) / 2 + pos_y,
-                   size2.dx, size.dy, FALSE);
+        currX -= size2.dx;
+        x = currX + size.dx;
+        y = (pageWndRect.dy - size.dy + 1) / 2 + currY;
+        MoveWindow(win->hwndPageTotal, x, y, size2.dx, size.dy, FALSE);
+    } else {
+        x = currX + size.dx + pageWndRect.dx;
+        y = (pageWndRect.dy - size.dy + 1) / 2 + currY;
+        MoveWindow(win->hwndPageTotal, x, y, size2.dx, size.dy, FALSE);
+    }
 
-    TBBUTTONINFO bi;
+    TBBUTTONINFOW bi{};
     bi.cbSize = sizeof(bi);
     bi.dwMask = TBIF_SIZE;
-    SendMessage(win->hwndToolbar, TB_GETBUTTONINFO, IDM_GOTO_PAGE, (LPARAM)&bi);
+    SendMessageW(win->hwndToolbar, TB_GETBUTTONINFO, CmdGoToPage, (LPARAM)&bi);
     size2.dx += size.dx + pageWndRect.dx + 12;
     if (bi.cx != size2.dx || !updateOnly) {
         bi.cx = (WORD)size2.dx;
-        SendMessage(win->hwndToolbar, TB_SETBUTTONINFO, IDM_GOTO_PAGE, (LPARAM)&bi);
+        TbSetButtonInfo(win->hwndToolbar, CmdGoToPage, &bi);
     } else {
         Rect rc = ClientRect(win->hwndPageTotal);
         rc = MapRectToWindow(rc, win->hwndPageTotal, win->hwndToolbar);
-        RECT rTmp = rc.ToRECT();
+        RECT rTmp = ToRECT(rc);
         InvalidateRect(win->hwndToolbar, &rTmp, TRUE);
     }
 }
@@ -548,14 +584,16 @@ static void CreatePageBox(WindowInfo* win) {
     int minIconSize = DpiScale(hwndFrame, TOOLBAR_MIN_ICON_SIZE);
     DWORD style = WS_VISIBLE | WS_CHILD;
     auto h = GetModuleHandle(nullptr);
-    HWND pageBg = CreateWindowEx(WS_EX_STATICEDGE, WC_STATIC, L"", style, 0, 1, boxWidth, minIconSize + 4, hwndToolbar,
-                                 (HMENU)0, h, nullptr);
-    HWND label = CreateWindowEx(0, WC_STATIC, L"", style, 0, 1, 0, 0, hwndToolbar, (HMENU)0, h, nullptr);
-    HWND total = CreateWindowEx(0, WC_STATIC, L"", style, 0, 1, 0, 0, hwndToolbar, (HMENU)0, h, nullptr);
+    int dx = boxWidth;
+    int dy = minIconSize + 4;
+    DWORD exStyle = WS_EX_STATICEDGE;
+    HWND pageBg = CreateWindowExW(exStyle, WC_STATIC, L"", style, 0, 1, dx, dy, hwndToolbar, (HMENU)0, h, nullptr);
+    HWND label = CreateWindowExW(0, WC_STATIC, L"", style, 0, 1, 0, 0, hwndToolbar, (HMENU)0, h, nullptr);
+    HWND total = CreateWindowExW(0, WC_STATIC, L"", style, 0, 1, 0, 0, hwndToolbar, (HMENU)0, h, nullptr);
 
     style = WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL | ES_NUMBER | ES_RIGHT;
-    int dx = boxWidth - 2 * GetSystemMetrics(SM_CXEDGE);
-    int dy = minIconSize + 2;
+    dx = boxWidth - 2 * GetSystemMetrics(SM_CXEDGE);
+    dy = minIconSize + 2;
     HWND page = CreateWindowExW(0, WC_EDIT, L"0", style, 0, 1, dx, dy, hwndToolbar, (HMENU)0, h, nullptr);
 
     auto font = GetDefaultGuiFont();
@@ -576,39 +614,6 @@ static void CreatePageBox(WindowInfo* win) {
     UpdateToolbarPageText(win, -1);
 }
 
-#define WS_REBAR \
-    (WS_CHILD | WS_CLIPCHILDREN | WS_BORDER | RBS_VARHEIGHT | RBS_BANDBORDERS | CCS_NODIVIDER | CCS_NOPARENTALIGN)
-
-// Sometimes scaled icons show up with purple background. Here's what I was able to piece together.
-// When icons not scaled, we don't ask for DIB section (the original behavior of the code)
-// Win 7 : purple if DIB section (tested by me)
-// Win 10 :
-//  build 14383 : purple if no DIB section (tested by me)
-//  build 10586 : purple if DIB section (reported in
-//  https://github.com/sumatrapdfreader/sumatrapdf/issues/569#issuecomment-231508990)
-// Other builds not tested, will default to no DIB section. Might need to update it if more reports come in.
-static bool UseDibSection(bool needsScaling) {
-    if (!needsScaling) {
-        return false;
-    }
-    OSVERSIONINFOEX ver;
-    GetOsVersion(ver);
-    // everything other than win 10: no DIB section
-    if (ver.dwMajorVersion != 10) {
-        return false;
-    }
-    // win 10 seems to behave differently depending on the build
-    // I assume that up to 10586 we don't want dib
-    if (ver.dwBuildNumber <= 10586) {
-        return false;
-    }
-    // builds > 10586, including 14383
-    return true;
-}
-
-#include "SvgIcons.h"
-#include "utils/LogDbg.h"
-
 void LogBitmapInfo(HBITMAP hbmp) {
     BITMAP bmpInfo;
     GetObject(hbmp, sizeof(BITMAP), &bmpInfo);
@@ -623,12 +628,18 @@ void LogBitmapInfo(HBITMAP hbmp) {
 }
 
 void CreateToolbar(WindowInfo* win) {
+    if (!gIsRaMicroBuild) {
+        cxButtonSpacing = 0;
+    }
     HINSTANCE hinst = GetModuleHandle(nullptr);
     HWND hwndParent = win->hwndFrame;
-    HWND hwndToolbar = CreateWindowExW(0, TOOLBARCLASSNAME, nullptr, WS_TOOLBAR, 0, 0, 0, 0, hwndParent,
-                                       (HMENU)IDC_TOOLBAR, hinst, nullptr);
+    DWORD style = WS_CHILD | WS_CLIPSIBLINGS | TBSTYLE_TOOLTIPS | TBSTYLE_FLAT;
+    style |= TBSTYLE_LIST | CCS_NODIVIDER | CCS_NOPARENTALIGN;
+    const WCHAR* cls = TOOLBARCLASSNAME;
+    HMENU cmd = (HMENU)IDC_TOOLBAR;
+    HWND hwndToolbar = CreateWindowExW(0, cls, nullptr, style, 0, 0, 0, 0, hwndParent, cmd, hinst, nullptr);
     win->hwndToolbar = hwndToolbar;
-    SendMessage(hwndToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
+    SendMessageW(hwndToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
 
     ShowWindow(hwndToolbar, SW_SHOW);
     TBBUTTON tbButtons[TOOLBAR_BUTTONS_COUNT];
@@ -636,79 +647,60 @@ void CreateToolbar(WindowInfo* win) {
     int dpi = DpiGet(win->hwndFrame);
 
     HBITMAP hbmp = nullptr;
-    bool useSvg = true;
 
     Size size{-1, -1};
-    if (useSvg) {
-        // TODO: bitmap is skewed for dxDpi of 20, 24 etc.
-        int dxDpi = 16;
-        int scale = (int)ceilf((float)dpi / 96.f);
-        int dx = dxDpi * scale;
-        size.dx = dx;
-        size.dy = dx;
-        hbmp = BuildIconsBitmap(dx, dx);
-    } else {
-        // stretch the toolbar bitmaps for higher DPI settings
-        // TODO: get nicely interpolated versions of the toolbar icons for higher resolutions
+    // TODO: bitmap is skewed for dxDpi of 20, 24 etc.
+    int dxDpi = 16;
+    int scale = (int)ceilf((float)dpi / 96.f);
+    int dx = dxDpi * scale;
+    size.dx = dx;
+    size.dy = dx;
+    hbmp = BuildIconsBitmap(dx, dx);
 
-        // scale toolbar images only by integral sizes (2, 3 etc.)
-        int scaleX = (int)ceilf((float)dpi / 96.f);
-        int scaleY = (int)ceilf((float)dpi / 96.f);
-        bool needsScaling = (scaleX > 1) || (scaleY > 1);
-        bool useDibSection = UseDibSection(needsScaling);
-
-        // the name of the bitmap contains the number of icons so that after adding/removing
-        // icons a complete default toolbar is used rather than an incomplete customized one
-        hbmp = LoadExternalBitmap(GetModuleHandle(nullptr), L"toolbar_11.bmp", IDB_TOOLBAR, useDibSection);
-        size = GetBitmapSize(hbmp);
-
-        if (needsScaling) {
-            size.dx *= scaleX;
-            size.dy *= scaleY;
-
-            UINT flags = LR_COPYDELETEORG;
-            if (useDibSection) {
-                flags |= LR_CREATEDIBSECTION;
-            }
-            hbmp = (HBITMAP)CopyImage(hbmp, IMAGE_BITMAP, size.dx, size.dy, flags);
-        }
-    }
     // assume square icons
     HIMAGELIST himl = ImageList_Create(size.dy, size.dy, ILC_COLORDDB | ILC_MASK, 0, 0);
-    COLORREF mask = RGB(0xFF, 0, 0xFF);
-    if (useSvg) {
-        mask = RGB(0xff, 0xff, 0xff);
+    COLORREF mask = RGB(0xff, 0xff, 0xff);
+    if (true) {
+        ImageList_AddMasked(himl, hbmp, mask);
+    } else {
+        int amres = ImageList_AddMasked(himl, hbmp, mask);
+        int nImages = ImageList_GetImageCount(himl);
+        dbglogf("res: %d, nImages: %d\n", amres, nImages);
+        LogBitmapInfo(hbmp);
     }
-    int amres = ImageList_AddMasked(himl, hbmp, mask);
-    int nImages = ImageList_GetImageCount(himl);
-#if 0
-    dbglogf("res: %d, nImages: %d\n", amres, nImages);
-    LogBitmapInfo(hbmp);
-#endif
     DeleteObject(hbmp);
 
     // in Plugin mode, replace the Open with a Save As button
     if (gPluginMode && size.dx / size.dy == 13) {
         gToolbarButtons[0].bmpIndex = 12;
-        gToolbarButtons[0].cmdId = IDM_SAVEAS;
+        gToolbarButtons[0].cmdId = CmdSaveAs;
         gToolbarButtons[0].toolTip = _TRN("Save As");
         gToolbarButtons[0].flags = MF_REQ_DISK_ACCESS;
     }
     for (int i = 0; i < TOOLBAR_BUTTONS_COUNT; i++) {
         tbButtons[i] = TbButtonFromButtonInfo(i);
-        if (gToolbarButtons[i].cmdId == IDM_FIND_MATCH) {
+        if (gToolbarButtons[i].cmdId == CmdFindMatch) {
             tbButtons[i].fsStyle = BTNS_CHECK;
         }
     }
     SendMessageW(hwndToolbar, TB_SETIMAGELIST, 0, (LPARAM)himl);
 
-    LRESULT exstyle = SendMessage(hwndToolbar, TB_GETEXTENDEDSTYLE, 0, 0);
+    TBMETRICS tbMetrics{};
+    tbMetrics.cbSize = sizeof(tbMetrics);
+    // tbMetrics.dwMask = TBMF_PAD;
+    tbMetrics.dwMask = TBMF_BUTTONSPACING;
+    TbGetMetrics(hwndToolbar, &tbMetrics);
+    tbMetrics.cxPad += DpiScale(win->hwndFrame, 14);
+    tbMetrics.cyPad += DpiScale(win->hwndFrame, 2);
+    tbMetrics.cxButtonSpacing += DpiScale(win->hwndFrame, cxButtonSpacing);
+    // tbMetrics.cyButtonSpacing += DpiScale(win->hwndFrame, 4);
+    TbSetMetrics(hwndToolbar, &tbMetrics);
+
+    LRESULT exstyle = SendMessageW(hwndToolbar, TB_GETEXTENDEDSTYLE, 0, 0);
     exstyle |= TBSTYLE_EX_MIXEDBUTTONS;
     SendMessageW(hwndToolbar, TB_SETEXTENDEDSTYLE, 0, exstyle);
-    bool ok = SendMessageW(hwndToolbar, TB_ADDBUTTONS, TOOLBAR_BUTTONS_COUNT, (LPARAM)tbButtons);
-    if (!ok) {
-        DbgOutLastError();
-    }
+    BOOL ok = SendMessageW(hwndToolbar, TB_ADDBUTTONS, TOOLBAR_BUTTONS_COUNT, (LPARAM)tbButtons);
+    CrashIf(!ok);
 
     RECT rc;
     LRESULT res = SendMessageW(hwndToolbar, TB_GETITEMRECT, 0, (LPARAM)&rc);
@@ -716,18 +708,19 @@ void CreateToolbar(WindowInfo* win) {
         rc.left = rc.right = rc.top = rc.bottom = 0;
     }
 
-    DWORD dwStyle = WS_REBAR | WS_VISIBLE;
+    DWORD dwStyle = WS_CHILD | WS_CLIPCHILDREN | WS_BORDER | RBS_VARHEIGHT | RBS_BANDBORDERS;
+    dwStyle |= CCS_NODIVIDER | CCS_NOPARENTALIGN | WS_VISIBLE;
     win->hwndReBar = CreateWindowExW(WS_EX_TOOLWINDOW, REBARCLASSNAME, nullptr, dwStyle, 0, 0, 0, 0, hwndParent,
                                      (HMENU)IDC_REBAR, hinst, nullptr);
 
-    REBARINFO rbi;
+    REBARINFO rbi{};
     rbi.cbSize = sizeof(REBARINFO);
     rbi.fMask = 0;
     rbi.himl = (HIMAGELIST) nullptr;
-    SendMessage(win->hwndReBar, RB_SETBARINFO, 0, (LPARAM)&rbi);
+    SendMessageW(win->hwndReBar, RB_SETBARINFO, 0, (LPARAM)&rbi);
 
-    REBARBANDINFO rbBand;
-    rbBand.cbSize = sizeof(REBARBANDINFO);
+    REBARBANDINFOW rbBand{};
+    rbBand.cbSize = sizeof(REBARBANDINFOW);
     rbBand.fMask = /*RBBIM_COLORS | RBBIM_TEXT | RBBIM_BACKGROUND | */
         RBBIM_STYLE | RBBIM_CHILD | RBBIM_CHILDSIZE /*| RBBIM_SIZE*/;
     rbBand.fStyle = /*RBBS_CHILDEDGE |*/ /* RBBS_BREAK |*/ RBBS_FIXEDSIZE /*| RBBS_GRIPPERALWAYS*/;
@@ -735,12 +728,12 @@ void CreateToolbar(WindowInfo* win) {
         rbBand.fStyle |= RBBS_CHILDEDGE;
     }
     rbBand.hbmBack = nullptr;
-    rbBand.lpText = L"Toolbar";
+    rbBand.lpText = (WCHAR*)L"Toolbar"; // NOLINT
     rbBand.hwndChild = hwndToolbar;
     rbBand.cxMinChild = (rc.right - rc.left) * TOOLBAR_BUTTONS_COUNT;
     rbBand.cyMinChild = (rc.bottom - rc.top) + 2 * rc.top;
     rbBand.cx = 0;
-    SendMessage(win->hwndReBar, RB_INSERTBAND, (WPARAM)-1, (LPARAM)&rbBand);
+    SendMessageW(win->hwndReBar, RB_INSERTBAND, (WPARAM)-1, (LPARAM)&rbBand);
 
     SetWindowPos(win->hwndReBar, nullptr, 0, 0, 0, 0, SWP_NOZORDER);
 

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -10,6 +10,7 @@
 #include "utils/FileUtil.h"
 #include "utils/FileWatcher.h"
 #include "utils/HtmlParserLookup.h"
+#include "utils/GdiPlusUtil.h"
 #include "mui/Mui.h"
 #include "utils/SquareTreeParser.h"
 #include "utils/ThreadUtil.h"
@@ -30,9 +31,11 @@
 #include "wingui/LabelWithCloseWnd.h"
 #include "wingui/TreeModel.h"
 
+#include "Accelerators.h"
 #include "Annotation.h"
 #include "EngineBase.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "DisplayModel.h"
@@ -48,6 +51,7 @@
 #include "WindowInfo.h"
 #include "TabInfo.h"
 #include "resource.h"
+#include "Commands.h"
 #include "Flags.h"
 #include "AppPrefs.h"
 #include "AppTools.h"
@@ -70,16 +74,8 @@
 #include "AppTools.h"
 #include "Installer.h"
 #include "SumatraConfig.h"
-
-static bool TryLoadMemTrace() {
-    AutoFreeWstr dllPath(path::GetPathOfFileInAppDir(L"memtrace.dll"));
-    // technically leaking but we don't care
-    // cppcheck-suppress leakReturnValNotUsed
-    if (!LoadLibrary(dllPath)) {
-        return false;
-    }
-    return true;
-}
+#include "EngineEbook.h"
+#include "ExternalViewers.h"
 
 // gFileExistenceChecker is initialized at startup and should
 // terminate and delete itself asynchronously while the UI is
@@ -103,8 +99,9 @@ static FileExistenceChecker* gFileExistenceChecker = nullptr;
 void FileExistenceChecker::GetFilePathsToCheck() {
     DisplayState* state;
     for (size_t i = 0; i < 2 * FILE_HISTORY_MAX_RECENT && (state = gFileHistory.Get(i)) != nullptr; i++) {
-        if (!state->isMissing)
+        if (!state->isMissing) {
             paths.Append(str::Dup(state->filePath));
+        }
     }
     // add missing paths from the list of most frequently opened documents
     Vec<DisplayState*> frequencyList;
@@ -112,8 +109,9 @@ void FileExistenceChecker::GetFilePathsToCheck() {
     size_t iMax = std::min<size_t>(2 * FILE_HISTORY_MAX_FREQUENT, frequencyList.size());
     for (size_t i = 0; i < iMax; i++) {
         state = frequencyList.at(i);
-        if (!paths.Contains(state->filePath))
+        if (!paths.Contains(state->filePath)) {
             paths.Append(str::Dup(state->filePath));
+        }
     }
 }
 
@@ -175,7 +173,7 @@ static bool RegisterWinClass() {
     ATOM atom;
 
     HMODULE h = GetModuleHandleW(nullptr);
-    LPCWSTR iconName = MAKEINTRESOURCEW(GetAppIconID());
+    WCHAR* iconName = MAKEINTRESOURCEW(GetAppIconID());
     FillWndClassEx(wcex, FRAME_CLASS_NAME, WndProcFrame);
     wcex.hIcon = LoadIconW(h, iconName);
     CrashIf(!wcex.hIcon);
@@ -225,22 +223,24 @@ static void OpenUsingDde(HWND targetWnd, const WCHAR* filePath, Flags& i, bool i
     } else if (i.pageNumber > 0 && isFirstWin) {
         cmd.AppendFmt(L"[GotoPage(\"%s\", %d)]", fullpath, i.pageNumber);
     }
-    if ((i.startView != DM_AUTOMATIC || i.startZoom != INVALID_ZOOM ||
+    if ((i.startView != DisplayMode::Automatic || i.startZoom != INVALID_ZOOM ||
          i.startScroll.x != -1 && i.startScroll.y != -1) &&
         isFirstWin) {
-        const WCHAR* viewMode = prefs::conv::FromDisplayMode(i.startView);
-        cmd.AppendFmt(L"[SetView(\"%s\", \"%s\", %.2f, %d, %d)]", fullpath, viewMode, i.startZoom, i.startScroll.x,
-                      i.startScroll.y);
+        const char* viewModeStr = DisplayModeToString(i.startView);
+        AutoFreeWstr viewMode = strconv::Utf8ToWstr(viewModeStr);
+        cmd.AppendFmt(L"[SetView(\"%s\", \"%s\", %.2f, %d, %d)]", fullpath, viewMode.Get(), i.startZoom,
+                      i.startScroll.x, i.startScroll.y);
     }
     if (i.forwardSearchOrigin && i.forwardSearchLine) {
         AutoFreeWstr sourcePath(path::Normalize(i.forwardSearchOrigin));
-        cmd.AppendFmt(L"[ForwardSearch(\"%s\", \"%s\", %d, 0, 0, 1)]", fullpath, sourcePath.get(), i.forwardSearchLine);
+        cmd.AppendFmt(L"[ForwardSearch(\"%s\", \"%s\", %d, 0, 0, 1)]", fullpath, sourcePath.Get(), i.forwardSearchLine);
     }
 
     if (!i.reuseDdeInstance) {
         // try WM_COPYDATA first, as that allows targetting a specific window
-        COPYDATASTRUCT cds = {0x44646557 /* DdeW */, (DWORD)(cmd.size() + 1) * sizeof(WCHAR), cmd.Get()};
-        LRESULT res = SendMessage(targetWnd, WM_COPYDATA, 0, (LPARAM)&cds);
+        auto cbData = (cmd.size() + 1) * sizeof(WCHAR);
+        COPYDATASTRUCT cds = {0x44646557 /* DdeW */, (DWORD)cbData, cmd.Get()};
+        LRESULT res = SendMessageW(targetWnd, WM_COPYDATA, 0, (LPARAM)&cds);
         if (res) {
             return;
         }
@@ -276,7 +276,7 @@ static WindowInfo* LoadOnStartup(const WCHAR* filePath, const Flags& i, bool isF
         }
         EnterFullScreen(win, i.enterPresentation);
     }
-    if (i.startView != DM_AUTOMATIC) {
+    if (i.startView != DisplayMode::Automatic) {
         SwitchToDisplayMode(win, i.startView);
     }
     if (i.startZoom != INVALID_ZOOM) {
@@ -290,7 +290,7 @@ static WindowInfo* LoadOnStartup(const WCHAR* filePath, const Flags& i, bool isF
         dm->SetScrollState(ss);
     }
     if (i.forwardSearchOrigin && i.forwardSearchLine && win->AsFixed() && win->AsFixed()->pdfSync) {
-        UINT page;
+        uint page;
         Vec<Rect> rects;
         AutoFreeWstr sourcePath(path::Normalize(i.forwardSearchOrigin));
         int ret = win->AsFixed()->pdfSync->SourceToDoc(sourcePath, i.forwardSearchLine, 0, &page, rects);
@@ -301,6 +301,7 @@ static WindowInfo* LoadOnStartup(const WCHAR* filePath, const Flags& i, bool isF
 
 static void RestoreTabOnStartup(WindowInfo* win, TabState* state) {
     LoadArgs args(state->filePath, win);
+    args.noSavePrefs = true;
     if (!LoadDocument(args)) {
         return;
     }
@@ -312,15 +313,15 @@ static void RestoreTabOnStartup(WindowInfo* win, TabState* state) {
     tab->tocState = *state->tocState;
     SetSidebarVisibility(win, state->showToc, gGlobalPrefs->showFavorites);
 
-    DisplayMode displayMode = prefs::conv::ToDisplayMode(state->displayMode, DM_AUTOMATIC);
-    if (displayMode != DM_AUTOMATIC) {
+    DisplayMode displayMode = DisplayModeFromString(state->displayMode, DisplayMode::Automatic);
+    if (displayMode != DisplayMode::Automatic) {
         SwitchToDisplayMode(win, displayMode);
     }
     // TODO: make EbookController::GoToPage not crash
     if (!tab->AsEbook()) {
         tab->ctrl->GoToPage(state->pageNo, true);
     }
-    float zoom = prefs::conv::ToZoom(state->zoom, INVALID_ZOOM);
+    float zoom = ZoomFromString(state->zoom, INVALID_ZOOM);
     if (zoom != INVALID_ZOOM) {
         if (tab->AsFixed()) {
             tab->AsFixed()->Relayout(zoom, state->rotation);
@@ -343,7 +344,7 @@ static bool SetupPluginMode(Flags& i) {
         gPluginURL = i.fileNames.at(0);
     }
 
-    AssertCrash(i.fileNames.size() == 1);
+    CrashIf(i.fileNames.size() != 1);
     while (i.fileNames.size() > 1) {
         free(i.fileNames.Pop());
     }
@@ -364,11 +365,11 @@ static bool SetupPluginMode(Flags& i) {
     gGlobalPrefs->escToExit = false;
     // never show the sidebar by default
     gGlobalPrefs->showToc = false;
-    if (DM_AUTOMATIC == gGlobalPrefs->defaultDisplayModeEnum) {
+    if (DisplayMode::Automatic == gGlobalPrefs->defaultDisplayModeEnum) {
         // if the user hasn't changed the default display mode,
         // display documents as single page/continuous/fit width
         // (similar to Adobe Reader, Google Chrome and how browsers display HTML)
-        gGlobalPrefs->defaultDisplayModeEnum = DM_CONTINUOUS;
+        gGlobalPrefs->defaultDisplayModeEnum = DisplayMode::Continuous;
         gGlobalPrefs->defaultZoomFloat = ZOOM_FIT_WIDTH;
     }
     // use fixed page UI for all document types (so that the context menu always
@@ -385,12 +386,13 @@ static bool SetupPluginMode(Flags& i) {
         for (size_t k = 0; k < parts.size(); k++) {
             WCHAR* part = parts.at(k);
             int pageNo;
-            if (str::StartsWithI(part, L"page=") && str::Parse(part + 4, L"=%d%$", &pageNo))
+            if (str::StartsWithI(part, L"page=") && str::Parse(part + 4, L"=%d%$", &pageNo)) {
                 i.pageNumber = pageNo;
-            else if (str::StartsWithI(part, L"nameddest=") && part[10])
+            } else if (str::StartsWithI(part, L"nameddest=") && part[10]) {
                 i.destName = str::Dup(part + 10);
-            else if (!str::FindChar(part, '=') && part[0])
+            } else if (!str::FindChar(part, '=') && part[0]) {
                 i.destName = str::Dup(part);
+            }
         }
     }
     return true;
@@ -411,20 +413,25 @@ static HWND FindPrevInstWindow(HANDLE* hMutex) {
     // (allows independent side-by-side installations)
     AutoFreeWstr exePath = GetExePath();
     str::ToLowerInPlace(exePath);
-    uint32_t hash = MurmurHash2(exePath, str::Len(exePath) * sizeof(WCHAR));
+    u32 hash = MurmurHash2(exePath, str::Len(exePath) * sizeof(WCHAR));
     AutoFreeWstr mapId = str::Format(L"SumatraPDF-%08x", hash);
 
     int retriesLeft = 3;
-    HANDLE hMap = nullptr;
+    HANDLE hMap{nullptr};
+    HWND hwnd{nullptr};
+    DWORD prevProcId{0};
+    DWORD* procId{nullptr};
+    bool hasPrevInst;
+    DWORD lastErr{0};
 Retry:
     // use a memory mapping containing a process id as mutex
     hMap = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(DWORD), mapId);
     if (!hMap) {
         goto Error;
     }
-    DWORD lastErr = GetLastError();
-    bool hasPrevInst = (lastErr == ERROR_ALREADY_EXISTS);
-    DWORD* procId = (DWORD*)MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(DWORD));
+    lastErr = GetLastError();
+    hasPrevInst = (lastErr == ERROR_ALREADY_EXISTS);
+    procId = (DWORD*)MapViewOfFile(hMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(DWORD));
     if (!procId) {
         CloseHandle(hMap);
         hMap = nullptr;
@@ -438,10 +445,9 @@ Retry:
     }
 
     // if the mapping already exists, find one window belonging to the original process
-    DWORD prevProcId = *procId;
+    prevProcId = *procId;
     UnmapViewOfFile(procId);
     CloseHandle(hMap);
-    HWND hwnd = nullptr;
     while ((hwnd = FindWindowEx(HWND_DESKTOP, hwnd, FRAME_CLASS_NAME, nullptr)) != nullptr) {
         DWORD wndProcId;
         GetWindowThreadProcessId(hwnd, &wndProcId);
@@ -466,11 +472,13 @@ Error:
 // Registering happens either through the Installer or the Options dialog;
 // here we just make sure that we're still registered
 static bool RegisterForPdfExtentions(HWND hwnd) {
-    if (IsRunningInPortableMode() || !HasPermission(Perm_RegistryAccess) || gPluginMode)
+    if (IsRunningInPortableMode() || !HasPermission(Perm_RegistryAccess) || gPluginMode) {
         return false;
+    }
 
-    if (IsExeAssociatedWithPdfExtension())
+    if (IsExeAssociatedWithPdfExtension()) {
         return true;
+    }
 
     /* Ask user for permission, unless he previously said he doesn't want to
        see this dialog */
@@ -479,16 +487,18 @@ static bool RegisterForPdfExtentions(HWND hwnd) {
         str::ReplacePtr(&gGlobalPrefs->associatedExtensions, IDYES == result ? L".pdf" : nullptr);
     }
     // for now, .pdf is the only choice
-    if (!str::EqI(gGlobalPrefs->associatedExtensions, L".pdf"))
+    if (!str::EqI(gGlobalPrefs->associatedExtensions, L".pdf")) {
         return false;
+    }
 
     AssociateExeWithPdfExtension();
     return true;
 }
 
 static int RunMessageLoop() {
-    HACCEL accTable = LoadAccelerators(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDC_SUMATRAPDF));
-    MSG msg = {0};
+    HACCEL accTable = CreateSumatraAcceleratorTable();
+
+    MSG msg{0};
 
     while (GetMessage(&msg, nullptr, 0, 0)) {
         // dispatch the accelerator to the correct window
@@ -503,7 +513,7 @@ static int RunMessageLoop() {
 
         HWND hwndDialog = GetCurrentModelessDialog();
         if (hwndDialog && IsDialogMessage(hwndDialog, &msg)) {
-            // dbgLogMsg("dialog: ", msg.hwnd, msg.message, msg.wParam, msg.lParam);
+            // DbgLogMsg("dialog: ", msg.hwnd, msg.message, msg.wParam, msg.lParam);
             continue;
         }
         TranslateMessage(&msg);
@@ -728,30 +738,57 @@ static void testLogf() {
     WCHAR* tmpFile = L"c:\foo\bar.txt";
     AutoFree gswin = strconv::WstrToUtf8(gswin32c);
     AutoFree tmpFileName = strconv::WstrToUtf8(path::GetBaseNameNoFree(tmpFile));
-    logf("- %s:%d: using '%s' for creating '%%TEMP%%\\%s'\n", fileName, __LINE__, gswin.get(), tmpFileName.get());
+    logf("- %s:%d: using '%s' for creating '%%TEMP%%\\%s'\n", fileName, __LINE__, gswin.Get(), tmpFileName.Get());
 }
 #endif
 
 // in mupdf_load_system_font.c
 extern "C" void destroy_system_font_list();
 
-int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR cmdLine,
-                     _In_ int nCmdShow) {
-    UNUSED(hPrevInstance);
-    UNUSED(cmdLine);
-    UNUSED(nCmdShow);
-    int retCode = 1; // by default it's error
+// in MemLeakDetect.cpp
+extern bool MemLeakInit();
+extern void DumpMemLeaks();
+
+bool gEnableMemLeak = false;
+
+// some libc functions internally allocate stuff that shows up
+// as leaks in MemLeakDetect even though it's probably freed at shutdown
+// call this function before MemLeakInit() so that those allocations
+// don't show up
+static void ForceStartupLeaks() {
+    time_t secs;
+    struct tm buf_not_used;
+    gmtime_s(&buf_not_used, &secs);
+    WCHAR* path = GetExePath();
+    FILE* fp = _wfopen(path, L"rb");
+    str::Free(path);
+    if (fp) {
+        fclose(fp);
+    }
+}
+
+int APIENTRY WinMain(HINSTANCE hInstance, [[maybe_unused]] HINSTANCE hPrevInstance, [[maybe_unused]] LPSTR cmdLine,
+                     [[maybe_unused]] int nCmdShow) {
+    int retCode{1}; // by default it's error
+    int nWithDde{0};
+    WindowInfo* win{nullptr};
+    bool showStartPage{false};
+    bool restoreSession{false};
+    HANDLE hMutex{nullptr};
+    HWND hPrevWnd{nullptr};
 
     CrashIf(hInstance != GetInstance());
 
-    if (gIsDebugBuild) {
-        // Memory leak detection (only enable _CRTDBG_LEAK_CHECK_DF for
-        // regular termination so that leaks aren't checked on exceptions,
-        // aborts, etc. where some clean-up might not take place)
-        _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF);
-        //_CrtSetDbgFlag(_CRTDBG_CHECK_ALWAYS_DF);
-        //_CrtSetBreakAlloc(421);
-        TryLoadMemTrace();
+    // decide if we should enable mem leak detection
+#if defined(DEBUG)
+    gEnableMemLeak = true;
+#endif
+    if (IsDebuggerPresent()) {
+        gEnableMemLeak = true;
+    }
+    gEnableMemLeak = false;
+    if (gEnableMemLeak) {
+        fastExit = false;
     }
 
     supressThrowFromNew();
@@ -769,6 +806,14 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
     SetErrorMode(SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS);
 
     srand((unsigned int)time(nullptr));
+
+    if (gEnableMemLeak) {
+        ForceStartupLeaks();
+        MemLeakInit();
+    }
+
+    // for testing mem leak detection
+    // char* tmp = new char[23];
 
     if (!gIsAsanBuild) {
         SetupCrashHandler();
@@ -808,6 +853,9 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
         retCode = TestLice(hInstance, nCmdShow);
         goto Exit;
     }
+
+    // TODO: maybe add cmd-line switch to enable debug logging
+    gEnableDbgLog = gIsDebugBuild || gIsDailyBuild || gIsPreReleaseBuild;
 
     if (gIsDebugBuild || gIsPreReleaseBuild) {
         if (i.tester) {
@@ -884,6 +932,8 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
         return 0;
     }
 
+    DetectExternalViewers();
+
     prefs::Load();
     UpdateGlobalPrefs(i);
     SetCurrentLang(i.lang ? i.lang : gGlobalPrefs->uiLanguage);
@@ -909,8 +959,9 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 
     if (i.pathsToBenchmark.size() > 0) {
         BenchFileOrDir(i.pathsToBenchmark);
-        if (i.showConsole)
+        if (i.showConsole) {
             system("pause");
+        }
     }
 
     if (i.exitImmediately) {
@@ -942,15 +993,14 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
         // print only the first one
         for (size_t n = 0; n < i.fileNames.size(); n++) {
             bool ok = PrintFile(i.fileNames.at(n), i.printerName, !i.silent, i.printSettings);
-            if (!ok)
+            if (!ok) {
                 retCode++;
+            }
         }
         --retCode; // was 1 if no print failures, turn 1 into 0
         goto Exit;
     }
 
-    HANDLE hMutex = nullptr;
-    HWND hPrevWnd = nullptr;
     if (i.printDialog || i.stressTestPath || gPluginMode) {
         // TODO: pass print request through to previous instance?
     } else if (i.reuseDdeInstance) {
@@ -959,6 +1009,15 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
         hPrevWnd = FindPrevInstWindow(&hMutex);
     }
     if (hPrevWnd) {
+        DWORD otherProcId = 1;
+        GetWindowThreadProcessId(hPrevWnd, &otherProcId);
+        if (!CanTalkToProcess(otherProcId)) {
+            // TODO: maybe just launch another instance. The problem with that
+            // is that they'll fight for settings file which might cause corruption
+            auto msg = "SumatraPDF is running as admin and cannot open files from a non-admin process";
+            MessageBoxA(nullptr, msg, "Error", MB_OK | MB_ICONERROR);
+            goto Exit;
+        }
         size_t nFiles = i.fileNames.size();
         for (size_t n = 0; n < nFiles; n++) {
             OpenUsingDde(hPrevWnd, i.fileNames.at(n), i, 0 == n);
@@ -969,7 +1028,6 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
         goto Exit;
     }
 
-    bool restoreSession = false;
     if (gGlobalPrefs->sessionData->size() > 0 && !gPluginURL) {
         restoreSession = gGlobalPrefs->restoreSession;
     }
@@ -983,34 +1041,32 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
         }
     }
 
-    bool showStartPage =
+    showStartPage =
         !restoreSession && i.fileNames.size() == 0 && gGlobalPrefs->rememberOpenedFiles && gGlobalPrefs->showStartPage;
 
     // ShGetFileInfoW triggers ASAN deep in Windows code so probably not my fault
-    if (!gIsAsanBuild) {
-        if (showStartPage) {
-            // make the shell prepare the image list, so that it's ready when the first window's loaded
-            SHFILEINFOW sfi = {0};
-            UINT flags = SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES;
-            SHGetFileInfoW(L".pdf", 0, &sfi, sizeof(sfi), flags);
-        }
+    if (showStartPage) {
+        // make the shell prepare the image list, so that it's ready when the first window's loaded
+        SHFILEINFOW sfi{};
+        uint flags = SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES;
+        SHGetFileInfoW(L".pdf", 0, &sfi, sizeof(sfi), flags);
     }
 
-    WindowInfo* win = nullptr;
     if (restoreSession) {
         for (SessionData* data : *gGlobalPrefs->sessionData) {
             win = CreateAndShowWindowInfo(data);
             for (TabState* state : *data->tabStates) {
+                // TODO: if prefs::Save() is called, it deletes gGlobalPrefs->sessionData
+                // we're currently iterating (happened e.g. if the file is deleted)
+                // the current fix is to not call prefs::Save() below but maybe there's a better way
+                // maybe make a copy of TabState so that it isn't invalidated
+                // https://github.com/sumatrapdfreader/sumatrapdf/issues/1674
                 RestoreTabOnStartup(win, state);
             }
             TabsSelect(win, data->tabIndex - 1);
         }
     }
     ResetSessionState(gGlobalPrefs->sessionData);
-    // prevent the same session from being restored twice
-    if (restoreSession && !(gGlobalPrefs->reuseInstance || gGlobalPrefs->useTabs)) {
-        prefs::Save();
-    }
 
     for (const WCHAR* filePath : i.fileNames) {
         if (restoreSession && FindWindowInfoByFile(filePath, false)) {
@@ -1027,7 +1083,7 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
         }
     }
 
-    int nWithDde = (int)gDdeOpenOnStartup.size();
+    nWithDde = (int)gDdeOpenOnStartup.size();
     if (nWithDde > 0) {
         logf("Loading %d documents queued by dde open\n", nWithDde);
         for (auto&& filePath : gDdeOpenOnStartup) {
@@ -1100,6 +1156,8 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
     //  c:\windows\system32 is a good directory to use
     ChangeCurrDirToSystem32();
 
+    BringWindowToTop(win->hwndFrame);
+
     retCode = RunMessageLoop();
     SafeCloseHandle(&hMutex);
     CleanUpThumbnailCache(gFileHistory);
@@ -1113,6 +1171,7 @@ Exit:
         ::ExitProcess(retCode);
     }
 
+    FreeExternalViewers();
     while (gWindows.size() > 0) {
         DeleteWindowInfo(gWindows.at(0));
     }
@@ -1148,6 +1207,9 @@ Exit:
 
     FreeAllMenuDrawInfos();
 
+    ShutdownCleanup();
+    EngineEbookCleanup();
+
     // it's still possible to crash after this (destructors of static classes,
     // atexit() code etc.) point, but it's very unlikely
     if (!gIsAsanBuild) {
@@ -1157,9 +1219,14 @@ Exit:
     delete gLogBuf;
     delete gLogAllocator;
 
-    if (gIsDebugBuild) {
-        // output leaks after all destructors of static objects have run
-        _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+    if (gIsAsanBuild) {
+        // TODO: crashes in wild places without this
+        // Note: ::ExitProcess(0) also crashes
+        ::TerminateProcess(GetCurrentProcess(), 0);
+    }
+
+    if (gEnableMemLeak) {
+        DumpMemLeaks();
     }
 
     return retCode;

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct ProgressCtrl : WindowBase {
@@ -21,8 +21,3 @@ struct ProgressCtrl : WindowBase {
 
     Size GetIdealSize() override;
 };
-
-ILayout* NewProgressLayout(ProgressCtrl* b);
-
-bool IsProgress(Kind);
-bool IsProgress(ILayout*);

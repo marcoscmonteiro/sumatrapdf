@@ -1,7 +1,7 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-class FrameRateWnd;
+struct FrameRateWnd;
 struct TxtNode;
 
 namespace mui {
@@ -51,10 +51,6 @@ using Gdiplus::UnitPixel;
 using Gdiplus::Win32Error;
 using Gdiplus::WrapModeTileFlipXY;
 
-using Gdiplus::PointF;
-using Gdiplus::RectF;
-using Gdiplus::SizeF;
-
 #include "MuiBase.h"
 #include "TextRender.h"
 #include "MuiCss.h"
@@ -79,34 +75,31 @@ struct CtrlAndOffset {
 
 class WndFilter {
   public:
-    bool skipInvisibleSubtrees;
+    bool skipInvisibleSubtrees{true};
 
-    WndFilter() : skipInvisibleSubtrees(true) {
+    WndFilter() {
     }
 
     virtual ~WndFilter() {
     }
 
-    virtual bool Matches(Control* w, int offX, int offY) {
-        UNUSED(w);
-        UNUSED(offX);
-        UNUSED(offY);
+    virtual bool Matches([[maybe_unused]] Control* w, [[maybe_unused]] int offX, [[maybe_unused]] int offY) {
         return true;
     }
 };
 
 class WndInputWantedFilter : public WndFilter {
     int x, y;
-    uint16_t wantedInputMask;
+    u16 wantedInputMask;
 
   public:
-    WndInputWantedFilter(int x, int y, uint16_t wantedInputMask) : x(x), y(y), wantedInputMask(wantedInputMask) {
+    WndInputWantedFilter(int x, int y, u16 wantedInputMask) : x(x), y(y), wantedInputMask(wantedInputMask) {
     }
     virtual ~WndInputWantedFilter() {
     }
-    virtual bool Matches(Control* c, int offX, int offY) {
+    bool Matches(Control* c, int offX, int offY) override {
         if ((c->wantedInputBits & wantedInputMask) != 0) {
-            Gdiplus::Rect r = Gdiplus::Rect(offX, offY, c->pos.Width, c->pos.Height);
+            Rect r = Rect(offX, offY, c->pos.dx, c->pos.dy);
             return r.Contains(x, y);
         }
         return false;
@@ -117,11 +110,11 @@ void Initialize();
 void Destroy();
 void SetDebugPaint(bool debug);
 bool IsDebugPaint();
-size_t CollectWindowsAt(Control* wndRoot, int x, int y, uint16_t wantedInputMask, Vec<CtrlAndOffset>* ctrls);
+size_t CollectWindowsAt(Control* wndRoot, int x, int y, u16 wantedInputMask, Vec<CtrlAndOffset>* ctrls);
 void CollectWindowsBreathFirst(Control* c, int offX, int offY, WndFilter* wndFilter, Vec<CtrlAndOffset>* ctrls);
-void RequestRepaint(Control* c, const Gdiplus::Rect* r1 = nullptr, const Gdiplus::Rect* r2 = nullptr);
+void RequestRepaint(Control* c, const Rect* r1 = nullptr, const Rect* r2 = nullptr);
 void RequestLayout(Control* c);
-void DrawBorder(Graphics* gfx, const Gdiplus::Rect r, CachedStyle* s);
+void DrawBorder(Graphics* gfx, const Rect r, CachedStyle* s);
 HwndWrapper* GetRootHwndWnd(const Control* c);
 
 } // namespace mui

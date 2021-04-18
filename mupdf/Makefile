@@ -6,16 +6,17 @@ ifndef build
   build := release
 endif
 
-ifndef OUT
-  OUT := build/$(build)
-endif
-
 default: all
 
-# --- Configuration ---
-
 include Makerules
+
+ifndef OUT
+  OUT := build/$(build_prefix)$(build)$(build_suffix)
+endif
+
 include Makethird
+
+# --- Configuration ---
 
 # Do not specify CFLAGS or LIBS on the make invocation line - specify
 # XCFLAGS or XLIBS instead. Make ignores any lines in the makefile that
@@ -48,19 +49,31 @@ ifneq ($(verbose),yes)
   QUIET_TAGS = @ echo "    TAGS $@" ;
   QUIET_WINDRES = @ echo "    WINDRES $@" ;
   QUIET_OBJCOPY = @ echo "    OBJCOPY $@" ;
+  QUIET_DLLTOOL = @ echo "    DLLTOOL $@" ;
+  QUIET_GENDEF = @ echo "    GENDEF $@" ;
 endif
 
 MKTGTDIR = mkdir -p $(dir $@)
 CC_CMD = $(QUIET_CC) $(MKTGTDIR) ; $(CC) $(CFLAGS) -MMD -MP -o $@ -c $<
-CXX_CMD = $(QUIET_CXX) $(MKTGTDIR) ; $(CXX) $(CFLAGS) -MMD -MP -o $@ -c $<
+CXX_CMD = $(QUIET_CXX) $(MKTGTDIR) ; $(CXX) $(CFLAGS) $(XCXXFLAGS) -MMD -MP -o $@ -c $<
 AR_CMD = $(QUIET_AR) $(MKTGTDIR) ; $(AR) cr $@ $^
 ifdef RANLIB
   RANLIB_CMD = $(QUIET_RANLIB) $(RANLIB) $@
 endif
 LINK_CMD = $(QUIET_LINK) $(MKTGTDIR) ; $(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
-TAGS_CMD = $(QUIET_TAGS) ctags -R --c-kinds=+p
+TAGS_CMD = $(QUIET_TAGS) ctags -R --c-kinds=+p --exclude=platform/python --exclude=platform/c++
 WINDRES_CMD = $(QUIET_WINDRES) $(MKTGTDIR) ; $(WINDRES) $< $@
-OBJCOPY_CMD = $(QUIET_OBJCOPY) $(MKTGTDIR) ; $(LD) -r -b binary -o $@ $<
+OBJCOPY_CMD = $(QUIET_OBJCOPY) $(MKTGTDIR) ; $(LD) -r -b binary -z noexecstack -o $@ $<
+GENDEF_CMD = $(QUIET_GENDEF) gendef - $< > $@
+DLLTOOL_CMD = $(QUIET_DLLTOOL) dlltool -d $< -D $(notdir $(^:%.def=%.dll)) -l $@
+
+ifeq ($(shared),yes)
+LINK_CMD = $(QUIET_LINK) $(MKTGTDIR) ; $(CC) $(LDFLAGS) -o $@ \
+	$(filter-out %.$(SO),$^) \
+	$(sort $(patsubst %,-L%,$(dir $(filter %.$(SO),$^)))) \
+	$(patsubst lib%.$(SO),-l%,$(notdir $(filter %.$(SO),$^))) \
+	$(LIBS)
+endif
 
 # --- Rules ---
 
@@ -71,37 +84,52 @@ $(OUT)/%.a :
 $(OUT)/%.exe: %.c
 	$(LINK_CMD)
 
+$(OUT)/%.$(SO):
+	$(LINK_CMD) $(LIB_LDFLAGS) $(THIRD_LIBS) $(LIBCRYPTO_LIBS)
+
+$(OUT)/%.def: $(OUT)/%.$(SO)
+	$(GENDEF_CMD)
+
+$(OUT)/%_$(SO).a: $(OUT)/%.def
+	$(DLLTOOL_CMD)
+
 $(OUT)/source/helpers/mu-threads/%.o : source/helpers/mu-threads/%.c
-	$(CC_CMD) $(THREADING_CFLAGS)
+	$(CC_CMD) $(WARNING_CFLAGS) $(LIB_CFLAGS) $(THREADING_CFLAGS)
 
 $(OUT)/source/helpers/pkcs7/%.o : source/helpers/pkcs7/%.c
-	$(CC_CMD) $(LIBCRYPTO_CFLAGS)
+	$(CC_CMD) $(WARNING_CFLAGS) $(LIB_CFLAGS) $(LIBCRYPTO_CFLAGS)
 
 $(OUT)/source/tools/%.o : source/tools/%.c
-	$(CC_CMD) -Wall $(THIRD_CFLAGS) $(THREADING_CFLAGS)
+	$(CC_CMD) $(WARNING_CFLAGS) $(THIRD_CFLAGS) $(THREADING_CFLAGS)
 
 $(OUT)/generated/%.o : generated/%.c
-	$(CC_CMD) -O0
+	$(CC_CMD) $(WARNING_CFLAGS) $(LIB_CFLAGS) -O0
 
 $(OUT)/platform/x11/%.o : platform/x11/%.c
-	$(CC_CMD) -Wall $(X11_CFLAGS)
+	$(CC_CMD) $(WARNING_CFLAGS) $(X11_CFLAGS)
 
 $(OUT)/platform/x11/curl/%.o : platform/x11/%.c
-	$(CC_CMD) -Wall $(X11_CFLAGS) $(CURL_CFLAGS) -DHAVE_CURL
+	$(CC_CMD) $(WARNING_CFLAGS) $(X11_CFLAGS) $(CURL_CFLAGS)
 
 $(OUT)/platform/gl/%.o : platform/gl/%.c
-	$(CC_CMD) -Wall $(THIRD_CFLAGS) $(GLUT_CFLAGS)
+	$(CC_CMD) $(WARNING_CFLAGS) $(THIRD_CFLAGS) $(THIRD_GLUT_CFLAGS)
 
 ifeq ($(HAVE_OBJCOPY),yes)
   $(OUT)/source/fitz/noto.o : source/fitz/noto.c
-	$(CC_CMD) -Wall -Wdeclaration-after-statement -DHAVE_OBJCOPY $(THIRD_CFLAGS)
+	$(CC_CMD) $(WARNING_CFLAGS) -Wdeclaration-after-statement -DHAVE_OBJCOPY $(LIB_CFLAGS) $(THIRD_CFLAGS)
 endif
 
+$(OUT)/source/fitz/memento.o : source/fitz/memento.c
+	$(CC_CMD) $(WARNING_CFLAGS) $(LIB_CFLAGS) $(THIRD_CFLAGS) -DMEMENTO_MUPDF_HACKS
+
 $(OUT)/source/%.o : source/%.c
-	$(CC_CMD) -Wall -Wdeclaration-after-statement $(THIRD_CFLAGS)
+	$(CC_CMD) $(WARNING_CFLAGS) -Wdeclaration-after-statement $(LIB_CFLAGS) $(THIRD_CFLAGS)
+
+$(OUT)/source/%.o : source/%.cpp
+	$(CXX_CMD) $(WARNING_CFLAGS) $(LIB_CFLAGS) $(THIRD_CFLAGS)
 
 $(OUT)/platform/%.o : platform/%.c
-	$(CC_CMD) -Wall
+	$(CC_CMD) $(WARNING_CFLAGS)
 
 $(OUT)/%.o: %.rc
 	$(WINDRES_CMD)
@@ -113,8 +141,12 @@ $(OUT)/%.o: %.rc
 
 THIRD_OBJ := $(THIRD_SRC:%.c=$(OUT)/%.o)
 THIRD_OBJ := $(THIRD_OBJ:%.cc=$(OUT)/%.o)
+THIRD_OBJ := $(THIRD_OBJ:%.cpp=$(OUT)/%.o)
+
+THIRD_GLUT_OBJ := $(THIRD_GLUT_SRC:%.c=$(OUT)/%.o)
 
 MUPDF_SRC := $(sort $(wildcard source/fitz/*.c))
+MUPDF_SRC += $(sort $(wildcard source/fitz/*.cpp))
 MUPDF_SRC += $(sort $(wildcard source/pdf/*.c))
 MUPDF_SRC += $(sort $(wildcard source/xps/*.c))
 MUPDF_SRC += $(sort $(wildcard source/svg/*.c))
@@ -122,6 +154,7 @@ MUPDF_SRC += $(sort $(wildcard source/html/*.c))
 MUPDF_SRC += $(sort $(wildcard source/cbz/*.c))
 
 MUPDF_OBJ := $(MUPDF_SRC:%.c=$(OUT)/%.o)
+MUPDF_OBJ := $(MUPDF_OBJ:%.cpp=$(OUT)/%.o)
 
 THREAD_SRC := source/helpers/mu-threads/mu-threads.c
 THREAD_OBJ := $(THREAD_SRC:%.c=$(OUT)/%.o)
@@ -187,19 +220,51 @@ source/pdf/js/%.js.h: source/pdf/js/%.js scripts/jsdump.sed
 
 generate: source/pdf/js/util.js.h
 
+# --- Generated perfect hash source files ---
+
+source/html/css-properties.h: source/html/css-properties.gperf
+	$(QUIET_GEN) gperf > $@ $<
+
+generate: source/html/css-properties.h
+
 # --- Library ---
 
+ifeq ($(shared),yes)
+MUPDF_LIB = $(OUT)/libmupdf.$(SO)
+ifeq ($(OS),MINGW)
+MUPDF_LIB_IMPORT = $(OUT)/libmupdf_$(SO).a
+LIBS_TO_INSTALL_IN_BIN = $(MUPDF_LIB)
+LIBS_TO_INSTALL_IN_LIB = $(MUPDF_LIB_IMPORT)
+else
+LIBS_TO_INSTALL_IN_LIB = $(MUPDF_LIB)
+endif
+THIRD_GLUT_LIB = $(OUT)/libmupdf-glut.a
+THREAD_LIB = $(OUT)/libmupdf-threads.a
+PKCS7_LIB = $(OUT)/libmupdf-pkcs7.a
+
+$(MUPDF_LIB) : $(MUPDF_OBJ) $(THIRD_OBJ)
+$(THIRD_GLUT_LIB) : $(THIRD_GLUT_OBJ)
+$(THREAD_LIB) : $(THREAD_OBJ)
+$(PKCS7_LIB) : $(PKCS7_OBJ)
+else
 MUPDF_LIB = $(OUT)/libmupdf.a
+LIBS_TO_INSTALL_IN_LIB = $(MUPDF_LIB) $(THIRD_LIB)
 THIRD_LIB = $(OUT)/libmupdf-third.a
+THIRD_GLUT_LIB = $(OUT)/libmupdf-glut.a
 THREAD_LIB = $(OUT)/libmupdf-threads.a
 PKCS7_LIB = $(OUT)/libmupdf-pkcs7.a
 
 $(MUPDF_LIB) : $(MUPDF_OBJ)
 $(THIRD_LIB) : $(THIRD_OBJ)
+$(THIRD_GLUT_LIB) : $(THIRD_GLUT_OBJ)
 $(THREAD_LIB) : $(THREAD_OBJ)
 $(PKCS7_LIB) : $(PKCS7_OBJ)
+endif
 
-INSTALL_LIBS := $(MUPDF_LIB) $(THIRD_LIB)
+$(MUPDF_LIB) : $(MUPDF_OBJ)
+$(THIRD_LIB) : $(THIRD_OBJ)
+$(THREAD_LIB) : $(THREAD_OBJ)
+$(PKCS7_LIB) : $(PKCS7_OBJ)
 
 # --- Main tools and viewers ---
 
@@ -226,8 +291,8 @@ ifeq ($(HAVE_GLUT),yes)
   MUVIEW_GLUT_SRC += $(sort $(wildcard platform/gl/*.c))
   MUVIEW_GLUT_OBJ := $(MUVIEW_GLUT_SRC:%.c=$(OUT)/%.o)
   MUVIEW_GLUT_EXE := $(OUT)/mupdf-gl
-  $(MUVIEW_GLUT_EXE) : $(MUVIEW_GLUT_OBJ) $(MUPDF_LIB) $(THIRD_LIB) $(PKCS7_LIB) $(GLUT_LIB)
-	$(LINK_CMD) $(THIRD_LIBS) $(LIBCRYPTO_LIBS) $(WIN32_LDFLAGS) $(GLUT_LIBS)
+  $(MUVIEW_GLUT_EXE) : $(MUVIEW_GLUT_OBJ) $(MUPDF_LIB) $(THIRD_LIB) $(THIRD_GLUT_LIB) $(PKCS7_LIB)
+	$(LINK_CMD) $(THIRD_LIBS) $(LIBCRYPTO_LIBS) $(WIN32_LDFLAGS) $(THIRD_GLUT_LIBS)
   VIEW_APPS += $(MUVIEW_GLUT_EXE)
 endif
 
@@ -273,7 +338,7 @@ endif
 -include $(PKCS7_OBJ:%.o=%.d)
 -include $(THREAD_OBJ:%.o=%.d)
 -include $(THIRD_OBJ:%.o=%.d)
--include $(GLUT_OBJ:%.o=%.d)
+-include $(THIRD_GLUT_OBJ:%.o=%.d)
 
 -include $(MUTOOL_OBJ:%.o=%.d)
 -include $(MUVIEW_GLUT_OBJ:%.o=%.d)
@@ -319,8 +384,8 @@ mandir ?= $(prefix)/share/man
 docdir ?= $(prefix)/share/doc/mupdf
 
 third: $(THIRD_LIB)
-extra-libs: $(GLUT_LIB)
-libs: $(INSTALL_LIBS)
+extra-libs: $(THIRD_GLUT_LIB)
+libs: $(LIBS_TO_INSTALL_IN_BIN) $(LIBS_TO_INSTALL_IN_LIB)
 tools: $(TOOL_APPS)
 apps: $(TOOL_APPS) $(VIEW_APPS)
 
@@ -332,11 +397,13 @@ install: libs apps
 	install -m 644 include/mupdf/fitz/*.h $(DESTDIR)$(incdir)/mupdf/fitz
 	install -m 644 include/mupdf/pdf/*.h $(DESTDIR)$(incdir)/mupdf/pdf
 
+ifneq ($(LIBS_TO_INSTALL_IN_LIB),)
 	install -d $(DESTDIR)$(libdir)
-	install -m 644 $(INSTALL_LIBS) $(DESTDIR)$(libdir)
+	install -m 644 $(LIBS_TO_INSTALL_IN_LIB) $(DESTDIR)$(libdir)
+endif
 
 	install -d $(DESTDIR)$(bindir)
-	install -m 755 $(TOOL_APPS) $(VIEW_APPS) $(DESTDIR)$(bindir)
+	install -m 755 $(LIBS_TO_INSTALL_IN_BIN) $(TOOL_APPS) $(VIEW_APPS) $(DESTDIR)$(bindir)
 
 	install -d $(DESTDIR)$(mandir)/man1
 	install -m 644 docs/man/*.1 $(DESTDIR)$(mandir)/man1
@@ -360,10 +427,17 @@ watch-recompile:
 	@ while ! inotifywait -q -e modify $(WATCH_SRCS) ; do time -p $(MAKE) ; done
 
 java:
-	$(MAKE) -C platform/java
+	$(MAKE) -C platform/java build=$(build)
+
+java-clean:
+	$(MAKE) -C platform/java build=$(build) clean
 
 wasm:
 	$(MAKE) -C platform/wasm
+
+extract-test:
+	$(MAKE) extract=yes debug
+	$(MAKE) -C thirdparty/extract mutool=../../build/debug-extract/mutool test-mutool
 
 tags:
 	$(TAGS_CMD)
@@ -388,6 +462,15 @@ debug:
 sanitize:
 	$(MAKE) build=sanitize
 
+shared: shared-$(build)
+
+shared-release:
+	$(MAKE) shared=yes build=release
+shared-debug:
+	$(MAKE) shared=yes build=debug
+shared-clean:
+	rm -rf build/shared-*
+
 android: generate
 	ndk-build -j8 \
 		APP_BUILD_SCRIPT=platform/java/Android.mk \
@@ -395,4 +478,29 @@ android: generate
 		APP_PLATFORM=android-16 \
 		APP_OPTIM=$(build)
 
+c++: c++-$(build)
+
+c++-release: shared-release
+	./scripts/mupdfwrap.py -d build/shared-release -b 01
+
+c++-debug: shared-debug
+	./scripts/mupdfwrap.py -d build/shared-debug -b 01
+
+c++-clean:
+	rm -rf platform/c++
+
+python: python-$(build)
+
+python-release: c++-release
+	./scripts/mupdfwrap.py -d build/shared-release -b 023
+
+python-debug: c++-debug
+	./scripts/mupdfwrap.py -d build/shared-debug -b 023
+
+python-clean:
+	rm -rf platform/python
+
 .PHONY: all clean nuke install third libs apps generate tags wasm
+.PHONY: shared shared-debug shared-clean
+.PHONY: c++ c++-release c++-debug c++-clean
+.PHONY: python python-debug python-clean

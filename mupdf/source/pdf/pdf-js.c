@@ -114,7 +114,14 @@ static void field_getName(js_State *J)
 		name = pdf_field_name(js->ctx, field);
 	fz_catch(js->ctx)
 		rethrow(js);
-	js_pushstring(J, name);
+	if (js_try(J)) {
+		fz_free(js->ctx, name);
+		js_throw(J);
+	} else {
+		js_pushstring(J, name);
+		js_endtry(J);
+		fz_free(js->ctx, name);
+	}
 }
 
 static void field_setName(js_State *J)
@@ -403,6 +410,9 @@ static void util_printf_d(fz_context *ctx, fz_buffer *out, int ds, int sign, int
 	char buf[50];
 	unsigned int a, i;
 	int m = 0;
+
+	if (w > sizeof buf)
+		w = sizeof buf;
 
 	if (value < 0)
 	{
@@ -798,12 +808,17 @@ static void pdf_js_load_document_level(pdf_js *js)
 	pdf_document *doc = js->doc;
 	pdf_obj *javascript;
 	int len, i;
+	int in_op = 0;
 
 	javascript = pdf_load_name_tree(ctx, doc, PDF_NAME(JavaScript));
 	len = pdf_dict_len(ctx, javascript);
 
+	fz_var(in_op);
+
 	fz_try(ctx)
 	{
+		pdf_begin_operation(ctx, doc, "Document level Javascript");
+		in_op = 1;
 		for (i = 0; i < len; i++)
 		{
 			pdf_obj *fragment = pdf_dict_get_val(ctx, javascript, i);
@@ -819,7 +834,11 @@ static void pdf_js_load_document_level(pdf_js *js)
 		}
 	}
 	fz_always(ctx)
+	{
+		if (in_op)
+			pdf_end_operation(ctx, doc);
 		pdf_drop_obj(ctx, javascript);
+	}
 	fz_catch(ctx)
 		fz_rethrow(ctx);
 }
@@ -921,23 +940,34 @@ char *pdf_js_event_value(pdf_js *js)
 
 void pdf_js_execute(pdf_js *js, const char *name, const char *source)
 {
-	if (js)
+	fz_context *ctx;
+
+	if (!js)
+		return;
+
+	ctx = js->ctx;
+	pdf_begin_implicit_operation(js->ctx, js->doc);
+	fz_try(ctx)
 	{
 		if (js_ploadstring(js->imp, name, source))
 		{
-			fz_warn(js->ctx, "%s", js_trystring(js->imp, -1, "Error"));
-			js_pop(js->imp, 1);
-			return;
+			fz_warn(ctx, "%s", js_trystring(js->imp, -1, "Error"));
+			break;
 		}
 		js_pushundefined(js->imp);
 		if (js_pcall(js->imp, 0))
 		{
-			fz_warn(js->ctx, "%s", js_trystring(js->imp, -1, "Error"));
-			js_pop(js->imp, 1);
-			return;
+			fz_warn(ctx, "%s", js_trystring(js->imp, -1, "Error"));
+			break;
 		}
-		js_pop(js->imp, 1);
 	}
+	fz_always(ctx)
+	{
+		js_pop(js->imp, 1);
+		pdf_end_operation(js->ctx, js->doc);
+	}
+	fz_catch(ctx)
+		fz_rethrow(ctx);
 }
 
 void pdf_enable_js(fz_context *ctx, pdf_document *doc)

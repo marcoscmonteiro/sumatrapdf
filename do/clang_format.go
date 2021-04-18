@@ -3,7 +3,9 @@ package main
 import (
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/kjk/u"
 )
@@ -47,10 +49,13 @@ func clangFormatFiles() {
 		`src\utils\*.h`,
 		`src\utils\tests\*.cpp`,
 		`src\utils\tests\*.h`,
-		`src\wingui\*.cpp`,
-		`src\wingui\*.h`,
-		`src\tools\*.cpp`,
-		`src\tools\*.h`,
+		`src\wingui\*`,
+		`src\uia\*`,
+		`src\tools\*`,
+		`src\ifilter\*.cpp`,
+		`src\iflter\*.h`,
+		`src\previewer\*.cpp`,
+		`src\previewer\*.h`,
 		`ext\mupdf_load_system_font.c`,
 	}
 	isWhiteListed := func(s string) bool {
@@ -70,6 +75,8 @@ func clangFormatFiles() {
 		}
 		return false
 	}
+	sem := make(chan bool, runtime.NumCPU())
+	var wg sync.WaitGroup
 	for _, globPattern := range files {
 		paths, err := filepath.Glob(globPattern)
 		must(err)
@@ -77,7 +84,14 @@ func clangFormatFiles() {
 			if isWhiteListed(path) {
 				continue
 			}
-			clangFormatFile(path)
+			sem <- true
+			wg.Add(1)
+			go func(p string) {
+				clangFormatFile(p)
+				wg.Done()
+				<-sem
+			}(path)
 		}
 	}
+	wg.Wait()
 }

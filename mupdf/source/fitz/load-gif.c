@@ -141,14 +141,21 @@ gif_read_header(fz_context *ctx, struct info *info, const unsigned char *p, cons
 	return p + 6;
 }
 
+/* coverity[-tainted_data_return] */
+static unsigned int
+safe_load_u16(const unsigned char *p)
+{
+	return p[1] << 8 | p[0];
+}
+
 static const unsigned char *
 gif_read_lsd(fz_context *ctx, struct info *info, const unsigned char *p, const unsigned char *end)
 {
 	if (end - p < 7)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "premature end in logical screen descriptor in gif image");
 
-	info->width = p[1] << 8 | p[0];
-	info->height = p[3] << 8 | p[2];
+	info->width = safe_load_u16(p);
+	info->height = safe_load_u16(p+2);
 	if (info->width <= 0)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "image width must be > 0");
 	if (info->height <= 0)
@@ -165,7 +172,7 @@ gif_read_lsd(fz_context *ctx, struct info *info, const unsigned char *p, const u
 	info->aspect = p[6];
 
 	info->xres = 96;
-	info->yres= 96;
+	info->yres = 96;
 	if (info->aspect > 0)
 		info->yres = (((float) info->aspect + 15) / 64) * 96;
 
@@ -275,7 +282,7 @@ gif_read_tbid(fz_context *ctx, struct info *info, const unsigned char *p, const 
 		lzwstm = fz_open_lzwd(ctx, stm, 0, mincodesize + 1, 1, 1);
 
 		uncompressed = fz_read_all(ctx, lzwstm, 0);
-		if (uncompressed->len < info->image_width * info->image_height)
+		if (uncompressed->len < (size_t)info->image_width * info->image_height)
 			fz_throw(ctx, FZ_ERROR_GENERIC, "premature end in compressed table based image data in gif image");
 
 		if (info->has_lct)
@@ -474,7 +481,7 @@ gif_read_image(fz_context *ctx, struct info *info, const unsigned char *p, size_
 
 	fz_try(ctx)
 	{
-		info->mask = fz_calloc(ctx, info->width * info->height, 1);
+		info->mask = fz_calloc(ctx, (size_t)info->width * info->height, 1);
 
 		/* Read optional global color table */
 		if (info->has_gct)
@@ -485,7 +492,7 @@ gif_read_image(fz_context *ctx, struct info *info, const unsigned char *p, size_
 			p = gif_read_gct(ctx, info, p, end);
 			bp = &info->gct[info->gct_background * 3];
 
-			memset(info->mask, 0x01, info->width * info->height);
+			memset(info->mask, 0x01, (size_t)info->width * info->height);
 
 			for (y = 0; y < info->height; y++)
 				for (x = 0; x < info->width; x++, dp += 4)

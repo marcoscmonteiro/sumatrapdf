@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -33,10 +33,14 @@ void log(std::string_view s) {
 
     gLogMutex.Lock();
 
+    gAllowAllocFailure++;
+    defer {
+        gAllowAllocFailure--;
+    };
+
     if (!gLogBuf) {
         gLogAllocator = new HeapAllocator();
         gLogBuf = new str::Str(32 * 1024, gLogAllocator);
-        gLogBuf->allowFailure = true;
     }
     gLogBuf->Append(s.data(), s.size());
     if (logToStderr) {
@@ -70,7 +74,7 @@ void logf(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     AutoFree s = str::FmtV(fmt, args);
-    log(s.as_view());
+    log(s.AsView());
     va_end(args);
 }
 
@@ -88,7 +92,7 @@ void log(const WCHAR* s) {
         return;
     }
     AutoFree tmp = strconv::WstrToUtf8(s);
-    auto sv = tmp.as_view();
+    auto sv = tmp.AsView();
     log(sv);
 }
 

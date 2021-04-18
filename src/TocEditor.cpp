@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -21,11 +21,13 @@
 #include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineMulti.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
 
 #include "resource.h"
+#include "Commands.h"
 #include "ProgressUpdateUI.h"
 #include "Notifications.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "WindowInfo.h"
@@ -50,7 +52,7 @@ struct TocEditorWindow {
     TocEditorArgs* tocArgs = nullptr;
     HWND hwnd = nullptr;
 
-    ILayout* mainLayout = nullptr;
+    LayoutBase* mainLayout = nullptr;
     // not owned by us but by mainLayout
     Window* mainWindow = nullptr;
     ButtonCtrl* btnAddPdf = nullptr;
@@ -122,7 +124,7 @@ void TocEditorWindow::UpdateTreeModel() {
 }
 
 static void SetTocItemFromTocEditArgs(TocItem* ti, TocEditArgs* args) {
-    std::string_view newTitle = args->title.as_view();
+    std::string_view newTitle = args->title.AsView();
     str::Free(ti->title);
     ti->title = strconv::Utf8ToWstr(newTitle);
     ti->pageNo = args->page;
@@ -186,26 +188,22 @@ static void StartEditTocItem(HWND hwnd, TreeCtrl* treeCtrl, TocItem* ti) {
 }
 
 // clang-format off
-#define IDM_EDIT            100
-#define IDM_ADD_SIBLING     101
-#define IDM_ADD_CHILD       102
-#define IDM_REMOVE          103
-#define IDM_ADD_PDF_CHILD   104
-#define IDM_ADD_PDF_SIBLING 105
-
 static MenuDef menuDefContext[] = {
-    // TODO: translate
-    {"Edit",                    IDM_EDIT, 0},
-    {"Add sibling",             IDM_ADD_SIBLING, 0},
-    {"Add child",               IDM_ADD_CHILD, 0},
-    {"Add PDF as a child",      IDM_ADD_PDF_CHILD, 0},
-    {"Add PDF as a sibling",    IDM_ADD_PDF_SIBLING, 0},
-    {"Remove Item",             IDM_REMOVE, 0},
+    {_TRN("Edit"),                    CmdTocEditorStart, 0},
+    {_TRN("Add sibling"),             CmdTocEditorAddSibling, 0},
+    {_TRN("Add child"),               CmdTocEditorAddChild, 0},
+    {_TRN("Add PDF as a child"),      CmdTocEditorAddPdfChild, 0},
+    {_TRN("Add PDF as a sibling"),    CmdTocEditorAddPdfSibling, 0},
+    {_TRN("Remove Item"),             CmdTocEditorRemoveItem, 0},
     { 0, 0, 0 },
 };
 // clang-format on
 
 static bool RemoveIt(TreeCtrl* treeCtrl, TocItem* ti) {
+    SubmitCrashIf(!ti);
+    if (!ti) {
+        return false;
+    }
     TocItem* parent = ti->parent;
     if (parent && parent->child == ti) {
         parent->child = ti->next;
@@ -254,6 +252,10 @@ static void EnsureExpanded(TocItem* ti) {
 }
 
 void TocEditorWindow::RemoveTocItem(TocItem* ti, bool alsoDelete) {
+    CrashIf(!ti);
+    if (!ti) {
+        return;
+    }
     EnsureExpanded(ti->parent);
 
     bool ok = RemoveIt(treeCtrl, ti);
@@ -293,7 +295,7 @@ static EngineBase* ChooosePdfFile() {
     }
     WCHAR* filePath = ofn.lpstrFile;
 
-    EngineBase* engine = EngineManager::CreateEngine(filePath);
+    EngineBase* engine = CreateEngine(filePath);
     if (!engine) {
         ShowErrorMessage("Failed to open a file!");
         return nullptr;
@@ -350,7 +352,6 @@ static bool CanRemoveTocItem(TreeCtrl* treeCtrl, TocItem* ti) {
 // TODO: simplify and verify is correct
 static bool CanAddPdfAsChild(TocItem* tocItem) {
     bool canAddPdfChild = true;
-    bool canAddPdfSibling = true;
     TocItem* ti = tocItem;
     while (ti) {
         // if ti is a n-th sibling of a file node, this sets it to file node
@@ -362,8 +363,6 @@ static bool CanAddPdfAsChild(TocItem* tocItem) {
             // can't add as a child if this node or any parent
             // represents PDF file
             canAddPdfChild = false;
-            // can't add as sibling if any parent represents PDF file
-            canAddPdfSibling = (ti == tocItem);
             break;
         }
         ti = ti->parent;
@@ -373,7 +372,6 @@ static bool CanAddPdfAsChild(TocItem* tocItem) {
 
 // TODO: simplify and verify is correct
 static bool CanAddPdfAsSibling(TocItem* tocItem) {
-    bool canAddPdfChild = true;
     bool canAddPdfSibling = true;
     TocItem* ti = tocItem;
     while (ti) {
@@ -383,9 +381,6 @@ static bool CanAddPdfAsSibling(TocItem* tocItem) {
             ti = ti->parent->child;
         }
         if (ti->engineFilePath != nullptr) {
-            // can't add as a child if this node or any parent
-            // represents PDF file
-            canAddPdfChild = false;
             // can't add as sibling if any parent represents PDF file
             canAddPdfSibling = (ti == tocItem);
             break;
@@ -430,10 +425,10 @@ void TocEditorWindow::DropFilesHandler(DropFilesEvent* ev) {
         return;
     }
 
-    EngineBase* engine = EngineManager::CreateEngine(filePath, nullptr);
+    EngineBase* engine = CreateEngine(filePath, nullptr);
 #if 0
     AutoFreeStr path = strconv::WstrToUtf8(filePath);
-    logf("Dropped file: '%s' at (%d, %d) on item: 0x%x, engine: 0x%x\n", path.get(), pt.x, pt.y, ti, engine);
+    logf("Dropped file: '%s' at (%d, %d) on item: 0x%x, engine: 0x%x\n", path.Get(), pt.x, pt.y, ti, engine);
 #endif
 
     if (!engine) {
@@ -444,7 +439,7 @@ void TocEditorWindow::DropFilesHandler(DropFilesEvent* ev) {
         delete engine;
     };
 
-    TocItem* fileToc = (TocItem*)treeCtrl->treeModel->RootAt(0);
+    // TocItem* fileToc = (TocItem*)treeCtrl->treeModel->RootAt(0);
 
     // didn't drop on an existing itme: add as a last sibling
     if (ti == nullptr) {
@@ -483,30 +478,30 @@ void TocEditorWindow::TreeContextMenu(ContextMenuEvent* ev) {
     HMENU popup = BuildMenuFromMenuDef(menuDefContext, CreatePopupMenu());
 
     if (!CanRemoveTocItem(treeCtrl, selectedTocItem)) {
-        win::menu::SetEnabled(popup, IDM_REMOVE, false);
+        win::menu::SetEnabled(popup, CmdTocEditorRemoveItem, false);
     }
 
     bool canAddPdfChild = CanAddPdfAsChild(selectedTocItem);
     bool canAddPdfSibling = CanAddPdfAsSibling(selectedTocItem);
 
     if (!canAddPdfChild) {
-        win::menu::SetEnabled(popup, IDM_ADD_PDF_CHILD, false);
+        win::menu::SetEnabled(popup, CmdTocEditorAddPdfChild, false);
     }
     if (!canAddPdfSibling) {
-        win::menu::SetEnabled(popup, IDM_ADD_PDF_SIBLING, false);
+        win::menu::SetEnabled(popup, CmdTocEditorAddPdfSibling, false);
     }
 
     MarkMenuOwnerDraw(popup);
-    UINT flags = TPM_RETURNCMD | TPM_RIGHTBUTTON;
-    INT cmd = TrackPopupMenu(popup, flags, pt.x, pt.y, 0, hwnd, nullptr);
+    uint flags = TPM_RETURNCMD | TPM_RIGHTBUTTON;
+    int cmd = TrackPopupMenu(popup, flags, pt.x, pt.y, 0, hwnd, nullptr);
     FreeMenuOwnerDrawInfoData(popup);
     DestroyMenu(popup);
     switch (cmd) {
-        case IDM_EDIT:
+        case CmdTocEditorStart:
             StartEditTocItem(mainWindow->hwnd, treeCtrl, selectedTocItem);
             break;
-        case IDM_ADD_SIBLING:
-        case IDM_ADD_CHILD: {
+        case CmdTocEditorAddSibling:
+        case CmdTocEditorAddChild: {
             TocEditArgs* editArgs = new TocEditArgs();
             TocItem* fileParent = FindFileParentItem(selectedTocItem);
             if (fileParent) {
@@ -518,9 +513,9 @@ void TocEditorWindow::TreeContextMenu(ContextMenuEvent* ev) {
                     // was cancelled or invalid
                     return;
                 }
-                if (cmd == IDM_ADD_SIBLING) {
+                if (cmd == CmdTocEditorAddSibling) {
                     selectedTocItem->AddSibling(ti);
-                } else if (cmd == IDM_ADD_CHILD) {
+                } else if (cmd == CmdTocEditorAddChild) {
                     selectedTocItem->AddChild(ti);
                 } else {
                     CrashMe();
@@ -529,13 +524,13 @@ void TocEditorWindow::TreeContextMenu(ContextMenuEvent* ev) {
                 UpdateTreeModel();
             });
         } break;
-        case IDM_ADD_PDF_CHILD:
+        case CmdTocEditorAddPdfChild:
             AddPdfAsChild(selectedTocItem);
             break;
-        case IDM_ADD_PDF_SIBLING:
+        case CmdTocEditorAddPdfSibling:
             AddPdfAsSibling(selectedTocItem);
             break;
-        case IDM_REMOVE:
+        case CmdTocEditorRemoveItem:
             RemoveTocItem(selectedTocItem, true);
             break;
     }
@@ -594,7 +589,7 @@ void TocEditorWindow::TreeItemDragStartEnd(TreeItemDraggeddEvent* ev) {
     bool addAsSibling = !IsShiftPressed();
     AutoFreeStr srcTitle = strconv::WstrToUtf8(src->title);
     AutoFreeStr dstTitle = strconv::WstrToUtf8(dst->title);
-    dbglogf("TreeItemDragged: dragged: %s on: %s. Add as: %s\n", srcTitle.get(), dstTitle.get(),
+    dbglogf("TreeItemDragged: dragged: %s on: %s. Add as: %s\n", srcTitle.Get(), dstTitle.Get(),
             addAsSibling ? "sibling" : "child");
 
     // entries inside a single PDF cannot be moved outside of it
@@ -701,7 +696,7 @@ static void ShowSavedAsPdfMsg(const char* path) {
     msg.AppendFmt("Saved as PDF file %s", path);
     str::Str caption;
     caption.Append("Saved as PDF");
-    UINT type = MB_OK | MB_ICONINFORMATION | MbRtlReadingMaybe();
+    uint type = MB_OK | MB_ICONINFORMATION | MbRtlReadingMaybe();
     MessageBoxA(nullptr, msg.Get(), caption.Get(), type);
 }
 
@@ -711,14 +706,14 @@ void TocEditorWindow::SaveAsPdf() {
         return;
     }
     TocTree* tree = (TocTree*)treeCtrl->treeModel;
-    bool ok = SaveVirtualAsPdf(tree->root, (char*)path.get());
+    bool ok = SaveVirtualAsPdf(tree->root, (char*)path.Get());
     if (ok) {
-        ShowSavedAsPdfMsg(path.get());
+        ShowSavedAsPdfMsg(path.Get());
     }
 }
 
 void TocEditorWindow::SaveAsVirtual() {
-    str::WStr pathw = tocArgs->filePath.get();
+    str::WStr pathw = tocArgs->filePath.Get();
 
     bool isVbkm = str::EndsWithI(pathw.Get(), L".vbkm");
     // if the source was .vbkm file, we over-write it by default
@@ -730,7 +725,7 @@ void TocEditorWindow::SaveAsVirtual() {
     char* patha = nullptr;
     if (IsShiftPressed() && isVbkm) {
         // when SHIFT is pressed write without asking for a file
-        patha = (char*)strconv::WstrToUtf8(pathw.as_view()).data();
+        patha = (char*)strconv::WstrToUtf8(pathw.AsView()).data();
     } else {
         WCHAR dstFileName[MAX_PATH]{0};
         str::BufSet(&(dstFileName[0]), dimof(dstFileName), pathw.Get());
@@ -773,32 +768,32 @@ static void CreateButtonsLayout(TocEditorWindow* w) {
     buttons->alignMain = MainAxisAlign::Homogeneous;
     buttons->alignCross = CrossAxisAlign::CrossStart;
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "&Add PDF", std::bind(&TocEditorWindow::AddPdf, w));
-        buttons->AddChild(l);
+        auto b = CreateButton(hwnd, "&Add PDF", std::bind(&TocEditorWindow::AddPdf, w));
+        buttons->AddChild(b);
         w->btnAddPdf = b;
     }
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "&Remove Item", std::bind(&TocEditorWindow::RemoveItem, w));
-        buttons->AddChild(l);
+        auto b = CreateButton(hwnd, "&Remove Item", std::bind(&TocEditorWindow::RemoveItem, w));
+        buttons->AddChild(b);
         w->btnRemoveTocItem = b;
     }
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "Save As PDF", std::bind(&TocEditorWindow::SaveAsPdf, w));
-        buttons->AddChild(l);
+        auto b = CreateButton(hwnd, "Save As PDF", std::bind(&TocEditorWindow::SaveAsPdf, w));
+        buttons->AddChild(b);
         w->btnSaveAsPdf = b;
     }
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "Save As Virtual PDF", std::bind(&TocEditorWindow::SaveAsVirtual, w));
-        buttons->AddChild(l);
+        auto b = CreateButton(hwnd, "Save As Virtual PDF", std::bind(&TocEditorWindow::SaveAsVirtual, w));
+        buttons->AddChild(b);
         w->btnSaveAsVirtual = b;
     }
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "E&xit", std::bind(&Window::Close, w->mainWindow));
-        buttons->AddChild(l);
+        auto b = CreateButton(hwnd, "E&xit", std::bind(&Window::Close, w->mainWindow));
+        buttons->AddChild(b);
         w->btnExit = b;
     }
 
@@ -829,29 +824,24 @@ static void CreateMainLayout(TocEditorWindow* win) {
     tree->onTreeItemDragStartEnd = std::bind(&TocEditorWindow::TreeItemDragStartEnd, win, _1);
     tree->onContextMenu = std::bind(&TocEditorWindow::TreeContextMenu, win, _1);
 
-    bool ok = tree->Create(L"tree");
+    bool ok = tree->Create();
     CrashIf(!ok);
-
-    auto treeLayout = NewTreeLayout(tree);
 
     win->labelInfo = new StaticCtrl(hwnd);
     SetInfoLabelText(win->labelInfo, false);
     COLORREF col = MkGray(0x33);
     win->labelInfo->SetTextColor(col);
     win->labelInfo->Create();
-    ILayout* labelLayout = NewStaticLayout(win->labelInfo);
 
     auto* main = new VBox();
     main->alignMain = MainAxisAlign::MainStart;
     main->alignCross = CrossAxisAlign::Stretch;
 
-    main->AddChild(treeLayout, 1);
-    main->AddChild(labelLayout, 0);
+    main->AddChild(tree, 1);
+    main->AddChild(win->labelInfo, 0);
     main->AddChild(win->layoutButtons, 0);
 
-    auto* padding = new Padding();
-    padding->insets = DefaultInsets();
-    padding->child = main;
+    auto padding = new Padding(main, DpiScaledInsets(hwnd, 8));
     win->mainLayout = padding;
 }
 
@@ -864,18 +854,11 @@ void TocEditorWindow::SizeHandler(SizeEvent* ev) {
     }
     ev->didHandle = true;
     InvalidateRect(hwnd, nullptr, false);
-    if (dx == mainLayout->lastBounds.Dx() && dy == mainLayout->lastBounds.Dy()) {
+    if (mainLayout->lastBounds.EqSize(dx, dy)) {
         // avoid un-necessary layout
         return;
     }
-
-    Size windowSize{dx, dy};
-    auto c = Tight(windowSize);
-    auto size = mainLayout->Layout(c);
-    Point min{0, 0};
-    Point max{size.dx, size.dy};
-    Rect bounds{min, max};
-    mainLayout->SetBounds(bounds);
+    LayoutToSize(mainLayout, {dx, dy});
 }
 
 void TocEditorWindow::CloseHandler(WindowCloseEvent* ev) {
@@ -893,8 +876,7 @@ void TocEditorWindow::TreeItemChangedHandler(TreeItemChangedEvent* ev) {
     ti->isUnchecked = !ev->newState.isChecked;
 }
 
-void TocEditorWindow::TreeItemSelectedHandler(TreeSelectionChangedEvent* ev) {
-    UNUSED(ev);
+void TocEditorWindow::TreeItemSelectedHandler([[maybe_unused]] TreeSelectionChangedEvent* ev) {
     UpdateRemoveTocItemButtonStatus();
 }
 
@@ -919,7 +901,7 @@ void TocEditorWindow::GetDispInfoHandler(TreeGetDispInfoEvent* ev) {
         if (ti->engineFilePath) {
             const char* name = path::GetBaseNameNoFree(ti->engineFilePath);
             AutoFreeWstr nameW = strconv::Utf8ToWstr(name);
-            s = str::Format(L"%s [file: %s, pages %d-%d]", ti->title, nameW.get(), sno, eno);
+            s = str::Format(L"%s [file: %s, pages %d-%d]", ti->title, nameW.Get(), sno, eno);
         } else {
             s = str::Format(L"%s [pages %d-%d]", ti->title, sno, eno);
         }
@@ -927,7 +909,7 @@ void TocEditorWindow::GetDispInfoHandler(TreeGetDispInfoEvent* ev) {
         if (ti->engineFilePath) {
             const char* name = path::GetBaseNameNoFree(ti->engineFilePath);
             AutoFreeWstr nameW = strconv::Utf8ToWstr(name);
-            s = str::Format(L"%s [file: %s, page %d]", ti->title, nameW.get(), sno);
+            s = str::Format(L"%s [file: %s, page %d]", ti->title, nameW.Get(), sno);
         } else {
             s = str::Format(L"%s [page %d]", ti->title, sno);
         }
@@ -1004,9 +986,9 @@ void StartTocEditorForWindowInfo(WindowInfo* win) {
         bool ok = LoadVbkmFile(filePath, *vbkm);
         if (!ok) {
             // TODO: show error message box
+            delete args;
             return;
         }
-        args->bookmarks = vbkm;
     } else {
         TocTree* tree = (TocTree*)win->tocTreeCtrl->treeModel;
         TocItem* rootCopy = nullptr;
@@ -1019,7 +1001,7 @@ void StartTocEditorForWindowInfo(WindowInfo* win) {
         newRoot->child = rootCopy;
         newRoot->pageNo = 1; // default to first page in the PDF
         newRoot->nPages = tab->ctrl->PageCount();
-        newRoot->engineFilePath = filePath.release();
+        newRoot->engineFilePath = filePath.Release();
         vbkm->tree = new TocTree(newRoot);
     }
     args->bookmarks = vbkm;
@@ -1027,11 +1009,11 @@ void StartTocEditorForWindowInfo(WindowInfo* win) {
     StartTocEditor(args);
 }
 
-bool IsTocEditorEnabledForWindowInfo(WindowInfo* win) {
+bool IsTocEditorEnabledForWindowInfo(TabInfo* tab) {
     if (!gWithTocEditor) {
         return false;
     }
-    auto path = win->currentTab->filePath.get();
+    auto path = tab->filePath.Get();
     if (str::EndsWithI(path, L".vbkm")) {
         return true;
     }

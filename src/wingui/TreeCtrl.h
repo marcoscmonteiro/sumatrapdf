@@ -1,6 +1,4 @@
-
-
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct TreeCtrl;
@@ -12,13 +10,6 @@ struct TreeItmGetTooltipEvent : WndEvent {
 };
 
 typedef std::function<void(TreeItmGetTooltipEvent*)> TreeItemGetTooltipHandler;
-
-struct TreeNotifyEvent : WndEvent {
-    TreeCtrl* treeCtrl = nullptr;
-    NMTREEVIEWW* treeView = nullptr;
-};
-
-typedef std::function<void(TreeNotifyEvent*)> TreeNotifyHandler;
 
 struct TreeSelectionChangedEvent : WndEvent {
     TreeCtrl* treeCtrl = nullptr;
@@ -116,54 +107,54 @@ typedef std::function<void(TreeItemDraggeddEvent*)> TreeItemDraggedHandler;
 
 struct TreeCtrl : WindowBase {
     // creation parameters. must be set before CreateTreeCtrl() call
-    bool withCheckboxes = false;
+    bool withCheckboxes{false};
 
     // set before Create() to enable drag&drop
-    bool supportDragDrop = false;
+    bool supportDragDrop{false};
 
     // TODO: possibly not needed anymore
-    bool isDragging = false;
+    bool isDragging{false};
 
-    TreeItem* draggedItem = nullptr;
-    TreeItem* dragTargetItem = nullptr;
+    TreeItem* draggedItem{nullptr};
+    TreeItem* dragTargetItem{nullptr};
 
     // treeModel not owned by us
-    TreeModel* treeModel = nullptr;
+    TreeModel* treeModel{nullptr};
 
     // for all WM_NOTIFY messages
-    TreeNotifyHandler onTreeNotify = nullptr;
+    WmNotifyHandler onNotify{nullptr};
 
     // for WM_NOTIFY with TVN_GETINFOTIP
-    TreeItemGetTooltipHandler onGetTooltip = nullptr;
+    TreeItemGetTooltipHandler onGetTooltip{nullptr};
 
     // for WM_NOTIFY with TVN_SELCHANGED
-    TreeSelectionChangedHandler onTreeSelectionChanged = nullptr;
+    TreeSelectionChangedHandler onTreeSelectionChanged{nullptr};
 
     // for WM_NOTIFY with TVN_ITEMEXPANDED
-    TreeItemExpandedHandler onTreeItemExpanded = nullptr;
+    TreeItemExpandedHandler onTreeItemExpanded{nullptr};
 
     // for WM_NOTIFY with TVN_ITEMCHANGED
-    TreeItemChangedHandler onTreeItemChanged = nullptr;
+    TreeItemChangedHandler onTreeItemChanged{nullptr};
 
     // for WM_NOTIFY wiht NM_CUSTOMDRAW
-    TreeItemCustomDrawHandler onTreeItemCustomDraw = nullptr;
+    TreeItemCustomDrawHandler onTreeItemCustomDraw{nullptr};
 
     // for WM_NOTIFY with NM_CLICK or NM_DBCLICK
-    TreeClickHandler onTreeClick = nullptr;
+    TreeClickHandler onTreeClick{nullptr};
 
     // for WM_NOITFY with TVN_KEYDOWN
-    TreeKeyDownHandler onTreeKeyDown = nullptr;
+    TreeKeyDownHandler onTreeKeyDown{nullptr};
 
     // for WM_NOTIFY with TVN_GETDISPINFO
-    TreeGetDispInfoHandler onTreeGetDispInfo = nullptr;
+    TreeGetDispInfoHandler onTreeGetDispInfo{nullptr};
 
     // for TVN_BEGINDRAG / WM_MOUSEMOVE / WM_LBUTTONUP
-    TreeItemDraggedHandler onTreeItemDragStartEnd = nullptr;
+    TreeItemDraggedHandler onTreeItemDragStartEnd{nullptr};
 
     Size idealSize{};
 
     // private
-    TVITEMW item = {0};
+    TVITEMW item{};
 
     // TreeItem* -> HTREEITEM mapping so that we can
     // find HTREEITEM from TreeItem*
@@ -174,9 +165,6 @@ struct TreeCtrl : WindowBase {
 
     Size GetIdealSize() override;
     void WndProc(WndEvent*) override;
-
-    void HandleMouseDuringDrag(WndEvent*);
-    void HandleWM_NOTIFY(WndEvent*);
 
     void Clear();
 
@@ -191,7 +179,7 @@ struct TreeCtrl : WindowBase {
     TreeItem* GetItemAt(int x, int y);
     bool IsExpanded(TreeItem*);
 
-    bool Create(const WCHAR* title);
+    bool Create() override;
 
     void SetBackgroundColor(COLORREF);
     void SetTextColor(COLORREF);
@@ -207,15 +195,11 @@ struct TreeCtrl : WindowBase {
 
     TreeItemState GetItemState(TreeItem*);
 
-    void DragStart(NMTREEVIEWW*);
-    void DragMove(int x, int y);
-    void DragEnd();
+    HWND GetToolTipsHwnd();
+    void SetToolTipsDelayTime(int type, int timeInMs);
 };
-
-WindowBaseLayout* NewTreeLayout(TreeCtrl*);
-
-bool IsTree(Kind);
-bool IsTree(ILayout*);
 
 void FillTVITEM(TVITEMEXW* tvitem, TreeItem* ti, bool withCheckboxes);
 TreeItem* GetOrSelectTreeItemAtPos(ContextMenuEvent* args, POINT& pt);
+
+bool IsTreeKind(Kind);

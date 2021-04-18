@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct DropDownCtrl;
@@ -13,23 +13,17 @@ typedef std::function<void(DropDownSelectionChangedEvent*)> DropDownSelectionCha
 
 struct DropDownCtrl : WindowBase {
     Vec<std::string_view> items;
-    DropDownSelectionChangedHandler onDropDownSelectionChanged = nullptr;
+    DropDownSelectionChangedHandler onSelectionChanged = nullptr;
 
     DropDownCtrl(HWND parent);
     ~DropDownCtrl();
     bool Create() override;
 
-    void HandleWM_COMMAND(WndEvent*);
-
     Size GetIdealSize() override;
 
-    void SetCurrentSelection(int n);
     int GetCurrentSelection();
+    void SetCurrentSelection(int n);
     void SetItems(Vec<std::string_view>& newItems);
+    void SetItemsSeqStrings(const char* items);
     void SetCueBanner(std::string_view);
 };
-
-ILayout* NewDropDownLayout(DropDownCtrl* b);
-
-bool IsDropDown(Kind);
-bool IsDropDown(ILayout*);

@@ -1,17 +1,12 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct StaticCtrl : WindowBase {
     StaticCtrl(HWND parent);
     ~StaticCtrl() override;
+
     bool Create() override;
-
-    void HandleWM_COMMAND(WndEvent*);
-
     Size GetIdealSize() override;
-};
 
-ILayout* NewStaticLayout(StaticCtrl* w);
-ILayout* NewLabelLayout(StaticCtrl* w);
-bool IsStatic(Kind);
-bool IsStatic(ILayout*);
+    HBRUSH tmpBgBrush = nullptr;
+};

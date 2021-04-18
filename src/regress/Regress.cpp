@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 /*
@@ -22,6 +22,7 @@ To write new regression test:
 #include "utils/DbgHelpDyn.h"
 #include "utils/DirIter.h"
 #include "utils/FileUtil.h"
+#include "utils/GuessFileType.h"
 #include "utils/GdiPlusUtil.h"
 #include "utils/HtmlParserLookup.h"
 #include "mui/Mui.h"
@@ -37,14 +38,14 @@ To write new regression test:
 #include "EbookFormatter.h"
 #include "Doc.h"
 // For Regress03 (Text Search)
-#include "EngineManager.h"
+#include "EngineCreate.h"
 #include "ProgressUpdateUI.h"
 #include "TextSelection.h"
 #include "TextSearch.h"
 
-static WCHAR* gTestFilesDir;
+static const WCHAR* gTestFilesDir;
 
-static WCHAR* TestFilesDir() {
+static const WCHAR* TestFilesDir() {
     return gTestFilesDir;
 }
 
@@ -63,10 +64,10 @@ static void printflush(const char* s) {
 /* Auto-detect the location of test files. Ultimately we might add a cmd-line
 option to specify this directory, for now just add your location(s) to the list */
 static bool FindTestFilesDir() {
-    WCHAR* dirsToCheck[] = {L"C:\\Documents and Settings\\kkowalczyk\\My Documents\\Google Drive\\Sumatra",
+    const WCHAR* dirsToCheck[] = {L"C:\\Documents and Settings\\kkowalczyk\\My Documents\\Google Drive\\Sumatra",
                             L"C:\\Users\\kkowalczyk\\Google Drive\\Sumatra"};
     for (size_t i = 0; i < dimof(dirsToCheck); i++) {
-        WCHAR* dir = dirsToCheck[i];
+        const WCHAR* dir = dirsToCheck[i];
         if (dir::Exists(dir)) {
             gTestFilesDir = dir;
             return true;
@@ -87,11 +88,10 @@ static HANDLE gDumpEvent = nullptr;
 static HANDLE gDumpThread = nullptr;
 static bool gCrashed = false;
 
-static MINIDUMP_EXCEPTION_INFORMATION gMei = {0};
-static LPTOP_LEVEL_EXCEPTION_FILTER gPrevExceptionFilter = nullptr;
+static MINIDUMP_EXCEPTION_INFORMATION gMei{0};
+static LPTOP_LEVEL_EXCEPTION_FILTER gPrevExceptionFilter{nullptr};
 
-static DWORD WINAPI CrashDumpThread(LPVOID data) {
-    UNUSED(data);
+static DWORD WINAPI CrashDumpThread([[maybe_unused]] LPVOID data) {
     WaitForSingleObject(gDumpEvent, INFINITE);
     if (!gCrashed)
         return 0;

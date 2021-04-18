@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 extern "C" {
@@ -13,12 +13,15 @@ class ZipCreator {
     size_t fileCount;
 
     bool WriteData(const void* data, size_t size);
-    bool AddFileData(const char* nameUtf8, const void* data, size_t size, uint32_t dosdate = 0);
+    bool AddFileData(const char* nameUtf8, const void* data, size_t size, u32 dosdate = 0);
 
   public:
     ZipCreator(const WCHAR* zipFilePath);
     ZipCreator(ISequentialStream* stream);
     ~ZipCreator();
+
+    ZipCreator(ZipCreator const&) = delete;
+    ZipCreator& operator=(ZipCreator const&) = delete;
 
     bool AddFile(const WCHAR* filePath, const WCHAR* nameInZip = nullptr);
     bool AddFileFromDir(const WCHAR* filePath, const WCHAR* dir);

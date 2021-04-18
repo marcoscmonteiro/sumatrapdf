@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 bool HasBeenInstalled();
@@ -11,7 +11,7 @@ bool IsExeAssociatedWithPdfExtension();
 
 WCHAR* AutoDetectInverseSearchCommands(HWND);
 
-bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+bool ExtendedEditWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 void EnsureAreaVisibility(Rect& rect);
 Rect GetDefaultWindowPos();

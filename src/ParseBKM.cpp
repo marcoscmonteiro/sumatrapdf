@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -19,9 +19,9 @@
 
 // Version of .bkm and .vbkm files. Allows us to change the mind
 // TODO: this is provisional version while in development
-constexpr char* kBkmVersion = "998";
+constexpr const char* kBkmVersion = "998";
 
-static Kind kindTocItem = "bkmTreeItem";
+// static Kind kindTocItem = "bkmTreeItem";
 
 /*
 Creating and parsing of .bkm files that contain alternative bookmarks view
@@ -36,17 +36,17 @@ VbkmFile::~VbkmFile() {
 
 static std::string_view readFileNormalized(std::string_view path) {
     AutoFree d = file::ReadFile(path);
-    return sv::NormalizeNewlines(d.as_view());
+    return sv::NormalizeNewlines(d.AsView());
 }
 
-static void SerializeKeyVal(char* key, WCHAR* val, str::Str& s) {
+static void SerializeKeyVal(const char* key, const WCHAR* val, str::Str& s) {
     CrashIf(!key);
     if (!val) {
         return;
     }
     s.AppendFmt(" %s:", key);
     AutoFree str = strconv::WstrToUtf8(val);
-    sv::AppendMaybeQuoted(str.as_view(), s);
+    sv::AppendMaybeQuoted(str.AsView(), s);
 }
 
 static void SerializeDest(PageDestination* dest, str::Str& s) {
@@ -59,8 +59,8 @@ static void SerializeDest(PageDestination* dest, str::Str& s) {
     SerializeKeyVal("destvalue", dest->GetValue(), s);
     // Note: not serializing dest->pageno because it's redundant with
     // TocItem::pageNo
-    RectD r = dest->rect;
-    if (r.empty()) {
+    RectF r = dest->rect;
+    if (r.IsEmpty()) {
         return;
     }
     // TODO: using %g is not great, because it's scientific notian 1e6
@@ -95,7 +95,7 @@ static void SerializeBookmarksRec(TocItem* node, int level, str::Str& s) {
         s.AppendView(indentStr);
         WCHAR* title = node->Text();
         AutoFree titleA = strconv::WstrToUtf8(title);
-        sv::AppendMaybeQuoted(titleA.as_view(), s);
+        sv::AppendMaybeQuoted(titleA.AsView(), s);
         auto flags = node->fontFlags;
         str::Str fontVal;
         if (bit::IsSet(flags, fontBitItalic)) {
@@ -109,7 +109,7 @@ static void SerializeBookmarksRec(TocItem* node, int level, str::Str& s) {
         }
         if (fontVal.size() > 0) {
             s.Append(" font:");
-            s.AppendView(fontVal.as_view());
+            s.AppendView(fontVal.AsView());
         }
         if (node->color != ColorUnset) {
             s.Append(" color:");
@@ -141,22 +141,28 @@ static void SerializeBookmarksRec(TocItem* node, int level, str::Str& s) {
 static TocItem* parseTocLine(std::string_view line, size_t* indentOut) {
     auto origLine = line; // save for debugging
 
-    *indentOut = sv::ParseIndent(line);
-    if (*indentOut < 0) {
+    int n = sv::ParseIndent(line);
+    if (n < 0) {
         return nullptr;
     }
+    *indentOut = n;
 
     // first item on the line is a title
     str::Str title;
     bool ok = sv::ParseMaybeQuoted(line, title, false);
+    if (!ok) {
+        return nullptr;
+    }
     TocItem* res = new TocItem();
-    res->title = strconv::Utf8ToWstr(title.as_view());
+    res->title = strconv::Utf8ToWstr(title.AsView());
     PageDestination* dest = nullptr;
 
     // parse meta-data and page destination
     while (line.size() > 0) {
         ParsedKV kv = sv::ParseKV(line, false);
         if (!kv.ok) {
+            delete res;
+            delete dest;
             return nullptr;
         }
         char* key = kv.key;
@@ -165,6 +171,8 @@ static TocItem* parseTocLine(std::string_view line, size_t* indentOut) {
         if (str::EqI(key, "font")) {
             if (!val) {
                 logf("parseBookmarksLine: got 'font' without value in line '%s'\n", origLine.data());
+                delete res;
+                delete dest;
                 return nullptr;
             }
             // TODO: for max correctness should split by "," but this works just as well
@@ -195,6 +203,8 @@ static TocItem* parseTocLine(std::string_view line, size_t* indentOut) {
 
         if (str::EqI(key, "page")) {
             if (!val) {
+                delete res;
+                delete dest;
                 return nullptr;
             }
             str::Parse(val, "%d", &res->pageNo);
@@ -232,16 +242,16 @@ static TocItem* parseTocLine(std::string_view line, size_t* indentOut) {
         }
 
         if (str::Eq(key, "rect")) {
-            float x, y, dx, dy;
+            float x = 0, y = 0, dx = 0, dy = 0;
             str::Parse(val, "%g,%g,%g,%g", &x, &y, &dx, &dy);
-            dest->rect = RectD(x, y, dx, dy);
+            dest->rect = RectF(x, y, dx, dy);
             continue;
         }
 
         if (str::Eq(key, "pos")) {
-            float x, y;
+            float x = 0, y = 0;
             str::Parse(val, "%g,%g", &x, &y);
-            dest->rect = RectD(x, y, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
+            dest->rect = RectF(x, y, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
             continue;
         }
     }
@@ -274,7 +284,7 @@ static TocTree* parseVbkm(std::string_view sv) {
     // this line should be "title: $title"
     auto title = sv::ParseValueOfKey(sv, "title", true);
     if (!title.ok) {
-        return false;
+        return nullptr;
     }
 #endif
     size_t indent = 0;
@@ -288,7 +298,7 @@ static TocTree* parseVbkm(std::string_view sv) {
         if (nPagesV.ok) {
             str::Parse(nPagesV.val, "%d", &nPages);
             if (nPages == 0) {
-                return false;
+                return nullptr;
             }
         }
 
@@ -370,12 +380,12 @@ bool LoadAlterenativeBookmarks(std::string_view baseFileName, VbkmFile& vbkm) {
     str::Str path = baseFileName;
     path.Append(".bkm");
 
-    AutoFree d = readFileNormalized(path.as_view());
+    AutoFree d = readFileNormalized(path.AsView());
     if (d.empty()) {
         return false;
     }
 
-    std::string_view sv = d.as_view();
+    std::string_view sv = d.AsView();
     ParsedKV ver = sv::ParseValueOfKey(sv, "version", true);
     if (!ver.ok) {
         return false;
@@ -403,7 +413,7 @@ bool ExportBookmarksToFile(TocTree* bookmarks, const char* name, const char* bkm
     }
     s.AppendFmt("name: %s\n", name);
     SerializeBookmarksRec(bookmarks->root, 0, s);
-    return file::WriteFile(bkmPath, s.as_view());
+    return file::WriteFile(bkmPath, s.AsSpan());
 }
 
 bool ParseVbkmFile(std::string_view sv, VbkmFile& vbkm) {
@@ -428,7 +438,7 @@ bool ParseVbkmFile(std::string_view sv, VbkmFile& vbkm) {
 
 bool LoadVbkmFile(const char* filePath, VbkmFile& vbkm) {
     AutoFree d = readFileNormalized(filePath);
-    std::string_view sv = d.as_view();
+    std::string_view sv = d.AsView();
     bool ok = ParseVbkmFile(sv, vbkm);
     return ok;
 }

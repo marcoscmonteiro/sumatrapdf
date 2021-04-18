@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #ifndef BaseUtil_h
@@ -23,6 +23,22 @@
 #else
 #define OS_WIN 0
 #endif
+
+#if defined(_M_IX86) || defined(__i386__)
+#define IS_32BIT 1
+#define IS_INTEL_32 1
+#define IS_64BIT 0
+#define IS_INTEL_64 0
+#endif
+
+#if defined(_M_X64) || defined(__x86_64__)
+#define IS_64BIT 1
+#define IS_INTEL_64 1
+#define IS_32BIT 0
+#define IS_INTEL_32 0
+#endif
+
+// TODO: ARM 64bit
 
 /* OS_UNIX - Any Unix-like system */
 #if OS_DARWIN || OS_LINUX || defined(unix) || defined(__unix) || defined(__unix__)
@@ -59,6 +75,10 @@
 #endif
 #endif
 
+#ifndef _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "BuildConfig.h"
 
 #if OS_WIN
@@ -84,17 +104,7 @@
 #undef max
 
 #include <io.h>
-
-#ifdef DEBUG
-#define _CRTDBG_MAP_ALLOC
-#include <crtdbg.h>
-// TODO: this breaks placement new but without this we
-// don't get leaked memory allocation source
-#define DEBUG_NEW new (_NORMAL_BLOCK, __FILE__, __LINE__)
-#define new DEBUG_NEW
-#endif
-
-#endif
+#endif // OS_WIN
 
 // Most common C includes
 #include <stdlib.h>
@@ -122,9 +132,11 @@
 #include <array>
 #include <vector>
 #include <limits>
+#include <span>
 //#include <iostream>
 //#include <locale>
 
+typedef int8_t i8;
 typedef uint8_t u8;
 typedef int16_t i16;
 typedef uint16_t u16;
@@ -132,6 +144,7 @@ typedef int32_t i32;
 typedef uint32_t u32;
 typedef int64_t i64;
 typedef uint64_t u64;
+typedef unsigned int uint;
 
 // TODO: don't use INT_MAX and UINT_MAX
 #ifndef INT_MAX
@@ -156,18 +169,6 @@ char (&DimofSizeHelper(T (&array)[N]))[N];
 
 // like dimof minus 1 to account for terminating 0
 #define static_strlen(array) (sizeof(DimofSizeHelper(array)) - 1)
-
-// UNUSED is for marking unreferenced function arguments/variables
-// UNREFERENCED_PARAMETER is in windows SDK but too long. We use it if available,
-// otherwise we define our own version.
-// UNUSED might already be defined by mupdf\fits\system.h
-#if !defined(UNUSED)
-#if defined(UNREFERENCED_PARAMETER)
-#define UNUSED UNREFERENCED_PARAMETER
-#else
-#define UNUSED(P) ((void)P)
-#endif
-#endif
 
 #if COMPILER_MSVC
 // https://msdn.microsoft.com/en-us/library/4dt9kyhy.aspx
@@ -195,7 +196,7 @@ char (&DimofSizeHelper(T (&array)[N]))[N];
 inline void CrashMe() {
     char* p = nullptr;
     // cppcheck-suppress nullPointer
-    *p = 0;
+    *p = 0; // NOLINT
 }
 #if COMPILER_MSVC
 #pragma warning(pop)
@@ -233,30 +234,27 @@ inline void CrashIfFunc(bool cond) {
 // For sumatra, it's in CrashHandler.cpp
 extern void SendCrashReport(const char*);
 
-inline void SendCrashIfFunc(bool cond, const char* condStr) {
+inline void SendCrashIfFunc(bool cond, [[maybe_unused]] const char* condStr) {
     if (!cond) {
         return;
     }
-    UNUSED(condStr);
 #if defined(PRE_RELEASE_VER) || defined(DEBUG)
     SendCrashReport(condStr);
 #endif
 }
 
 // Sometimes we want to assert only in debug build (not in pre-release)
+#if defined(DEBUG)
 inline void DebugCrashIfFunc(bool cond) {
     if (!cond) {
         return;
     }
-#if defined(DEBUG)
     CrashMe();
-#endif
 }
-
-#if COMPILER_MSVC
-#define while_0_nowarn __pragma(warning(push)) __pragma(warning(disable : 4127)) while (0) __pragma(warning(pop))
 #else
-#define while_0_nowarn while (0)
+inline void DebugCrashIfFunc(bool) {
+    // no-op
+}
 #endif
 
 // __analysis_assume is defined by msvc for prefast analysis
@@ -268,8 +266,7 @@ inline void DebugCrashIfFunc(bool cond) {
     do {                            \
         __analysis_assume(!(cond)); \
         DebugCrashIfFunc(cond);     \
-    }                               \
-    while_0_nowarn
+    } while (0)
 
 #define CrashAlwaysIf(cond)         \
     do {                            \
@@ -277,32 +274,19 @@ inline void DebugCrashIfFunc(bool cond) {
         if (cond) {                 \
             CrashMe();              \
         }                           \
-    }                               \
-    while_0_nowarn
+    } while (0)
 
 #define CrashIf(cond)               \
     do {                            \
         __analysis_assume(!(cond)); \
         CrashIfFunc(cond);          \
-    }                               \
-    while_0_nowarn
+    } while (0)
 
 #define SubmitCrashIf(cond)           \
     do {                              \
         __analysis_assume(!(cond));   \
         SendCrashIfFunc(cond, #cond); \
-    }                                 \
-    while_0_nowarn
-
-// AssertCrash is like assert() but crashes like CrashIf()
-// It's meant to make converting assert() easier (converting to
-// CrashIf() requires inverting the condition, which can introduce bugs)
-#define AssertCrash(cond)        \
-    do {                         \
-        __analysis_assume(cond); \
-        CrashIfFunc(!(cond));    \
-    }                            \
-    while_0_nowarn
+    } while (0)
 
 #if !OS_WIN
 void ZeroMemory(void* p, size_t len);
@@ -346,7 +330,7 @@ inline T limitValue(T val, T min, T max) {
 // return true if adding n to val overflows. Only valid for n > 0
 template <typename T>
 inline bool addOverflows(T val, T n) {
-    CrashIf(n <= 0);
+    CrashIf(!(n > 0));
     T res = val + n;
     return val > res;
 }
@@ -355,7 +339,7 @@ void* memdup(const void* data, size_t len);
 bool memeq(const void* s1, const void* s2, size_t len);
 
 size_t RoundToPowerOf2(size_t size);
-uint32_t MurmurHash2(const void* key, size_t len);
+u32 MurmurHash2(const void* key, size_t len);
 
 size_t RoundUp(size_t n, size_t rounding);
 int RoundUp(int n, int rounding);
@@ -462,7 +446,7 @@ struct PoolAllocator : Allocator {
     void* Alloc(size_t size) override;
 
     void FreeAll();
-    void reset();
+    void Reset();
     void* At(int i);
 
     // only valid for structs, could alloc objects with
@@ -565,6 +549,10 @@ class FixedArray {
     }
 };
 
+static inline std::span<u8> ToSpan(std::string_view d) {
+    return {(u8*)d.data(), d.size()};
+}
+
 /*
 Poor-man's manual dynamic typing.
 Identity of an object is an address of a unique, global string.
@@ -619,6 +607,8 @@ class ExitScopeHelp {
 };
 
 #define defer const auto& CONCAT(defer__, __LINE__) = ExitScopeHelp() + [&]()
+
+extern std::atomic<int> gAllowAllocFailure;
 
 /* How to use:
 defer { free(tools_filename); };

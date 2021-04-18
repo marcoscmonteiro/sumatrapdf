@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -164,21 +164,22 @@ void TextRenderGdi::Unlock() {
     hdcGfxLocked = nullptr;
 }
 
-void TextRenderGdi::Draw(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) {
+void TextRenderGdi::Draw(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl) {
 #if 0
     DrawTransparent(s, sLen, bb, isRtl);
 #else
     CrashIf(!hdcGfxLocked); // hasn't been Lock()ed
-    int x = (int)bb.X;
-    int y = (int)bb.Y;
-    UINT opts = ETO_OPAQUE;
-    if (isRtl)
+    int x = (int)bb.x;
+    int y = (int)bb.y;
+    uint opts = ETO_OPAQUE;
+    if (isRtl) {
         opts = opts | ETO_RTLREADING;
-    ExtTextOut(hdcGfxLocked, x, y, opts, nullptr, s, (UINT)sLen, nullptr);
+    }
+    ExtTextOut(hdcGfxLocked, x, y, opts, nullptr, s, (uint)sLen, nullptr);
 #endif
 }
 
-void TextRenderGdi::Draw(const char* s, size_t sLen, RectF& bb, bool isRtl) {
+void TextRenderGdi::Draw(const char* s, size_t sLen, const RectF bb, bool isRtl) {
 #if 0
     DrawTransparent(s, sLen, bb, isRtl);
 #else
@@ -193,10 +194,12 @@ void TextRenderGdi::FreeMemBmp() {
 
 void TextRenderGdi::CreateClearBmpOfSize(int dx, int dy) {
     // set minimums for less allocations
-    if (dx < 128)
+    if (dx < 128) {
         dx = 128;
-    if (dy < 48)
+    }
+    if (dy < 48) {
         dy = 48;
+    }
 
     if (dx <= memBmpDx && dy <= memBmpDy) {
         ZeroMemory(memBmpData, memBmpDx * memBmpDy * 4);
@@ -218,8 +221,9 @@ void TextRenderGdi::CreateClearBmpOfSize(int dx, int dy) {
     bmi.bmiHeader.biSizeImage = dx * dy * 4; // doesn't seem necessary?
 
     memBmp = CreateDIBSection(memHdc, &bmi, DIB_RGB_COLORS, &memBmpData, nullptr, 0);
-    if (!memBmp)
+    if (!memBmp) {
         return;
+    }
 
     ZeroMemory(memBmpData, memBmpDx * memBmpDy * 4);
 
@@ -236,13 +240,13 @@ void TextRenderGdi::CreateClearBmpOfSize(int dx, int dy) {
 // TODO: I would like to figure out a way to draw text without the need to Lock()/Unlock()
 // maybe draw to in-memory bitmap, convert to Graphics bitmap and blit that bitmap to
 // Graphics object
-void TextRenderGdi::DrawTransparent(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) {
+void TextRenderGdi::DrawTransparent(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl) {
     CrashIf(!hdcGfxLocked); // hasn't been Lock()ed
 
-    int x = (int)bb.X;
-    int y = (int)bb.Y;
-    int dx = (int)bb.Width;
-    int dy = (int)bb.Height;
+    int x = (int)bb.x;
+    int y = (int)bb.y;
+    int dx = (int)bb.dx;
+    int dy = (int)bb.dy;
 
     CreateClearBmpOfSize(dx, dy);
     // SetBkMode(hdcGfxLocked, 1);
@@ -256,10 +260,11 @@ void TextRenderGdi::DrawTransparent(const WCHAR* s, size_t sLen, RectF& bb, bool
 #if 0
     TextOut(memHdc, 0, 0, s, sLen);
 #else
-    UINT opts = 0; // ETO_OPAQUE;
-    if (isRtl)
+    uint opts = 0; // ETO_OPAQUE;
+    if (isRtl) {
         opts = opts | ETO_RTLREADING;
-    ExtTextOut(memHdc, 0, 0, opts, nullptr, s, (UINT)sLen, nullptr);
+    }
+    ExtTextOut(memHdc, 0, 0, opts, nullptr, s, (uint)sLen, nullptr);
 #endif
 
     BLENDFUNCTION bf = {};
@@ -270,20 +275,20 @@ void TextRenderGdi::DrawTransparent(const WCHAR* s, size_t sLen, RectF& bb, bool
     AlphaBlend(hdcGfxLocked, x, y, dx, dy, memHdc, 0, 0, dx, dy, bf);
 }
 
-void TextRenderGdi::DrawTransparent(const char* s, size_t sLen, RectF& bb, bool isRtl) {
+void TextRenderGdi::DrawTransparent(const char* s, size_t sLen, const RectF bb, bool isRtl) {
     size_t strLen = strconv::Utf8ToWcharBuf(s, sLen, txtConvBuf, dimof(txtConvBuf));
     return DrawTransparent(txtConvBuf, strLen, bb, isRtl);
 }
 
-TextRenderGdiplus* TextRenderGdiplus::Create(Graphics* gfx,
-                                             RectF (*measureAlgo)(Graphics* g, Font* f, const WCHAR* s, int len)) {
+TextRenderGdiplus* TextRenderGdiplus::Create(Graphics* gfx, TextMeasureAlgorithm measureAlgo) {
     TextRenderGdiplus* res = new TextRenderGdiplus();
     res->gfx = gfx;
     res->currFont = nullptr;
-    if (nullptr == measureAlgo)
+    if (nullptr == measureAlgo) {
         res->measureAlgo = MeasureTextAccurate;
-    else
+    } else {
         res->measureAlgo = measureAlgo;
+    }
     // default to red to make mistakes stand out
     res->SetTextColor(Color(0xff, 0xff, 0x0, 0x0));
     return res;
@@ -322,20 +327,19 @@ void TextRenderGdiplus::SetTextColor(Gdiplus::Color col) {
     textColorBrush = ::new SolidBrush(col);
 }
 
-void TextRenderGdiplus::Draw(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) {
-    PointF pos;
-    bb.GetLocation(&pos);
+void TextRenderGdiplus::Draw(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl) {
+    Gdiplus::PointF pos = ToGdipPointF(bb.TL());
     if (!isRtl) {
         gfx->DrawString(s, (INT)sLen, currFont->font, pos, nullptr, textColorBrush);
     } else {
         StringFormat rtl;
         rtl.SetFormatFlags(StringFormatFlagsDirectionRightToLeft);
-        pos.X += bb.Width;
+        pos.X += bb.dx;
         gfx->DrawString(s, (INT)sLen, currFont->font, pos, &rtl, textColorBrush);
     }
 }
 
-void TextRenderGdiplus::Draw(const char* s, size_t sLen, RectF& bb, bool isRtl) {
+void TextRenderGdiplus::Draw(const char* s, size_t sLen, const RectF bb, bool isRtl) {
     size_t strLen = strconv::Utf8ToWcharBuf(s, sLen, txtConvBuf, dimof(txtConvBuf));
     Draw(txtConvBuf, strLen, bb, isRtl);
 }
@@ -374,7 +378,10 @@ TextRenderHdc* TextRenderHdc::Create(Graphics* gfx, int dx, int dy) {
         return nullptr;
     }
 
-    ZeroMemory(res->bmpData, dx * dy * 4);
+    if (res->bmpData) {
+        size_t n = (size_t)dx * (size_t)dy * 4;
+        ZeroMemory(res->bmpData, n);
+    }
     SelectObject(res->hdc, res->bmp);
 
     // default to red to make mistakes stand out
@@ -414,14 +421,14 @@ float TextRenderHdc::GetCurrFontLineSpacing() {
     return currFont->font->GetHeight(gfx);
 }
 
-Gdiplus::RectF TextRenderHdc::Measure(const char* s, size_t sLen) {
+RectF TextRenderHdc::Measure(const char* s, size_t sLen) {
     CrashIf(!currFont);
     CrashIf(!hdc);
     size_t strLen = strconv::Utf8ToWcharBuf(s, sLen, txtConvBuf, dimof(txtConvBuf));
     return Measure(txtConvBuf, strLen);
 }
 
-Gdiplus::RectF TextRenderHdc::Measure(const WCHAR* s, size_t sLen) {
+RectF TextRenderHdc::Measure(const WCHAR* s, size_t sLen) {
     SIZE txtSize;
     CrashIf(!hdc);
     GetTextExtentPoint32W(hdc, s, (int)sLen, &txtSize);
@@ -429,23 +436,22 @@ Gdiplus::RectF TextRenderHdc::Measure(const WCHAR* s, size_t sLen) {
     return res;
 }
 
-void TextRenderHdc::Draw(const char* s, size_t sLen, RectF& bb, bool isRtl) {
+void TextRenderHdc::Draw(const char* s, size_t sLen, const RectF bb, bool isRtl) {
     size_t strLen = strconv::Utf8ToWcharBuf(s, sLen, txtConvBuf, dimof(txtConvBuf));
     return Draw(txtConvBuf, strLen, bb, isRtl);
 }
 
-void TextRenderHdc::Draw(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) {
+void TextRenderHdc::Draw(const WCHAR* s, size_t sLen, const RectF bb, [[maybe_unused]] bool isRtl) {
     CrashIf(!hdc);
-    int x = (int)bb.X;
-    int y = (int)bb.Y;
-    UINT opts = ETO_OPAQUE;
+    int x = (int)bb.x;
+    int y = (int)bb.y;
+    uint opts = ETO_OPAQUE;
 #if 0
-    if (isRtl)
+    if (isRtl) {
         opts = opts | ETO_RTLREADING;
-#else
-    UNUSED(isRtl);
+    }
 #endif
-    ExtTextOut(hdc, x, y, opts, nullptr, s, (UINT)sLen, nullptr);
+    ExtTextOut(hdc, x, y, opts, nullptr, s, (uint)sLen, nullptr);
 }
 
 TextRenderHdc::~TextRenderHdc() {
@@ -483,29 +489,33 @@ ITextRender* CreateTextRender(TextRenderMethod method, Graphics* gfx, int dx, in
 // calls, so it's not that bad
 size_t StringLenForWidth(ITextRender* textMeasure, const WCHAR* s, size_t len, float dx) {
     RectF r = textMeasure->Measure(s, len);
-    if (r.Width <= dx)
+    if (r.dx <= dx) {
         return len;
+    }
     // make the best guess of the length that fits
-    size_t n = (size_t)((dx / r.Width) * (float)len);
+    size_t n = (size_t)((dx / r.dx) * (float)len);
     CrashIf(n > len);
     r = textMeasure->Measure(s, n);
     // find the length len of s that fits within dx iff width of len+1 exceeds dx
     int dir = 1; // increasing length
-    if (r.Width > dx)
+    if (r.dx > dx) {
         dir = -1; // decreasing length
+    }
     while (n > 1) {
         n += dir;
         r = textMeasure->Measure(s, n);
         if (1 == dir) {
             // if advancing length, we know that previous string did fit, so if
             // the new one doesn't fit, the previous length was the right one
-            if (r.Width > dx)
+            if (r.dx > dx) {
                 return n - 1;
+            }
         } else {
             // if decreasing length, we know that previous string didn't fit, so if
             // the one one fits, it's of the correct length
-            if (r.Width < dx)
+            if (r.dx < dx) {
                 return n;
+            }
         }
     }
     // even a single char is longer than available space
@@ -524,9 +534,9 @@ float GetSpaceDx(ITextRender* textMeasure) {
     // this method seems to return (much) smaller size that measuring
     // the space itself
     bbox = textMeasure->Measure(L"wa", 2);
-    float l1 = bbox.Width;
+    float l1 = bbox.dx;
     bbox = textMeasure->Measure(L"w a", 3);
-    float l2 = bbox.Width;
+    float l2 = bbox.dx;
     float spaceDx2 = l2 - l1;
     return spaceDx2;
 #endif

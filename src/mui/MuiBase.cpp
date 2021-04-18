@@ -1,10 +1,12 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
 #include "utils/HtmlParserLookup.h"
-#include "Mui.h"
+#include "utils/GdiPlusUtil.h"
 #include "utils/WinUtil.h"
+
+#include "Mui.h"
 
 namespace mui {
 
@@ -83,11 +85,13 @@ bool GraphicsCacheEntry::Create() {
     // using a small bitmap under assumption that Graphics used only
     // for measuring text doesn't need the actual bitmap
     bmp = ::new Bitmap(bmpDx, bmpDy, stride, PixelFormat32bppARGB, data);
-    if (!bmp)
+    if (!bmp) {
         return false;
+    }
     gfx = ::new Graphics((Image*)bmp);
-    if (!gfx)
+    if (!gfx) {
         return false;
+    }
     InitGraphicsMode(gfx);
     return true;
 }
@@ -117,10 +121,12 @@ void DestroyBase() {
 }
 
 bool CachedFont::SameAs(const WCHAR* otherName, float otherSizePt, FontStyle otherStyle) const {
-    if (sizePt != otherSizePt)
+    if (sizePt != otherSizePt) {
         return false;
-    if (style != otherStyle)
+    }
+    if (style != otherStyle) {
         return false;
+    }
     return str::Eq(name, otherName);
 }
 
@@ -155,11 +161,16 @@ CachedFont* GetCachedFont(const WCHAR* name, float sizePt, FontStyle style) {
     }
 
     Font* font = ::new Font(name, sizePt, style);
-    if (!font) {
+    if (font->GetLastStatus() != Status::Ok) {
+        delete font;
         font = ::new Font(L"Times New Roman", sizePt, style);
-        if (!font) {
+        if (font->GetLastStatus() != Status::Ok) {
             // if no font is available, return the last successfully created one
-            return gFontsCache ? &gFontsCache->cf : nullptr;
+            delete font;
+            if (gFontsCache) {
+                return &gFontsCache->cf;
+            }
+            return nullptr;
         }
     }
 
@@ -181,8 +192,9 @@ Graphics* AllocGraphicsForMeasureText() {
     GraphicsCacheEntry ce;
     ce.Create();
     gGraphicsCache->Append(ce);
-    if (gGraphicsCache->size() < 64)
+    if (gGraphicsCache->size() < 64) {
         return ce.gfx;
+    }
 
     // try to limit the size of cache by evicting the oldest entries, but don't remove
     // first (for ui thread) or last (one we just added) entries

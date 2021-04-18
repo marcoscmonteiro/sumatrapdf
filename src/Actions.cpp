@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -7,7 +7,7 @@
 
 VecSegmented<Action> gActions;
 
-Action* GetActionByClass(enum class Actions action) {
+Action* GetActionByClass(enum Actions action) {
     return gActions.AtPtr((int)action);
 }
 

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -23,17 +23,17 @@ static void VecStrTest() {
     const char* str3 = "this is a large string, my friend";
 
     VecStr v;
-    utassert(v.size() == 0);
+    utassert(v.Size() == 0);
     v.Append(str1);
-    utassert(v.size() == 1);
+    utassert(v.Size() == 1);
     v.Append(str2);
-    utassert(v.size() == 2);
+    utassert(v.Size() == 2);
 
     // allocate a bunch to test allocating
     for (int i = 0; i < 1024; i++) {
         v.Append(str3);
     }
-    utassert(v.size() == 1026);
+    utassert(v.Size() == 1026);
 
     assertStrEq(v.at(0), str1);
     assertStrEq(v.at(1), str2);
@@ -114,7 +114,7 @@ static void StrListTest() {
 
 static size_t VecTestAppendFmt() {
     str::Str v(256);
-    int64_t val = 1;
+    i64 val = 1;
     for (int i = 0; i < 10000; i++) {
         v.AppendFmt("i%" PRId64 "e", val);
         val = (val * 3) / 2; // somewhat exponential growth
@@ -253,7 +253,7 @@ void VecTest() {
 
         v.Append("lambda");
         utassert(str::Eq(v.LendData(), "lambda"));
-        char c = v.Pop();
+        char c = v.RemoveLast();
         utassert(c == 'a');
         utassert(str::Eq(v.LendData(), "lambd"));
     }

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -41,7 +41,7 @@ HRESULT CEpubFilter::OnInit() {
         return res;
     }
 
-    auto strm = CreateStreamFromData(data.as_view());
+    auto strm = CreateStreamFromData(data.AsSpan());
     ScopedComPtr<IStream> stream(strm);
     if (!stream) {
         return E_FAIL;
@@ -71,10 +71,9 @@ static bool IsoDateParse(const WCHAR* isoDate, SYSTEMTIME* timeOut) {
 static WCHAR* ExtractHtmlText(EpubDoc* doc) {
     auto d = doc->GetHtmlData();
     size_t len = d.size();
-    const char* data = d.data();
 
     str::Str text(len / 2);
-    HtmlPullParser p(data, len);
+    HtmlPullParser p(d);
     HtmlToken* t;
     Vec<HtmlTag> tagNesting;
     while ((t = p.Next()) != nullptr && !t->IsError()) {
@@ -99,7 +98,7 @@ static WCHAR* ExtractHtmlText(EpubDoc* doc) {
             }
         } else if (t->IsEndTag()) {
             if (!IsInlineTag(t->tag) && text.size() > 0 && text.Last() == ' ') {
-                text.Pop();
+                text.RemoveLast();
                 text.Append("\r\n");
             }
             // when closing a tag, if the top tag doesn't match but
@@ -140,8 +139,9 @@ HRESULT CEpubFilter::GetNextChunkValue(CChunkValue& chunkValue) {
         case STATE_EPUB_TITLE:
             m_state = STATE_EPUB_DATE;
             str.Set(m_epubDoc->GetProperty(DocumentProperty::Title));
-            if (!str)
+            if (!str) {
                 str.Set(m_epubDoc->GetProperty(DocumentProperty::Subject));
+            }
             if (!str::IsEmpty(str.Get())) {
                 chunkValue.SetTextValue(PKEY_Title, str);
                 return S_OK;
@@ -151,8 +151,9 @@ HRESULT CEpubFilter::GetNextChunkValue(CChunkValue& chunkValue) {
         case STATE_EPUB_DATE:
             m_state = STATE_EPUB_CONTENT;
             str.Set(m_epubDoc->GetProperty(DocumentProperty::ModificationDate));
-            if (!str)
+            if (!str) {
                 str.Set(m_epubDoc->GetProperty(DocumentProperty::CreationDate));
+            }
             if (!str::IsEmpty(str.Get())) {
                 SYSTEMTIME systime;
                 if (IsoDateParse(str, &systime)) {

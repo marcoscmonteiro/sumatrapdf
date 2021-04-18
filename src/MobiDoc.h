@@ -1,10 +1,8 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 class HuffDicDecompressor;
 class PdbReader;
-
-enum class PdbDocType { Unknown, Mobipocket, PalmDoc, TealDoc };
 
 class MobiDoc {
     WCHAR* fileName = nullptr;
@@ -40,7 +38,7 @@ class MobiDoc {
     void LoadImages();
     bool LoadImage(size_t imageNo);
     bool LoadDocument(PdbReader* pdbReader);
-    bool DecodeExthHeader(const char* data, size_t dataLen);
+    bool DecodeExthHeader(const u8* data, size_t dataLen);
 
   public:
     str::Str* doc = nullptr;
@@ -49,7 +47,7 @@ class MobiDoc {
 
     ~MobiDoc();
 
-    std::string_view GetHtmlData() const;
+    std::span<u8> GetHtmlData() const;
     size_t GetHtmlDataSize() const {
         return doc->size();
     }
@@ -66,7 +64,7 @@ class MobiDoc {
     bool HasToc();
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
+    static bool IsSupportedFileType(Kind);
     static MobiDoc* CreateFromFile(const WCHAR* fileName);
     static MobiDoc* CreateFromStream(IStream* stream);
 };

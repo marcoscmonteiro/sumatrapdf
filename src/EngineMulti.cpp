@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 extern "C" {
@@ -10,6 +10,7 @@ extern "C" {
 #include "utils/Archive.h"
 #include "utils/ScopedWin.h"
 #include "utils/FileUtil.h"
+#include "utils/GuessFileType.h"
 #include "utils/DirIter.h"
 #include "utils/HtmlParserLookup.h"
 #include "utils/HtmlPullParser.h"
@@ -21,10 +22,11 @@ extern "C" {
 #include "AppColors.h"
 #include "wingui/TreeModel.h"
 
+#include "SumatraConfig.h"
 #include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineFzUtil.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
 #include "ParseBKM.h"
 #include "EngineMulti.h"
 
@@ -46,26 +48,26 @@ class EngineMulti : public EngineBase {
     virtual ~EngineMulti();
     EngineBase* Clone() override;
 
-    RectD PageMediabox(int pageNo) override;
-    RectD PageContentBox(int pageNo, RenderTarget target = RenderTarget::View) override;
+    RectF PageMediabox(int pageNo) override;
+    RectF PageContentBox(int pageNo, RenderTarget target = RenderTarget::View) override;
 
     RenderedBitmap* RenderPage(RenderPageArgs& args) override;
 
-    RectD Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse = false) override;
+    RectF Transform(const RectF& rect, int pageNo, float zoom, int rotation, bool inverse = false) override;
 
-    std::string_view GetFileData() override;
+    std::span<u8> GetFileData() override;
     bool SaveFileAs(const char* copyFileName, bool includeUserAnnots = false) override;
     bool SaveFileAsPdf(const char* pdfFileName, bool includeUserAnnots = false);
-    WCHAR* ExtractPageText(int pageNo, Rect** coordsOut = nullptr) override;
+    PageText ExtractPageText(int pageNo) override;
 
     bool HasClipOptimizations(int pageNo) override;
     WCHAR* GetProperty(DocumentProperty prop) override;
 
     bool BenchLoadPage(int pageNo) override;
 
-    Vec<PageElement*>* GetElements(int pageNo) override;
-    PageElement* GetElementAtPos(int pageNo, PointD pt) override;
-    RenderedBitmap* GetImageForPageElement(PageElement*) override;
+    Vec<IPageElement*>* GetElements(int pageNo) override;
+    IPageElement* GetElementAtPos(int pageNo, PointF pt) override;
+    RenderedBitmap* GetImageForPageElement(IPageElement*) override;
 
     PageDestination* GetNamedDest(const WCHAR* name) override;
     TocTree* GetToc() override;
@@ -85,7 +87,7 @@ class EngineMulti : public EngineBase {
 };
 
 EngineBase* EngineMulti::PageToEngine(int& pageNo) const {
-    EnginePage& ep = pageToEngine[pageNo - 1];
+    const EnginePage& ep = pageToEngine[pageNo - 1];
     pageNo = ep.pageNoInEngine;
     return ep.engine;
 }
@@ -94,8 +96,6 @@ EngineMulti::EngineMulti() {
     kind = kindEngineMulti;
     defaultFileExt = L".vbkm";
     fileDPI = 72.0f;
-    supportsAnnotations = false;
-    supportsAnnotationsForSaving = false;
 }
 
 EngineMulti::~EngineMulti() {
@@ -112,12 +112,12 @@ EngineBase* EngineMulti::Clone() {
     return CreateEngineMultiFromFile(fileName, nullptr);
 }
 
-RectD EngineMulti::PageMediabox(int pageNo) {
+RectF EngineMulti::PageMediabox(int pageNo) {
     EngineBase* e = PageToEngine(pageNo);
     return e->PageMediabox(pageNo);
 }
 
-RectD EngineMulti::PageContentBox(int pageNo, RenderTarget target) {
+RectF EngineMulti::PageContentBox(int pageNo, RenderTarget target) {
     EngineBase* e = PageToEngine(pageNo);
     return e->PageContentBox(pageNo, target);
 }
@@ -127,12 +127,12 @@ RenderedBitmap* EngineMulti::RenderPage(RenderPageArgs& args) {
     return e->RenderPage(args);
 }
 
-RectD EngineMulti::Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse) {
+RectF EngineMulti::Transform(const RectF& rect, int pageNo, float zoom, int rotation, bool inverse) {
     EngineBase* e = PageToEngine(pageNo);
     return e->Transform(rect, pageNo, zoom, rotation, inverse);
 }
 
-std::string_view EngineMulti::GetFileData() {
+std::span<u8> EngineMulti::GetFileData() {
     return {};
 }
 
@@ -144,9 +144,9 @@ bool EngineMulti::SaveFileAsPdf(const char* pdfFileName, bool includeUserAnnots)
     return false;
 }
 
-WCHAR* EngineMulti::ExtractPageText(int pageNo, Rect** coordsOut) {
+PageText EngineMulti::ExtractPageText(int pageNo) {
     EngineBase* e = PageToEngine(pageNo);
-    return e->ExtractPageText(pageNo, coordsOut);
+    return e->ExtractPageText(pageNo);
 }
 
 bool EngineMulti::HasClipOptimizations(int pageNo) {
@@ -163,17 +163,18 @@ bool EngineMulti::BenchLoadPage(int pageNo) {
     return e->BenchLoadPage(pageNo);
 }
 
-Vec<PageElement*>* EngineMulti::GetElements(int pageNo) {
+Vec<IPageElement*>* EngineMulti::GetElements(int pageNo) {
     EngineBase* e = PageToEngine(pageNo);
     return e->GetElements(pageNo);
 }
 
-PageElement* EngineMulti::GetElementAtPos(int pageNo, PointD pt) {
+IPageElement* EngineMulti::GetElementAtPos(int pageNo, PointF pt) {
     EngineBase* e = PageToEngine(pageNo);
     return e->GetElementAtPos(pageNo, pt);
 }
 
-RenderedBitmap* EngineMulti::GetImageForPageElement(PageElement* pel) {
+RenderedBitmap* EngineMulti::GetImageForPageElement(IPageElement* ipel) {
+    PageElement* pel = (PageElement*)ipel;
     EngineBase* e = PageToEngine(pel->pageNo);
     return e->GetImageForPageElement(pel);
 }
@@ -332,8 +333,8 @@ std::string_view FindEnginePath(std::string_view vbkmPath, std::string_view engi
     AutoFreeStr dir = path::GetDir(vbkmPath);
     const char* engineFileName = path::GetBaseNameNoFree(engineFilePath.data());
     AutoFreeStr path = path::JoinUtf(dir, engineFileName, nullptr);
-    if (file::Exists(path.as_view())) {
-        std::string_view res = path.release();
+    if (file::Exists(path.AsView())) {
+        std::string_view res = path.Release();
         return res;
     }
     return {};
@@ -363,12 +364,12 @@ TocItem* CreateWrapperItem(EngineBase* engine) {
 }
 
 bool EngineMulti::LoadFromFiles(std::string_view dir, VecStr& files) {
-    int n = files.size();
+    int n = files.Size();
     TocItem* tocFiles = nullptr;
     for (int i = 0; i < n; i++) {
         std::string_view path = files.at(i);
         AutoFreeWstr pathW = strconv::Utf8ToWstr(path);
-        EngineBase* engine = EngineManager::CreateEngine(pathW);
+        EngineBase* engine = CreateEngine(pathW);
         if (!engine) {
             continue;
         }
@@ -458,7 +459,7 @@ void EngineMulti::UpdatePagesForEngines(Vec<EngineInfo>& enginesInfo) {
 
 bool EngineMulti::Load(const WCHAR* fileName, PasswordUI* pwdUI) {
     AutoFreeStr filePath = strconv::WstrToUtf8(fileName);
-    bool ok = LoadVbkmFile(filePath.get(), vbkm);
+    bool ok = LoadVbkmFile(filePath.Get(), vbkm);
     if (!ok) {
         return false;
     }
@@ -477,12 +478,12 @@ bool EngineMulti::Load(const WCHAR* fileName, PasswordUI* pwdUI) {
         }
 
         EngineBase* engine = nullptr;
-        AutoFreeStr path = FindEnginePath(filePath.as_view(), ti->engineFilePath);
+        AutoFreeStr path = FindEnginePath(filePath.AsView(), ti->engineFilePath);
         if (path.empty()) {
             return false;
         }
-        AutoFreeWstr pathW = strconv::Utf8ToWstr(path.as_view());
-        engine = EngineManager::CreateEngine(pathW, nullptr);
+        AutoFreeWstr pathW = strconv::Utf8ToWstr(path.AsView());
+        engine = CreateEngine(pathW, nullptr);
         if (!engine) {
             return false;
         }
@@ -505,40 +506,19 @@ bool EngineMulti::Load(const WCHAR* fileName, PasswordUI* pwdUI) {
     return true;
 }
 
-#include "SumatraConfig.h"
-
-bool IsEngineMultiSupportedFile(const WCHAR* fileName, bool sniff) {
-    if (sniff) {
-        // we don't support sniffing
-        return false;
-    }
-    if (str::EndsWithI(fileName, L".vbkm")) {
-        return true;
-    }
-
-    // TODO: in 3.1.2 we open folder of images (IsImageDirEngineSupportedFile)
-    // To avoid changing behavior, we open pdfs only in ramicro build
-    // this should be controlled via cmd-line flag e.g. -folder-open-pdf
-    // Then we could have more options, like -folder-open-images (default)
-    // -folder-open-all (show all files we support in toc)
-    if (gIsRaMicroBuild) {
-        // for 'Open Folder' functionality
-        if (path::IsDirectory(fileName)) {
-            return true;
-        }
-    }
-    return false;
+bool IsEngineMultiSupportedFileType(Kind kind) {
+    return kind == kindFileVbkm;
 }
 
-EngineBase* CreateEngineMultiFromFile(const WCHAR* fileName, PasswordUI* pwdUI) {
-    if (str::IsEmpty(fileName)) {
+EngineBase* CreateEngineMultiFromFile(const WCHAR* path, PasswordUI* pwdUI) {
+    if (str::IsEmpty(path)) {
         return nullptr;
     }
-    if (path::IsDirectory(fileName)) {
-        return CreateEngineMultiFromDirectory(fileName);
+    if (path::IsDirectory(path)) {
+        return CreateEngineMultiFromDirectory(path);
     }
     EngineMulti* engine = new EngineMulti();
-    if (!engine->Load(fileName, pwdUI)) {
+    if (!engine->Load(path, pwdUI)) {
         delete engine;
         return nullptr;
     }
@@ -561,16 +541,16 @@ EngineBase* CreateEngineMultiFromDirectory(const WCHAR* dirW) {
     };
     VecStr files;
     AutoFreeStr dir = strconv::WstrToUtf8(dirW);
-    bool ok = CollectFilesFromDirectory(dir.as_view(), files, isValidFunc);
+    bool ok = CollectFilesFromDirectory(dir.AsView(), files, isValidFunc);
     if (!ok) {
         // TODO: show error message
         return nullptr;
     }
-    if (files.size() == 0) {
+    if (files.Size() == 0) {
         // TODO: show error message
         return nullptr;
     }
-    EngineBase* engine = CreateEngineMultiFromFiles(dir.as_view(), files);
+    EngineBase* engine = CreateEngineMultiFromFiles(dir.AsView(), files);
     if (!engine) {
         // TODO: show error message
         return nullptr;

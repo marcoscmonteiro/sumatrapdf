@@ -6,6 +6,32 @@ OS := $(OS:MSYS%=MINGW)
 OS := $(OS:Windows_NT=MINGW)
 OS := $(OS:Darwin=MACOS)
 
+WARNING_CFLAGS := -Wall -Wsign-compare
+
+# Feature configuration options
+
+ifeq ($(tesseract),yes)
+  USE_TESSERACT := yes
+  build_suffix += -tesseract
+endif
+
+ifeq ($(extract),yes)
+  USE_EXTRACT := yes
+  build_suffix += -extract
+endif
+
+ifeq ($(tofu),yes)
+  build_suffix += -tofu
+  XCFLAGS += -DTOFU
+endif
+
+ifeq ($(tofu_cjk),yes)
+  build_suffix += -tofu_cjk
+  XCFLAGS += -DTOFU_CJK
+endif
+
+# System specific features
+
 ifeq ($(findstring -fembed-bitcode,$(XCFLAGS)),)
   # clang does not support these in combination with -fembed-bitcode
   CFLAGS += -ffunction-sections -fdata-sections
@@ -13,14 +39,37 @@ endif
 
 ifeq ($(OS),MACOS)
   LDREMOVEUNREACH := -Wl,-dead_strip
+  SO := dylib
 else
   LDREMOVEUNREACH := -Wl,--gc-sections
+  ifeq ($(OS),MINGW)
+    SO := dll
+  else
+    SO := so
+  endif
 endif
 
-CFLAGS += -Wsign-compare
+ifeq "$(OS)" "ios"
+  NEONFLAGS =
+else
+  NEONFLAGS = -mneon
+endif
 
 SANITIZE_FLAGS += -fsanitize=address
 SANITIZE_FLAGS += -fsanitize=leak
+
+ifeq ($(shared),yes)
+  build_prefix += shared-
+  LIB_CFLAGS = -fPIC
+  ifeq ($(OS),MACOS)
+    LIB_LDFLAGS = -dynamiclib
+  else
+    LIB_LDFLAGS = -shared
+  endif
+else
+  LIB_CFLAGS =
+  LIB_LDFLAGS =
+endif
 
 ifeq ($(build),debug)
   CFLAGS += -pipe -g
@@ -50,11 +99,15 @@ else ifeq ($(build),native)
   CFLAGS += -pipe -O2 -DNDEBUG -fomit-frame-pointer -march=native
   LDFLAGS += $(LDREMOVEUNREACH) -Wl,-s
 else ifeq ($(build),memento)
-  CFLAGS += -pipe -g -DMEMENTO
+  CFLAGS += -pipe -g -DMEMENTO -DMEMENTO_MUPDF_HACKS
   LDFLAGS += -g -rdynamic
   ifneq ($(HAVE_LIBDL),no)
     CFLAGS += -DHAVE_LIBDL
-    LIBS += -ldl
+    ifeq ($(OS),OpenBSD)
+      LIBS += -L /usr/local/lib -l execinfo
+    else
+      LIBS += -ldl
+    endif
   endif
 else ifeq ($(build),gperf)
   CFLAGS += -pipe -O2 -DNDEBUG -fomit-frame-pointer -DGPERF
@@ -63,16 +116,22 @@ else
   $(error unknown build setting: '$(build)')
 endif
 
+ifeq ($(OS),OpenBSD)
+  LDFLAGS += -pthread
+endif
+
 # Default system libraries
 SYS_FREETYPE_LIBS := -lfreetype2
 SYS_HARFBUZZ_LIBS := -lharfbuzz
 SYS_JBIG2DEC_LIBS := -ljbig2dec
 SYS_JPEGXR_LIBS := -ljpegxr
-SYS_LCMS2_LIBS := -llcms2-art
+SYS_LCMS2_LIBS := -llcms2
 SYS_LIBJPEG_LIBS := -ljpeg
 SYS_MUJS_LIBS := -lmujs
 SYS_OPENJPEG_LIBS := -lopenjp2
 SYS_ZLIB_LIBS := -lz
+SYS_TESSERACT_LIBS := -ltesseract
+SYS_LEPTONICA_LIBS := -llept
 
 ifneq "$(CLUSTER)" ""
   CFLAGS += -DCLUSTER
@@ -98,6 +157,10 @@ else ifeq ($(OS),Linux)
 	SYS_FREETYPE_CFLAGS := $(shell pkg-config --cflags freetype2)
 	SYS_FREETYPE_LIBS := $(shell pkg-config --libs freetype2)
   endif
+  ifeq ($(shell pkg-config --exists gumbo && echo yes),yes)
+	SYS_GUMBO_CFLAGS := $(shell pkg-config --cflags gumbo)
+	SYS_GUMBO_LIBS := $(shell pkg-config --libs gumbo)
+  endif
   ifeq ($(shell pkg-config --exists harfbuzz && echo yes),yes)
 	SYS_HARFBUZZ_CFLAGS := $(shell pkg-config --cflags harfbuzz)
 	SYS_HARFBUZZ_LIBS := $(shell pkg-config --libs harfbuzz)
@@ -117,6 +180,18 @@ else ifeq ($(OS),Linux)
   ifeq ($(shell pkg-config --exists zlib && echo yes),yes)
 	SYS_ZLIB_CFLAGS := $(shell pkg-config --cflags zlib)
 	SYS_ZLIB_LIBS := $(shell pkg-config --libs zlib)
+  endif
+
+  HAVE_SYS_LEPTONICA := $(shell pkg-config --exists 'lept >= 1.7.4' && echo yes)
+  ifeq ($(HAVE_SYS_LEPTONICA),yes)
+	SYS_LEPTONICA_CFLAGS := $(shell pkg-config --cflags lept)
+	SYS_LEPTONICA_LIBS := $(shell pkg-config --libs lept)
+  endif
+
+  HAVE_SYS_TESSERACT := $(shell pkg-config --exists 'tesseract >= 4.0.0' && echo yes)
+  ifeq ($(HAVE_SYS_TESSERACT),yes)
+	SYS_TESSERACT_CFLAGS := $(shell pkg-config --cflags tesseract)
+	SYS_TESSERACT_LIBS := $(shell pkg-config --libs tesseract)
   endif
 
   HAVE_SYS_CURL := $(shell pkg-config --exists libcurl && echo yes)
@@ -161,7 +236,7 @@ endif
 # On Windows, run 'nmake -f scripts\fontdump.nmake' in a Visual Studio command prompt.
 
 ifeq "$(OS)" "wasm"
-  OUT := build/wasm/$(build)
+  build_prefix += wasm/
   CC = emcc
   CXX = em++
   AR = emar
@@ -172,7 +247,7 @@ ifeq "$(OS)" "wasm"
 endif
 
 ifeq "$(OS)" "mingw32-cross"
-  OUT := build/$(OS)/$(build)
+  build_prefix += $(OS)/
   CC = i686-w64-mingw32-gcc
   CXX = i686-w64-mingw32-g++
   LD = i686-w64-mingw32-gcc
@@ -182,7 +257,7 @@ ifeq "$(OS)" "mingw32-cross"
 endif
 
 ifeq "$(OS)" "mingw64-cross"
-  OUT := build/$(OS)/$(build)
+  build_prefix += $(OS)/
   CC = x86_64-w64-mingw32-gcc
   CXX = x86_64-w64-mingw32-g++
   LD = x86_64-w64-mingw32-gcc

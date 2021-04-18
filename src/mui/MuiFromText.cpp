@@ -1,9 +1,11 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
 #include "utils/StrSlice.h"
 #include "utils/HtmlParserLookup.h"
+#include "utils/GdiPlusUtil.h"
+
 #include "Mui.h"
 #include "utils/SerializeTxt.h"
 #include "MuiDefs.h"
@@ -44,8 +46,9 @@ void RegisterControlCreatorFor(const char* typeName, ControlCreatorFunc creator)
 static ControlCreatorFunc FindControlCreatorFuncFor(const char* typeName) {
     ControlCreatorNode* curr = gControlCreators;
     while (curr) {
-        if (str::EqI(typeName, curr->typeName))
+        if (str::EqI(typeName, curr->typeName)) {
             return curr->creator;
+        }
         curr = curr->next;
     }
     return nullptr;
@@ -72,8 +75,9 @@ void RegisterLayoutCreatorFor(const char* layoutName, LayoutCreatorFunc creator)
 static LayoutCreatorFunc FindLayoutCreatorFuncFor(const char* typeName) {
     LayoutCreatorNode* curr = gLayoutCreators;
     while (curr) {
-        if (str::EqI(typeName, curr->typeName))
+        if (str::EqI(typeName, curr->typeName)) {
             return curr->creator;
+        }
         curr = curr->next;
     }
     return nullptr;
@@ -93,8 +97,9 @@ void FreeLayoutCreators() {
 Button* FindButtonNamed(const ParsedMui& muiInfo, const char* name) {
     for (size_t i = 0; i < muiInfo.buttons.size(); i++) {
         Button* c = muiInfo.buttons.at(i);
-        if (c->IsNamed(name))
+        if (c->IsNamed(name)) {
             return c;
+        }
     }
     return nullptr;
 }
@@ -102,8 +107,9 @@ Button* FindButtonNamed(const ParsedMui& muiInfo, const char* name) {
 ButtonVector* FindButtonVectorNamed(const ParsedMui& muiInfo, const char* name) {
     for (size_t i = 0; i < muiInfo.vecButtons.size(); i++) {
         ButtonVector* c = muiInfo.vecButtons.at(i);
-        if (c->IsNamed(name))
+        if (c->IsNamed(name)) {
             return c;
+        }
     }
     return nullptr;
 }
@@ -111,8 +117,9 @@ ButtonVector* FindButtonVectorNamed(const ParsedMui& muiInfo, const char* name) 
 ScrollBar* FindScrollBarNamed(const ParsedMui& muiInfo, const char* name) {
     for (size_t i = 0; i < muiInfo.scrollBars.size(); i++) {
         ScrollBar* c = muiInfo.scrollBars.at(i);
-        if (c->IsNamed(name))
+        if (c->IsNamed(name)) {
             return c;
+        }
     }
     return nullptr;
 }
@@ -120,8 +127,9 @@ ScrollBar* FindScrollBarNamed(const ParsedMui& muiInfo, const char* name) {
 Control* FindControlNamed(const ParsedMui& muiInfo, const char* name) {
     for (size_t i = 0; i < muiInfo.allControls.size(); i++) {
         Control* c = muiInfo.allControls.at(i);
-        if (c->IsNamed(name))
+        if (c->IsNamed(name)) {
             return c;
+        }
     }
     return nullptr;
 }
@@ -129,16 +137,18 @@ Control* FindControlNamed(const ParsedMui& muiInfo, const char* name) {
 ILayout* FindLayoutNamed(const ParsedMui& muiInfo, const char* name) {
     for (size_t i = 0; i < muiInfo.layouts.size(); i++) {
         ILayout* l = muiInfo.layouts.at(i);
-        if (l->IsNamed(name))
+        if (l->IsNamed(name)) {
             return l;
+        }
     }
     return nullptr;
 }
 
 ILayout* FindElementNamed(ParsedMui& muiInfo, const char* name) {
     Control* c = FindControlNamed(muiInfo, name);
-    if (c)
+    if (c) {
         return c;
+    }
     return FindLayoutNamed(muiInfo, name);
 }
 
@@ -161,8 +171,9 @@ struct ParsedPadding {
 };
 
 static void ParsePadding(const char* s, ParsedPadding& p) {
-    if (str::Parse(s, "%d%_%d%_%d%_%d%_%$", &p.top, &p.right, &p.bottom, &p.left))
+    if (str::Parse(s, "%d%_%d%_%d%_%d%_%$", &p.top, &p.right, &p.bottom, &p.left)) {
         return;
+    }
     if (str::Parse(s, "%d%_%d%_%$", &p.top, &p.right)) {
         p.bottom = p.top;
         p.left = p.right;
@@ -177,16 +188,21 @@ static AlignAttr ParseAlignAttr(const char* s) {
 
 // TODO: optimize using seqstrings
 static ElAlign ParseElAlign(const char* s) {
-    if (str::EqI(s, "center"))
+    if (str::EqI(s, "center")) {
         return ElAlign::Center;
-    if (str::EqI(s, "top"))
+    }
+    if (str::EqI(s, "top")) {
         return ElAlign::Top;
-    if (str::EqI(s, "bottom"))
+    }
+    if (str::EqI(s, "bottom")) {
         return ElAlign::Bottom;
-    if (str::EqI(s, "left"))
+    }
+    if (str::EqI(s, "left")) {
         return ElAlign::Left;
-    if (str::EqI(s, "right"))
+    }
+    if (str::EqI(s, "right")) {
         return ElAlign::Right;
+    }
     CrashIf(true);
     return ElAlign::Left;
 }
@@ -205,8 +221,9 @@ static ElAlignData ParseElAlignData(const char* s) {
     FontStyleStrikeout  = 8
 #endif
 static Gdiplus::FontStyle ParseFontWeight(const char* s) {
-    if (str::EqI(s, "regular"))
+    if (str::EqI(s, "regular")) {
         return FontStyleRegular;
+    }
     CrashIf(true);
     // TODO: more
     return FontStyleRegular;
@@ -243,7 +260,7 @@ static void AddStyleProp(Style* style, TxtNode* prop) {
     }
 
     if (prop->IsTextWithKey("padding")) {
-        ParsedPadding padding = {0};
+        ParsedPadding padding{};
         ParsePadding(tmp, padding);
         style->SetPadding(padding.top, padding.right, padding.bottom, padding.left);
         return;
@@ -297,9 +314,13 @@ static void CacheStyleFromStruct(TxtNode* def) {
     CrashIf(!def->IsStructWithName("style"));
     TxtNode* nameNode = TxtChildNodeWithKey(def, "name");
     CrashIf(!nameNode); // must have name or else no way to refer to it
-    AutoFree tmp(nameNode->ValDup());
-    if (StyleByName(tmp))
+    if (!nameNode) {
         return;
+    }
+    AutoFree tmp(nameNode->ValDup());
+    if (StyleByName(tmp)) {
+        return;
+    }
 
     Style* style = new Style();
     for (TxtNode* node = def->firstChild; node != nullptr; node = node->sibling) {
@@ -359,8 +380,9 @@ static ScrollBar* ScrollBarFromDef(TxtNode* structDef) {
 }
 
 static float ParseLayoutFloat(const char* s) {
-    if (str::EqI(s, "self"))
+    if (str::EqI(s, "self")) {
         return SizeSelf;
+    }
     return ParseFloat(s);
 }
 
@@ -456,10 +478,11 @@ bool MuiFromText(ParsedMui& res, const std::string_view& str) {
     TxtParser parser;
     parser.SetToParse(str);
     bool ok = ParseTxt(parser);
-    if (!ok)
-        return false;
-    ParseMuiDefinition(GetRootArray(&parser), res);
     CrashIf(!ok);
+    if (!ok) {
+        return false;
+    }
+    ParseMuiDefinition(GetRootArray(&parser), res);
     return ok;
 }
 

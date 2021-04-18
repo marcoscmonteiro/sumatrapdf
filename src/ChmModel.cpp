@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -14,6 +14,7 @@
 #include "EbookBase.h"
 #include "ChmDoc.h"
 
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "GlobalPrefs.h"
@@ -40,7 +41,7 @@ static TocItem* newChmTocItem(TocItem* parent, const WCHAR* title, int pageNo, c
     }
     CrashIf(!dest->kind);
 
-    dest->rect = RectD(DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
+    dest->rect = RectF(DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
     res->dest = dest;
     return res;
 }
@@ -68,10 +69,10 @@ class HtmlWindowHandler : public HtmlWindowCallback {
     void OnLButtonDown() override {
         cm->OnLButtonDown();
     }
-    std::string_view GetDataForUrl(const WCHAR* url) override {
+    std::span<u8> GetDataForUrl(const WCHAR* url) override {
         return cm->GetDataForUrl(url);
     }
-    void DownloadData(const WCHAR* url, std::string_view data) override {
+    void DownloadData(const WCHAR* url, std::span<u8> data) override {
         cm->DownloadData(url, data);
     }
 };
@@ -122,8 +123,7 @@ int ChmModel::CurrentPageNo() const {
     return currentPageNo;
 }
 
-void ChmModel::GoToPage(int pageNo, bool addNavPoint) {
-    UNUSED(addNavPoint);
+void ChmModel::GoToPage(int pageNo, [[maybe_unused]] bool addNavPoint) {
     // TODO: not sure if crashing here is warranted
     // I've seen a crash with call from RestoreTabOnStartup() which doesn't validate pageNo
     SubmitCrashIf(!ValidPageNo(pageNo));
@@ -176,10 +176,11 @@ void ChmModel::CopySelection() {
     }
 }
 
-LRESULT ChmModel::PassUIMsg(UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (!htmlWindow)
+LRESULT ChmModel::PassUIMsg(UINT msg, WPARAM wp, LPARAM lp) {
+    if (!htmlWindow) {
         return 0;
-    return htmlWindow->SendMsg(msg, wParam, lParam);
+    }
+    return htmlWindow->SendMsg(msg, wp, lp);
 }
 
 void ChmModel::DisplayPage(const WCHAR* pageUrl) {
@@ -254,28 +255,23 @@ void ChmModel::Navigate(int dir) {
     }
 }
 
-void ChmModel::SetDisplayMode(DisplayMode mode, bool keepContinuous) {
-    UNUSED(mode);
-    UNUSED(keepContinuous); /* not supported */
+void ChmModel::SetDisplayMode([[maybe_unused]] DisplayMode mode, [[maybe_unused]] bool keepContinuous) {
 }
 
 DisplayMode ChmModel::GetDisplayMode() const {
-    return DM_SINGLE_PAGE;
+    return DisplayMode::SinglePage;
 }
-void ChmModel::SetPresentationMode(bool enable) {
-    UNUSED(enable); /* not supported */
+void ChmModel::SetPresentationMode([[maybe_unused]] bool enable) {
 }
 
-void ChmModel::SetViewPortSize(Size size) {
-    UNUSED(size); /* not needed(?) */
+void ChmModel::SetViewPortSize([[maybe_unused]] Size size) {
 }
 
 ChmModel* ChmModel::AsChm() {
     return this;
 }
 
-void ChmModel::SetZoomVirtual(float zoom, Point* fixPt) {
-    UNUSED(fixPt);
+void ChmModel::SetZoomVirtual(float zoom, [[maybe_unused]] Point* fixPt) {
     if (zoom > 0) {
         zoom = limitValue(zoom, ZOOM_MIN, ZOOM_MAX);
     }
@@ -292,8 +288,7 @@ void ChmModel::ZoomTo(float zoomLevel) {
     }
 }
 
-float ChmModel::GetZoomVirtual(bool absolute) const {
-    UNUSED(absolute);
+float ChmModel::GetZoomVirtual([[maybe_unused]] bool absolute) const {
     if (!htmlWindow) {
         return 100;
     }
@@ -313,8 +308,9 @@ class ChmTocBuilder : public EbookTocVisitor {
     // toc tree and considering each unique html page in toc tree
     // as a page
     int CreatePageNoForURL(const WCHAR* url) {
-        if (!url || IsExternalUrl(url))
+        if (!url || IsExternalUrl(url)) {
             return 0;
+        }
 
         AutoFreeWstr plainUrl(url::GetFullPath(url));
         int pageNo = (int)pages->size() + 1;
@@ -342,7 +338,7 @@ class ChmTocBuilder : public EbookTocVisitor {
         }
     }
 
-    virtual void Visit(const WCHAR* name, const WCHAR* url, int level) {
+    void Visit(const WCHAR* name, const WCHAR* url, int level) override {
         int pageNo = CreatePageNoForURL(url);
         name = Allocator::StrDup(allocator, name);
         url = Allocator::StrDup(allocator, url);
@@ -444,7 +440,7 @@ bool ChmModel::OnBeforeNavigate(const WCHAR* url, bool newWindow) {
 }
 
 // Load and cache data for a given url inside CHM file.
-std::string_view ChmModel::GetDataForUrl(const WCHAR* url) {
+std::span<u8> ChmModel::GetDataForUrl(const WCHAR* url) {
     ScopedCritSec scope(&docAccess);
     AutoFreeWstr plainUrl(url::GetFullPath(url));
     ChmCacheEntry* e = FindDataForUrl(plainUrl);
@@ -458,10 +454,10 @@ std::string_view ChmModel::GetDataForUrl(const WCHAR* url) {
         }
         urlDataCache.Append(e);
     }
-    return e->data.as_view();
+    return e->data.AsSpan();
 }
 
-void ChmModel::DownloadData(const WCHAR* url, std::string_view data) {
+void ChmModel::DownloadData(const WCHAR* url, std::span<u8> data) {
     if (cb) {
         cb->SaveDownload(url, data);
     }
@@ -518,6 +514,7 @@ TocTree* ChmModel::GetToc() {
     }
 
     TocItem* root = nullptr;
+    bool foundRoot = false;
     TocItem** nextChild = &root;
     Vec<TocItem*> levels;
     int idCounter = 0;
@@ -532,12 +529,13 @@ TocTree* ChmModel::GetToc() {
             levels.RemoveAt(ti.level, levels.size() - ti.level);
             levels.Last()->AddSiblingAtEnd(item);
         } else {
-            (*nextChild) = item;
+            *nextChild = item;
             levels.Append(item);
+            foundRoot = true;
         }
         nextChild = &item->child;
     }
-    if (!root) {
+    if (foundRoot) {
         return nullptr;
     }
     tocTree = new TocTree(root);
@@ -591,8 +589,8 @@ void ChmModel::GetDisplayState(DisplayState* ds) {
 
     ds->useDefaultState = !gGlobalPrefs->rememberStatePerDocument;
 
-    str::ReplacePtr(&ds->displayMode, prefs::conv::FromDisplayMode(GetDisplayMode()));
-    prefs::conv::FromZoom(&ds->zoom, GetZoomVirtual(), ds);
+    str::ReplacePtr(&ds->displayMode, DisplayModeToString(GetDisplayMode()));
+    ZoomToString(&ds->zoom, GetZoomVirtual(), ds);
 
     ds->pageNo = CurrentPageNo();
     ds->scrollPos = Point();
@@ -605,7 +603,7 @@ class ChmThumbnailTask : public HtmlWindowCallback {
     Size size;
     onBitmapRenderedCb saveThumbnail;
     AutoFreeWstr homeUrl;
-    Vec<std::string_view> data;
+    Vec<std::span<u8>> data;
     CRITICAL_SECTION docAccess;
 
   public:
@@ -622,8 +620,8 @@ class ChmThumbnailTask : public HtmlWindowCallback {
         delete hw;
         DestroyWindow(hwnd);
         delete doc;
-        for (auto&& sv : data) {
-            str::Free(sv.data());
+        for (auto&& d : data) {
+            str::Free(d.data());
         }
         LeaveCriticalSection(&docAccess);
         DeleteCriticalSection(&docAccess);
@@ -638,10 +636,10 @@ class ChmThumbnailTask : public HtmlWindowCallback {
         hw->NavigateToDataUrl(homeUrl);
     }
 
-    bool OnBeforeNavigate(const WCHAR* url, bool newWindow) override {
-        UNUSED(url);
+    bool OnBeforeNavigate([[maybe_unused]] const WCHAR* url, bool newWindow) override {
         return !newWindow;
     }
+
     void OnDocumentComplete(const WCHAR* url) override {
         if (url && *url == '/') {
             url++;
@@ -657,9 +655,11 @@ class ChmThumbnailTask : public HtmlWindowCallback {
             uitask::Post([=] { delete this; });
         }
     }
+
     void OnLButtonDown() override {
     }
-    std::string_view GetDataForUrl(const WCHAR* url) override {
+
+    std::span<u8> GetDataForUrl(const WCHAR* url) override {
         ScopedCritSec scope(&docAccess);
         AutoFreeWstr plainUrl(url::GetFullPath(url));
         AutoFree urlUtf8(strconv::WstrToUtf8(plainUrl));
@@ -667,9 +667,8 @@ class ChmThumbnailTask : public HtmlWindowCallback {
         data.Append(d);
         return d;
     }
-    void DownloadData(const WCHAR* url, std::string_view data) override {
-        UNUSED(url);
-        UNUSED(data);
+
+    void DownloadData([[maybe_unused]] const WCHAR* url, [[maybe_unused]] std::span<u8> data) override {
     }
 };
 
@@ -706,8 +705,8 @@ void ChmModel::CreateThumbnail(Size size, const onBitmapRenderedCb& saveThumbnai
     thumbnailTask->CreateThumbnail(hw);
 }
 
-bool ChmModel::IsSupportedFile(const WCHAR* fileName, bool sniff) {
-    return ChmDoc::IsSupportedFile(fileName, sniff);
+bool ChmModel::IsSupportedFileType(Kind kind) {
+    return ChmDoc::IsSupportedFileType(kind);
 }
 
 ChmModel* ChmModel::Create(const WCHAR* fileName, ControllerCallback* cb) {

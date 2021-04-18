@@ -1,15 +1,17 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
 #include "wingui/DialogSizer.h"
 #include "utils/WinUtil.h"
 
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 
 #include "SumatraPDF.h"
 #include "resource.h"
+#include "Commands.h"
 #include "AppTools.h"
 #include "SumatraDialogs.h"
 #include "Translations.h"
@@ -30,19 +32,22 @@ struct DLGTEMPLATEEX {
 // cf. http://www.ureader.com/msg/1484387.aspx
 static DLGTEMPLATE* GetRtLDlgTemplate(int dlgId) {
     HRSRC dialogRC = FindResource(nullptr, MAKEINTRESOURCE(dlgId), RT_DIALOG);
-    if (!dialogRC)
+    if (!dialogRC) {
         return nullptr;
+    }
     HGLOBAL dlgTemplate = LoadResource(nullptr, dialogRC);
-    if (!dlgTemplate)
+    if (!dlgTemplate) {
         return nullptr;
+    }
     void* origDlgTemplate = LockResource(dlgTemplate);
     size_t size = SizeofResource(nullptr, dialogRC);
 
     DLGTEMPLATE* rtlDlgTemplate = (DLGTEMPLATE*)memdup(origDlgTemplate, size);
-    if (rtlDlgTemplate->style == MAKELONG(0x0001, 0xFFFF))
+    if (rtlDlgTemplate->style == MAKELONG(0x0001, 0xFFFF)) {
         ((DLGTEMPLATEEX*)rtlDlgTemplate)->exStyle |= WS_EX_LAYOUTRTL;
-    else
+    } else {
         rtlDlgTemplate->dwExtendedStyle |= WS_EX_LAYOUTRTL;
+    }
     UnlockResource(dlgTemplate);
 
     return rtlDlgTemplate;
@@ -50,8 +55,9 @@ static DLGTEMPLATE* GetRtLDlgTemplate(int dlgId) {
 
 // creates a dialog box that dynamically gets a right-to-left layout if needed
 static INT_PTR CreateDialogBox(int dlgId, HWND parent, DLGPROC DlgProc, LPARAM data) {
-    if (!IsUIRightToLeft())
+    if (!IsUIRightToLeft()) {
         return DialogBoxParam(nullptr, MAKEINTRESOURCE(dlgId), parent, DlgProc, data);
+    }
 
     ScopedMem<DLGTEMPLATE> rtlDlgTemplate(GetRtLDlgTemplate(dlgId));
     return DialogBoxIndirectParam(nullptr, rtlDlgTemplate, parent, DlgProc, data);
@@ -64,12 +70,12 @@ struct Dialog_GetPassword_Data {
     bool* remember;        /* remember the password (encrypted) or ask again? */
 };
 
-static INT_PTR CALLBACK Dialog_GetPassword_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_GetPassword_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Dialog_GetPassword_Data* data;
 
     //[ ACCESSKEY_GROUP Password Dialog
     if (WM_INITDIALOG == msg) {
-        data = (Dialog_GetPassword_Data*)lParam;
+        data = (Dialog_GetPassword_Data*)lp;
         win::SetText(hDlg, _TR("Enter password"));
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
         EnableWindow(GetDlgItem(hDlg, IDC_REMEMBER_PASSWORD), data->remember != nullptr);
@@ -90,13 +96,13 @@ static INT_PTR CALLBACK Dialog_GetPassword_Proc(HWND hDlg, UINT msg, WPARAM wPar
 
     switch (msg) {
         case WM_COMMAND:
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK:
                     data = (Dialog_GetPassword_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-                    CrashIf(!data);
                     data->pwdOut = win::GetText(GetDlgItem(hDlg, IDC_GET_PASSWORD_EDIT));
-                    if (data->remember)
+                    if (data->remember) {
                         *data->remember = BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_REMEMBER_PASSWORD);
+                    }
                     EndDialog(hDlg, IDOK);
                     return TRUE;
 
@@ -135,20 +141,20 @@ struct Dialog_GoToPage_Data {
     WCHAR* newPageLabel;        // page number entered by user
 };
 
-static INT_PTR CALLBACK Dialog_GoToPage_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_GoToPage_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     HWND editPageNo;
     Dialog_GoToPage_Data* data;
 
     //[ ACCESSKEY_GROUP GoTo Page Dialog
     if (WM_INITDIALOG == msg) {
-        data = (Dialog_GoToPage_Data*)lParam;
-        CrashIf(!data);
+        data = (Dialog_GoToPage_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
         win::SetText(hDlg, _TR("Go to page"));
 
         editPageNo = GetDlgItem(hDlg, IDC_GOTO_PAGE_EDIT);
-        if (!data->onlyNumeric)
+        if (!data->onlyNumeric) {
             SetWindowLong(editPageNo, GWL_STYLE, GetWindowLong(editPageNo, GWL_STYLE) & ~ES_NUMBER);
+        }
         CrashIf(!data->currPageLabel);
         SetDlgItemText(hDlg, IDC_GOTO_PAGE_EDIT, data->currPageLabel);
         AutoFreeWstr totalCount(str::Format(_TR("(of %d)"), data->pageCount));
@@ -167,10 +173,9 @@ static INT_PTR CALLBACK Dialog_GoToPage_Proc(HWND hDlg, UINT msg, WPARAM wParam,
 
     switch (msg) {
         case WM_COMMAND:
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK:
                     data = (Dialog_GoToPage_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-                    CrashIf(!data);
                     editPageNo = GetDlgItem(hDlg, IDC_GOTO_PAGE_EDIT);
                     data->newPageLabel = win::GetText(editPageNo);
                     EndDialog(hDlg, IDOK);
@@ -206,21 +211,20 @@ struct Dialog_Find_Data {
     WNDPROC editWndProc;
 };
 
-static LRESULT CALLBACK Dialog_Find_Edit_Proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    ExtendedEditWndProc(hwnd, message, wParam, lParam);
+static LRESULT CALLBACK Dialog_Find_Edit_Proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    ExtendedEditWndProc(hwnd, msg, wp, lp);
 
     Dialog_Find_Data* data = (Dialog_Find_Data*)GetWindowLongPtr(GetParent(hwnd), GWLP_USERDATA);
-    return CallWindowProc(data->editWndProc, hwnd, message, wParam, lParam);
+    return CallWindowProc(data->editWndProc, hwnd, msg, wp, lp);
 }
 
-static INT_PTR CALLBACK Dialog_Find_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_Find_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Dialog_Find_Data* data;
 
     switch (msg) {
         case WM_INITDIALOG:
             //[ ACCESSKEY_GROUP Find Dialog
-            data = (Dialog_Find_Data*)lParam;
-            CrashIf(!data);
+            data = (Dialog_Find_Data*)lp;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
 
             win::SetText(hDlg, _TR("Find"));
@@ -229,8 +233,9 @@ static INT_PTR CALLBACK Dialog_Find_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPA
             SetDlgItemText(hDlg, IDC_FIND_NEXT_HINT, _TR("Hint: Use the F3 key for finding again"));
             SetDlgItemText(hDlg, IDOK, _TR("Find"));
             SetDlgItemText(hDlg, IDCANCEL, _TR("Cancel"));
-            if (data->searchTerm)
+            if (data->searchTerm) {
                 SetDlgItemText(hDlg, IDC_FIND_EDIT, data->searchTerm);
+            }
             data->searchTerm = nullptr;
             CheckDlgButton(hDlg, IDC_MATCH_CASE, data->matchCase ? BST_CHECKED : BST_UNCHECKED);
             data->editWndProc = (WNDPROC)SetWindowLongPtr(GetDlgItem(hDlg, IDC_FIND_EDIT), GWLP_WNDPROC,
@@ -242,10 +247,9 @@ static INT_PTR CALLBACK Dialog_Find_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPA
             return FALSE;
         //] ACCESSKEY_GROUP Find Dialog
         case WM_COMMAND:
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK:
                     data = (Dialog_Find_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-                    CrashIf(!data);
                     data->searchTerm = win::GetText(GetDlgItem(hDlg, IDC_FIND_EDIT));
                     data->matchCase = BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_MATCH_CASE);
                     EndDialog(hDlg, IDOK);
@@ -269,11 +273,13 @@ WCHAR* Dialog_Find(HWND hwnd, const WCHAR* previousSearch, bool* matchCase) {
     data.matchCase = matchCase ? *matchCase : false;
 
     INT_PTR res = CreateDialogBox(IDD_DIALOG_FIND, hwnd, Dialog_Find_Proc, (LPARAM)&data);
-    if (res != IDOK)
+    if (res != IDOK) {
         return nullptr;
+    }
 
-    if (matchCase)
+    if (matchCase) {
         *matchCase = data.matchCase;
+    }
     return data.searchTerm;
 }
 
@@ -282,13 +288,12 @@ struct Dialog_PdfAssociate_Data {
     bool dontAskAgain;
 };
 
-static INT_PTR CALLBACK Dialog_PdfAssociate_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_PdfAssociate_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Dialog_PdfAssociate_Data* data;
 
     //[ ACCESSKEY_GROUP Associate Dialog
     if (WM_INITDIALOG == msg) {
-        data = (Dialog_PdfAssociate_Data*)lParam;
-        CrashIf(!data);
+        data = (Dialog_PdfAssociate_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
         win::SetText(hDlg, _TR("Associate with PDF files?"));
         SetDlgItemText(hDlg, IDC_STATIC, _TR("Make SumatraPDF default application for PDF files?"));
@@ -306,9 +311,8 @@ static INT_PTR CALLBACK Dialog_PdfAssociate_Proc(HWND hDlg, UINT msg, WPARAM wPa
     switch (msg) {
         case WM_COMMAND:
             data = (Dialog_PdfAssociate_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-            CrashIf(!data);
             data->dontAskAgain = (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_DONT_ASK_ME_AGAIN));
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK:
                     EndDialog(hDlg, IDYES);
                     return TRUE;
@@ -330,12 +334,9 @@ static INT_PTR CALLBACK Dialog_PdfAssociate_Proc(HWND hDlg, UINT msg, WPARAM wPa
    IDNO if "No" button was pressed.
    Returns the state of "don't ask me again" checkbox" in <dontAskAgain> */
 INT_PTR Dialog_PdfAssociate(HWND hwnd, bool* dontAskAgainOut) {
-    CrashIf(!dontAskAgainOut);
-
     Dialog_PdfAssociate_Data data;
     INT_PTR res = CreateDialogBox(IDD_DIALOG_PDF_ASSOCIATE, hwnd, Dialog_PdfAssociate_Proc, (LPARAM)&data);
-    if (dontAskAgainOut)
-        *dontAskAgainOut = data.dontAskAgain;
+    *dontAskAgainOut = data.dontAskAgain;
     return res;
 }
 
@@ -344,7 +345,7 @@ struct Dialog_ChangeLanguage_Data {
     const char* langCode;
 };
 
-static INT_PTR CALLBACK Dialog_ChangeLanguage_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_ChangeLanguage_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Dialog_ChangeLanguage_Data* data;
     HWND langList;
 
@@ -356,8 +357,7 @@ static INT_PTR CALLBACK Dialog_ChangeLanguage_Proc(HWND hDlg, UINT msg, WPARAM w
         DIALOG_SIZER_END()
         DialogSizer_Set(hDlg, sz, TRUE);
 
-        data = (Dialog_ChangeLanguage_Data*)lParam;
-        CrashIf(!data);
+        data = (Dialog_ChangeLanguage_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
         // for non-latin languages this depends on the correct fonts being installed,
         // otherwise all the user will see are squares
@@ -387,17 +387,16 @@ static INT_PTR CALLBACK Dialog_ChangeLanguage_Proc(HWND hDlg, UINT msg, WPARAM w
     switch (msg) {
         case WM_COMMAND:
             data = (Dialog_ChangeLanguage_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-            CrashIf(!data);
-            if (HIWORD(wParam) == LBN_DBLCLK) {
-                CrashIf(IDC_CHANGE_LANG_LANG_LIST != LOWORD(wParam));
+            if (HIWORD(wp) == LBN_DBLCLK) {
+                CrashIf(IDC_CHANGE_LANG_LANG_LIST != LOWORD(wp));
                 langList = GetDlgItem(hDlg, IDC_CHANGE_LANG_LANG_LIST);
-                CrashIf(langList != (HWND)lParam);
+                CrashIf(langList != (HWND)lp);
                 int langIdx = (int)ListBox_GetCurSel(langList);
                 data->langCode = trans::GetLangCodeByIdx(langIdx);
                 EndDialog(hDlg, IDOK);
                 return FALSE;
             }
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK: {
                     langList = GetDlgItem(hDlg, IDC_CHANGE_LANG_LANG_LIST);
                     int langIdx = ListBox_GetCurSel(langList);
@@ -422,8 +421,9 @@ const char* Dialog_ChangeLanguge(HWND hwnd, const char* currLangCode) {
     data.langCode = currLangCode;
 
     INT_PTR res = CreateDialogBox(IDD_DIALOG_CHANGE_LANGUAGE, hwnd, Dialog_ChangeLanguage_Proc, (LPARAM)&data);
-    if (IDCANCEL == res)
+    if (IDCANCEL == res) {
         return nullptr;
+    }
     return data.langCode;
 }
 
@@ -434,14 +434,13 @@ struct Dialog_NewVersion_Data {
     bool skipThisVersion;
 };
 
-static INT_PTR CALLBACK Dialog_NewVersion_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_NewVersion_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Dialog_NewVersion_Data* data;
     WCHAR* txt;
 
     //[ ACCESSKEY_GROUP New Version Dialog
     if (WM_INITDIALOG == msg) {
-        data = (Dialog_NewVersion_Data*)lParam;
-        CrashIf(!data);
+        data = (Dialog_NewVersion_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
         win::SetText(hDlg, _TR("SumatraPDF Update"));
 
@@ -467,18 +466,19 @@ static INT_PTR CALLBACK Dialog_NewVersion_Proc(HWND hDlg, UINT msg, WPARAM wPara
     switch (msg) {
         case WM_COMMAND:
             data = (Dialog_NewVersion_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-            CrashIf(!data);
             data->skipThisVersion = false;
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK:
-                    if (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_SKIP_THIS_VERSION))
+                    if (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_SKIP_THIS_VERSION)) {
                         data->skipThisVersion = true;
+                    }
                     EndDialog(hDlg, IDYES);
                     return TRUE;
 
                 case IDCANCEL:
-                    if (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_SKIP_THIS_VERSION))
+                    if (BST_CHECKED == IsDlgButtonChecked(hDlg, IDC_SKIP_THIS_VERSION)) {
                         data->skipThisVersion = true;
+                    }
                     EndDialog(hDlg, IDNO);
                     return TRUE;
 
@@ -498,8 +498,9 @@ INT_PTR Dialog_NewVersionAvailable(HWND hwnd, const WCHAR* currentVersion, const
     data.skipThisVersion = false;
 
     INT_PTR res = CreateDialogBox(IDD_DIALOG_NEW_VERSION, hwnd, Dialog_NewVersion_Proc, (LPARAM)&data);
-    if (skipThisVersion)
+    if (skipThisVersion) {
         *skipThisVersion = data.skipThisVersion;
+    }
 
     return res;
 }
@@ -547,8 +548,9 @@ static void SetupZoomComboBox(HWND hDlg, UINT idComboBox, bool forChm, float cur
     int first = forChm ? 7 : 0;
     int last = forChm ? dimof(gItemZoom) - 2 : dimof(gItemZoom);
     for (int i = first; i < last; i++) {
-        if (gItemZoom[i] == currZoom)
+        if (gItemZoom[i] == currZoom) {
             SendDlgItemMessage(hDlg, idComboBox, CB_SETCURSEL, i - first, 0);
+        }
     }
 
     if (SendDlgItemMessage(hDlg, idComboBox, CB_GETCURSEL, 0, 0) == -1) {
@@ -565,14 +567,17 @@ static float GetZoomComboBoxValue(HWND hDlg, UINT idComboBox, bool forChm, float
     if (idx == -1) {
         AutoFreeWstr customZoom(win::GetText(GetDlgItem(hDlg, idComboBox)));
         float zoom = (float)_wtof(customZoom);
-        if (zoom > 0)
+        if (zoom > 0) {
             newZoom = limitValue(zoom, ZOOM_MIN, ZOOM_MAX);
+        }
     } else {
-        if (forChm)
+        if (forChm) {
             idx += 7;
+        }
 
-        if (0 != gItemZoom[idx])
+        if (0 != gItemZoom[idx]) {
             newZoom = gItemZoom[idx];
+        }
     }
 
     return newZoom;
@@ -584,14 +589,13 @@ struct Dialog_CustomZoom_Data {
     bool forChm;
 };
 
-static INT_PTR CALLBACK Dialog_CustomZoom_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_CustomZoom_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Dialog_CustomZoom_Data* data;
 
     switch (msg) {
         case WM_INITDIALOG:
             //[ ACCESSKEY_GROUP Zoom Dialog
-            data = (Dialog_CustomZoom_Data*)lParam;
-            CrashIf(!data);
+            data = (Dialog_CustomZoom_Data*)lp;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
 
             SetupZoomComboBox(hDlg, IDC_DEFAULT_ZOOM, data->forChm, data->zoomArg);
@@ -607,10 +611,9 @@ static INT_PTR CALLBACK Dialog_CustomZoom_Proc(HWND hDlg, UINT msg, WPARAM wPara
             //] ACCESSKEY_GROUP Zoom Dialog
 
         case WM_COMMAND:
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK:
                     data = (Dialog_CustomZoom_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-                    CrashIf(!data);
                     data->zoomResult = GetZoomComboBoxValue(hDlg, IDC_DEFAULT_ZOOM, data->forChm, data->zoomArg);
                     EndDialog(hDlg, IDOK);
                     return TRUE;
@@ -629,8 +632,9 @@ bool Dialog_CustomZoom(HWND hwnd, bool forChm, float* currZoomInOut) {
     data.forChm = forChm;
     data.zoomArg = *currZoomInOut;
     INT_PTR res = CreateDialogBox(IDD_DIALOG_CUSTOM_ZOOM, hwnd, Dialog_CustomZoom_Proc, (LPARAM)&data);
-    if (res == IDCANCEL)
+    if (res == IDCANCEL) {
         return false;
+    }
 
     *currZoomInOut = data.zoomResult;
     return true;
@@ -646,26 +650,26 @@ static void RemoveDialogItem(HWND hDlg, int itemId, int prevId = 0) {
     // move items below up, shrink container items and hide contained items
     for (HWND item = GetWindow(hDlg, GW_CHILD); item; item = GetWindow(item, GW_HWNDNEXT)) {
         Rect rc = MapRectToWindow(WindowRect(item), HWND_DESKTOP, hDlg);
-        if (rc.y >= itemRc.y + itemRc.dy) // below
+        if (rc.y >= itemRc.y + itemRc.dy) { // below
             MoveWindow(item, rc.x, rc.y - shrink, rc.dx, rc.dy, TRUE);
-        else if (rc.Intersect(itemRc) == rc) // contained (or self)
+        } else if (rc.Intersect(itemRc) == rc) { // contained (or self)
             ShowWindow(item, SW_HIDE);
-        else if (itemRc.Intersect(rc) == itemRc) // container
+        } else if (itemRc.Intersect(rc) == itemRc) { // container
             MoveWindow(item, rc.x, rc.y, rc.dx, rc.dy - shrink, TRUE);
+        }
     }
     // shrink the dialog
     Rect dlgRc = WindowRect(hDlg);
     MoveWindow(hDlg, dlgRc.x, dlgRc.y, dlgRc.dx, dlgRc.dy - shrink, TRUE);
 }
 
-static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     GlobalPrefs* prefs;
 
     switch (msg) {
         //[ ACCESSKEY_GROUP Settings Dialog
         case WM_INITDIALOG:
-            prefs = (GlobalPrefs*)lParam;
-            CrashIf(!prefs);
+            prefs = (GlobalPrefs*)lp;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)prefs);
 
             // Fill the page layouts into the select box
@@ -676,7 +680,8 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wParam,
             SendDlgItemMessage(hDlg, IDC_DEFAULT_LAYOUT, CB_ADDSTRING, 0, (LPARAM)_TR("Continuous"));
             SendDlgItemMessage(hDlg, IDC_DEFAULT_LAYOUT, CB_ADDSTRING, 0, (LPARAM)_TR("Continuous Facing"));
             SendDlgItemMessage(hDlg, IDC_DEFAULT_LAYOUT, CB_ADDSTRING, 0, (LPARAM)_TR("Continuous Book View"));
-            SendDlgItemMessage(hDlg, IDC_DEFAULT_LAYOUT, CB_SETCURSEL, prefs->defaultDisplayModeEnum - DM_AUTOMATIC, 0);
+            SendDlgItemMessage(hDlg, IDC_DEFAULT_LAYOUT, CB_SETCURSEL,
+                               (int)prefs->defaultDisplayModeEnum - (int)DisplayMode::Automatic, 0);
 
             SetupZoomComboBox(hDlg, IDC_DEFAULT_ZOOM, false, prefs->defaultZoomFloat);
 
@@ -729,14 +734,14 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wParam,
                 }
                 // Find the index of the active command line
                 LRESULT ind =
-                    SendMessage(GetDlgItem(hDlg, IDC_CMDLINE), CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)cmdLine);
+                    SendMessageW(GetDlgItem(hDlg, IDC_CMDLINE), CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)cmdLine);
                 if (CB_ERR == ind) {
                     // if no existing command was selected then set the user custom command in the combo
                     ComboBox_AddItemData(GetDlgItem(hDlg, IDC_CMDLINE), cmdLine);
                     SetDlgItemText(hDlg, IDC_CMDLINE, cmdLine);
                 } else {
                     // select the active command
-                    SendMessage(GetDlgItem(hDlg, IDC_CMDLINE), CB_SETCURSEL, (WPARAM)ind, 0);
+                    SendMessageW(GetDlgItem(hDlg, IDC_CMDLINE), CB_SETCURSEL, (WPARAM)ind, 0);
                 }
             } else {
                 RemoveDialogItem(hDlg, IDC_SECTION_INVERSESEARCH, IDC_SECTION_ADVANCED);
@@ -748,12 +753,11 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wParam,
             //] ACCESSKEY_GROUP Settings Dialog
 
         case WM_COMMAND:
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDOK:
                     prefs = (GlobalPrefs*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-                    CrashIf(!prefs);
-                    prefs->defaultDisplayModeEnum =
-                        (DisplayMode)(SendDlgItemMessage(hDlg, IDC_DEFAULT_LAYOUT, CB_GETCURSEL, 0, 0) + DM_AUTOMATIC);
+                    prefs->defaultDisplayModeEnum = (DisplayMode)(
+                        SendDlgItemMessage(hDlg, IDC_DEFAULT_LAYOUT, CB_GETCURSEL, 0, 0) + (int)DisplayMode::Automatic);
                     prefs->defaultZoomFloat =
                         GetZoomComboBoxValue(hDlg, IDC_DEFAULT_ZOOM, false, prefs->defaultZoomFloat);
 
@@ -786,13 +790,14 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wParam,
                     return TRUE;
 
                 case IDC_SET_DEFAULT_READER:
-                    if (!HasPermission(Perm_RegistryAccess))
+                    if (!HasPermission(Perm_RegistryAccess)) {
                         return TRUE;
+                    }
                     AssociateExeWithPdfExtension();
                     if (IsExeAssociatedWithPdfExtension()) {
                         SetDlgItemText(hDlg, IDC_SET_DEFAULT_READER, _TR("SumatraPDF is your default PDF reader"));
                         EnableWindow(GetDlgItem(hDlg, IDC_SET_DEFAULT_READER), FALSE);
-                        SendMessage(hDlg, WM_NEXTDLGCTL, (WPARAM)GetDlgItem(hDlg, IDOK), TRUE);
+                        SendMessageW(hDlg, WM_NEXTDLGCTL, (WPARAM)GetDlgItem(hDlg, IDOK), TRUE);
                     } else {
                         SetDlgItemText(hDlg, IDC_SET_DEFAULT_READER,
                                        _TR("SumatraPDF should now be your default PDF reader"));
@@ -812,14 +817,13 @@ INT_PTR Dialog_Settings(HWND hwnd, GlobalPrefs* prefs) {
 #define ID_APPLY_NOW 0x3021
 #endif
 
-static INT_PTR CALLBACK Sheet_Print_Advanced_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Sheet_Print_Advanced_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     Print_Advanced_Data* data;
 
     switch (msg) {
         //[ ACCESSKEY_GROUP Advanced Print Tab
         case WM_INITDIALOG:
-            data = (Print_Advanced_Data*)((PROPSHEETPAGE*)lParam)->lParam;
-            CrashIf(!data);
+            data = (Print_Advanced_Data*)((PROPSHEETPAGE*)lp)->lParam;
             SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
 
             SetDlgItemText(hDlg, IDC_SECTION_PRINT_RANGE, _TR("Print range"));
@@ -846,27 +850,28 @@ static INT_PTR CALLBACK Sheet_Print_Advanced_Proc(HWND hDlg, UINT msg, WPARAM wP
             //] ACCESSKEY_GROUP Advanced Print Tab
 
         case WM_NOTIFY:
-            if (((LPNMHDR)lParam)->code == PSN_APPLY) {
+            if (((LPNMHDR)lp)->code == PSN_APPLY) {
                 data = (Print_Advanced_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-                CrashIf(!data);
-                if (IsDlgButtonChecked(hDlg, IDC_PRINT_RANGE_EVEN))
+                if (IsDlgButtonChecked(hDlg, IDC_PRINT_RANGE_EVEN)) {
                     data->range = PrintRangeAdv::Even;
-                else if (IsDlgButtonChecked(hDlg, IDC_PRINT_RANGE_ODD))
+                } else if (IsDlgButtonChecked(hDlg, IDC_PRINT_RANGE_ODD)) {
                     data->range = PrintRangeAdv::Odd;
-                else
+                } else {
                     data->range = PrintRangeAdv::All;
-                if (IsDlgButtonChecked(hDlg, IDC_PRINT_SCALE_FIT))
+                }
+                if (IsDlgButtonChecked(hDlg, IDC_PRINT_SCALE_FIT)) {
                     data->scale = PrintScaleAdv::Fit;
-                else if (IsDlgButtonChecked(hDlg, IDC_PRINT_SCALE_SHRINK))
+                } else if (IsDlgButtonChecked(hDlg, IDC_PRINT_SCALE_SHRINK)) {
                     data->scale = PrintScaleAdv::Shrink;
-                else
+                } else {
                     data->scale = PrintScaleAdv::None;
+                }
                 return TRUE;
             }
             break;
 
         case WM_COMMAND:
-            switch (LOWORD(wParam)) {
+            switch (LOWORD(wp)) {
                 case IDC_PRINT_RANGE_ALL:
                 case IDC_PRINT_RANGE_EVEN:
                 case IDC_PRINT_RANGE_ODD:
@@ -905,10 +910,9 @@ struct Dialog_AddFav_Data {
     WCHAR* favName;
 };
 
-static INT_PTR CALLBACK Dialog_AddFav_Proc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+static INT_PTR CALLBACK Dialog_AddFav_Proc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     if (WM_INITDIALOG == msg) {
-        Dialog_AddFav_Data* data = (Dialog_AddFav_Data*)lParam;
-        CrashIf(!data);
+        Dialog_AddFav_Data* data = (Dialog_AddFav_Data*)lp;
         SetWindowLongPtr(hDlg, GWLP_USERDATA, (LONG_PTR)data);
         win::SetText(hDlg, _TR("Add Favorite"));
         AutoFreeWstr s(str::Format(_TR("Add page %s to favorites with (optional) name:"), data->pageNo));
@@ -926,15 +930,15 @@ static INT_PTR CALLBACK Dialog_AddFav_Proc(HWND hDlg, UINT msg, WPARAM wParam, L
 
     if (WM_COMMAND == msg) {
         Dialog_AddFav_Data* data = (Dialog_AddFav_Data*)GetWindowLongPtr(hDlg, GWLP_USERDATA);
-        CrashIf(!data);
-        WORD cmd = LOWORD(wParam);
+        WORD cmd = LOWORD(wp);
         if (IDOK == cmd) {
             AutoFreeWstr name(win::GetText(GetDlgItem(hDlg, IDC_FAV_NAME_EDIT)));
             str::TrimWS(name, str::TrimOpt::Both);
-            if (!str::IsEmpty(name.Get()))
+            if (!str::IsEmpty(name.Get())) {
                 data->favName = name.StealData();
-            else
+            } else {
                 data->favName = nullptr;
+            }
             EndDialog(hDlg, IDOK);
             return TRUE;
         } else if (IDCANCEL == cmd) {
@@ -961,7 +965,7 @@ bool Dialog_AddFavorite(HWND hwnd, const WCHAR* pageNo, AutoFreeWstr& favName) {
         return false;
     }
 
-    AssertCrash(data.favName != favName || !data.favName);
+    CrashIf(!(data.favName != favName || !data.favName));
     favName.Set(data.favName);
     return true;
 }

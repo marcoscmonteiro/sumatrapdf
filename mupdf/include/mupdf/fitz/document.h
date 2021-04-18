@@ -250,6 +250,12 @@ typedef fz_separations *(fz_page_separations_fn)(fz_context *ctx, fz_page *page)
 */
 typedef int (fz_page_uses_overprint_fn)(fz_context *ctx, fz_page *page);
 
+
+/**
+	Type for a function to create a link on a page.
+*/
+typedef fz_link *(fz_page_create_link_fn)(fz_context *ctx, fz_page *page, fz_rect bbox, const char *uri);
+
 /**
 	Function type to open a document from a file.
 
@@ -581,9 +587,9 @@ fz_link *fz_load_links(fz_context *ctx, fz_page *page);
 	fz_page. This macro allocates such derived structures, and
 	initialises the base sections.
 */
-fz_page *fz_new_page_of_size(fz_context *ctx, int size);
-#define fz_new_derived_page(CTX,TYPE) \
-	((TYPE *)Memento_label(fz_new_page_of_size(CTX,sizeof(TYPE)),#TYPE))
+fz_page *fz_new_page_of_size(fz_context *ctx, int size, fz_document *doc);
+#define fz_new_derived_page(CTX,TYPE,DOC) \
+	((TYPE *)Memento_label(fz_new_page_of_size(CTX,sizeof(TYPE),DOC),#TYPE))
 
 /**
 	Determine the size of a page at 72 dpi.
@@ -704,9 +710,9 @@ int fz_has_permission(fz_context *ctx, fz_document *doc, fz_permission p);
 
 	size: Size of 'buf'.
 
-	Returns the size of the output string (may be larger than 'size'
-	if the output was truncated), or -1 if the key is not recognized
-	or found.
+	Returns the number of bytes need to store the string plus terminator
+	(will be larger than 'size' if the output was truncated), or -1 if the
+	key is not recognized or found.
 */
 int fz_lookup_metadata(fz_context *ctx, fz_document *doc, const char *key, char *buf, int size);
 
@@ -715,10 +721,15 @@ int fz_lookup_metadata(fz_context *ctx, fz_document *doc, const char *key, char 
 
 #define FZ_META_INFO_AUTHOR "info:Author"
 #define FZ_META_INFO_TITLE "info:Title"
+#define FZ_META_INFO_CREATOR "info:Creator"
+#define FZ_META_INFO_PRODUCER "info:Producer"
 
 /**
 	Find the output intent colorspace if the document has defined
 	one.
+
+	Returns a borrowed reference that should not be dropped, unless
+	it is kept first.
 */
 fz_colorspace *fz_document_output_intent(fz_context *ctx, fz_document *doc);
 
@@ -737,6 +748,11 @@ fz_separations *fz_page_separations(fz_context *ctx, fz_page *page);
 */
 int fz_page_uses_overprint(fz_context *ctx, fz_page *page);
 
+/**
+	Create a new link on a page.
+*/
+fz_link *fz_create_link(fz_context *ctx, fz_page *page, fz_rect bbox, const char *uri);
+
 /* Implementation details: subject to change. */
 
 /**
@@ -746,6 +762,7 @@ int fz_page_uses_overprint(fz_context *ctx, fz_page *page);
 struct fz_page
 {
 	int refs;
+	fz_document *doc; /* reference to parent document */
 	int chapter; /* chapter number */
 	int number; /* page number in chapter */
 	int incomplete; /* incomplete from progressive loading; don't cache! */
@@ -760,6 +777,7 @@ struct fz_page
 	fz_page_separation_disabled_fn *separation_disabled;
 	fz_page_separations_fn *separations;
 	fz_page_uses_overprint_fn *overprint;
+	fz_page_create_link_fn *create_link;
 	fz_page **prev, *next; /* linked list of currently open pages */
 };
 

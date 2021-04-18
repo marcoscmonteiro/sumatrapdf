@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 namespace path {
@@ -40,30 +40,32 @@ WCHAR* GetPathOfFileInAppDir(const WCHAR* fileName = nullptr);
 namespace file {
 
 FILE* OpenFILE(const char* path);
-std::string_view ReadFileWithAllocator(const char* path, Allocator*);
-bool WriteFile(const char* path, std::string_view);
+std::span<u8> ReadFileWithAllocator(const char* path, Allocator*);
+bool WriteFile(const char* path, std::span<u8>);
 
-std::string_view ReadFile(std::string_view path);
+std::span<u8> ReadFile(std::string_view path);
 
 bool Exists(std::string_view path);
 
 #if OS_WIN
 FILE* OpenFILE(const WCHAR* path);
 bool Exists(const WCHAR* path);
-std::string_view ReadFileWithAllocator(const WCHAR* filePath, Allocator* allocator);
-std::string_view ReadFile(const WCHAR* filePath);
+std::span<u8> ReadFileWithAllocator(const WCHAR* filePath, Allocator* allocator);
+std::span<u8> ReadFile(const WCHAR* filePath);
 
 i64 GetSize(std::string_view path);
 
 int ReadN(const WCHAR* path, char* buf, size_t toRead);
-bool WriteFile(const WCHAR* path, std::string_view);
+bool WriteFile(const WCHAR* path, std::span<u8>);
 bool Delete(const WCHAR* path);
 FILETIME GetModificationTime(const WCHAR* path);
 bool SetModificationTime(const WCHAR* path, FILETIME lastMod);
 bool StartsWithN(const WCHAR* path, const char* magicNumber, size_t len);
 bool StartsWith(const WCHAR* path, const char* magicNumber);
+
 int GetZoneIdentifier(const WCHAR* path);
 bool SetZoneIdentifier(const WCHAR* path, int zoneId = URLZONE_INTERNET);
+bool DeleteZoneIdentifier(const WCHAR* path);
 
 HANDLE OpenReadOnly(const WCHAR* path);
 #endif

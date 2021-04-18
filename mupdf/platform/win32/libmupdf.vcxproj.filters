@@ -240,6 +240,9 @@
     <ClCompile Include="..\..\source\fitz\glyph.c">
       <Filter>fitz</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\source\fitz\glyphbox.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\source\fitz\halftone.c">
       <Filter>fitz</Filter>
     </ClCompile>
@@ -343,6 +346,9 @@
       <Filter>fitz</Filter>
     </ClCompile>
     <ClCompile Include="..\..\source\fitz\random.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\xmltext-device.c">
       <Filter>fitz</Filter>
     </ClCompile>
     <ClCompile Include="..\..\source\fitz\separation.c">
@@ -585,6 +591,21 @@
     <ClCompile Include="..\..\source\fitz\log.c">
       <Filter>fitz</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\source\fitz\output-pdfocr.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\ocr-device.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\warp.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\fitz\output-docx.c">
+      <Filter>fitz</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\source\pdf\pdf-layout.c">
+      <Filter>pdf</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\source\fitz\draw-imp.h">
@@ -819,6 +840,9 @@
       <Filter>fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\..\source\fitz\glyph-imp.h">
+      <Filter>fitz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\source\fitz\glyphbox.h">
       <Filter>fitz</Filter>
     </ClInclude>
     <ClInclude Include="..\..\source\fitz\image-imp.h">

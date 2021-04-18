@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -15,14 +15,6 @@
 
 Kind kindStatic = "static";
 
-bool IsStatic(Kind kind) {
-    return kind == kindStatic;
-}
-
-bool IsStatic(ILayout* l) {
-    return IsLayoutOfKind(l, kindStatic);
-}
-
 StaticCtrl::StaticCtrl(HWND p) : WindowBase(p) {
     dwStyle = WS_CHILD | WS_VISIBLE;
     winClass = WC_STATICW;
@@ -32,9 +24,34 @@ StaticCtrl::StaticCtrl(HWND p) : WindowBase(p) {
 StaticCtrl::~StaticCtrl() {
 }
 
-static void DispatchWM_COMMAND(void* user, WndEvent* ev) {
+static void Handle_WM_COMMAND([[maybe_unused]] void* user, WndEvent* ev) {
+    // auto w = (StaticCtrl*)user;
+    CrashIf(ev->msg != WM_COMMAND);
+    // TODO: implement me
+}
+
+// static
+void Handle_WM_CTLCOLORSTATIC(void* user, WndEvent* ev) {
     auto w = (StaticCtrl*)user;
-    w->HandleWM_COMMAND(ev);
+    uint msg = ev->msg;
+    CrashIf(msg != WM_CTLCOLORSTATIC);
+    HDC hdc = (HDC)ev->wp;
+    if (w->textColor != ColorUnset) {
+        SetTextColor(hdc, w->textColor);
+    }
+    // the brush we return is the background color for the whole
+    // area of static control
+    // SetBkColor() is just for the part where the text is
+    // SetBkMode(hdc, TRANSPARENT) sets the part of the text to transparent
+    // (but the whole background is still controlled by the bruhs
+    auto bgBrush = w->backgroundColorBrush;
+    if (bgBrush != nullptr) {
+        SetBkColor(hdc, w->backgroundColor);
+        ev->result = (LRESULT)bgBrush;
+    } else {
+        SetBkMode(hdc, TRANSPARENT);
+    }
+    ev->didHandle = true;
 }
 
 bool StaticCtrl::Create() {
@@ -43,7 +60,8 @@ bool StaticCtrl::Create() {
         return false;
     }
     void* user = this;
-    RegisterHandlerForMessage(hwnd, WM_COMMAND, DispatchWM_COMMAND, user);
+    RegisterHandlerForMessage(hwnd, WM_COMMAND, Handle_WM_COMMAND, user);
+    // RegisterHandlerForMessage(hwnd, WM_CTLCOLORSTATIC, Handle_WM_CTLCOLORSTATIC, user);
     auto size = GetIdealSize();
     RECT r{0, 0, size.dx, size.dy};
     SetBounds(r);
@@ -52,23 +70,7 @@ bool StaticCtrl::Create() {
 
 Size StaticCtrl::GetIdealSize() {
     WCHAR* txt = win::GetText(hwnd);
-    Size s = MeasureTextInHwnd(hwnd, txt, hfont);
+    Size s = HwndMeasureText(hwnd, txt, hfont);
     free(txt);
     return s;
-}
-
-void StaticCtrl::HandleWM_COMMAND(WndEvent* ev) {
-    UINT msg = ev->msg;
-    CrashIf(msg != WM_COMMAND);
-    // TODO: support STN_CLICKED
-}
-
-ILayout* NewStaticLayout(StaticCtrl* w) {
-    return new WindowBaseLayout(w, kindStatic);
-}
-
-// label gets a special treatment in layout in that it "hugs" the next control
-// (is assumed to be associated with that control)
-ILayout* NewLabelLayout(StaticCtrl* w) {
-    return new WindowBaseLayout(w, kindLabel);
 }

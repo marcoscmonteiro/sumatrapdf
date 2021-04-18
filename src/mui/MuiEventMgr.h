@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 class HwndWrapper;
@@ -24,8 +24,8 @@ class EventMgr {
     // current window over which the mouse is
     Control* currOver;
 
-    Gdiplus::Size minSize;
-    Gdiplus::Size maxSize;
+    Size minSize;
+    Size maxSize;
 
     bool inSizeMove;
 
@@ -50,7 +50,7 @@ class EventMgr {
     EventMgr(HwndWrapper* wndRoot);
     ~EventMgr();
 
-    LRESULT OnMessage(UINT msg, WPARAM wParam, LPARAM lParam, bool& handledOut);
+    LRESULT OnMessage(UINT msg, WPARAM wp, LPARAM lp, bool& handledOut);
 
     ControlEvents* EventsForControl(Control* c);
     NamedEvents* EventsForName(const char* name);
@@ -65,6 +65,6 @@ class EventMgr {
         return inSizeMove;
     }
 
-    void SetMinSize(Gdiplus::Size s);
-    void SetMaxSize(Gdiplus::Size s);
+    void SetMinSize(Size s);
+    void SetMaxSize(Size s);
 };

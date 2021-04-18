@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -14,12 +14,16 @@
 #include "EngineEbook.h"
 
 #include "SumatraConfig.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
+#include "Controller.h"
+#include "DisplayModel.h"
 #include "FileHistory.h"
 #include "GlobalPrefs.h"
 #include "ProgressUpdateUI.h"
 #include "Notifications.h"
 #include "SumatraPDF.h"
+#include "TabInfo.h"
 #include "Flags.h"
 #include "WindowInfo.h"
 #include "AppPrefs.h"
@@ -27,6 +31,9 @@
 #include "Favorites.h"
 #include "Toolbar.h"
 #include "Translations.h"
+
+// SumatraPDF.cpp
+extern void RememberDefaultWindowPosition(WindowInfo* win);
 
 static WatchedFile* gWatchedSettingsFile = nullptr;
 
@@ -50,7 +57,7 @@ static int cmpFloat(const void* a, const void* b) {
 
 namespace prefs {
 
-WCHAR* GetSettingsFileNameNoFree() {
+const WCHAR* GetSettingsFileNameNoFree() {
     if (gIsRaMicroBuild) {
         return L"RAMicroPDF-settings.txt";
     }
@@ -66,7 +73,7 @@ bool Load() {
     CrashIf(gGlobalPrefs);
 
     AutoFreeWstr path = GetSettingsPath();
-    AutoFree prefsData = file::ReadFile(path.get());
+    AutoFree prefsData = file::ReadFile(path.Get());
 
     gGlobalPrefs = NewGlobalPrefs(prefsData.data);
     CrashAlwaysIf(!gGlobalPrefs);
@@ -96,9 +103,9 @@ bool Load() {
         // guess the ui language on first start
         str::ReplacePtr(&gprefs->uiLanguage, trans::DetectUserLang());
     }
-    gprefs->lastPrefUpdate = file::GetModificationTime(path.get());
-    gprefs->defaultDisplayModeEnum = conv::ToDisplayMode(gprefs->defaultDisplayMode, DM_AUTOMATIC);
-    gprefs->defaultZoomFloat = conv::ToZoom(gprefs->defaultZoom, ZOOM_ACTUAL_SIZE);
+    gprefs->lastPrefUpdate = file::GetModificationTime(path.Get());
+    gprefs->defaultDisplayModeEnum = DisplayModeFromString(gprefs->defaultDisplayMode, DisplayMode::Automatic);
+    gprefs->defaultZoomFloat = ZoomFromString(gprefs->defaultZoom, ZOOM_ACTUAL_SIZE);
     CrashIf(!IsValidZoom(gprefs->defaultZoomFloat));
 
     int weekDiff = GetWeekCount() - gprefs->openCountWeek;
@@ -123,10 +130,57 @@ bool Load() {
     gFileHistory.UpdateStatesSource(gprefs->fileStates);
     SetDefaultEbookFont(gprefs->ebookUI.fontName, gprefs->ebookUI.fontSize);
 
-    if (!file::Exists(path.get())) {
+    if (!file::Exists(path.Get())) {
         Save();
     }
     return true;
+}
+
+static void RememberSessionState() {
+    Vec<SessionData*>* sessionData = gGlobalPrefs->sessionData;
+    ResetSessionState(sessionData);
+
+    if (!gGlobalPrefs->rememberOpenedFiles) {
+        return;
+    }
+
+    if (gWindows.size() == 0) {
+        return;
+    }
+
+    // don't remember the state if there's only one window with 1 or less
+    // opened document.
+    if (gWindows.size() == 1 && gWindows[0]->tabs.size() < 2) {
+        return;
+    }
+
+    for (auto* win : gWindows) {
+        if (win->tabs.size() == 0) {
+            continue;
+        }
+        SessionData* data = NewSessionData();
+        for (TabInfo* tab : win->tabs) {
+            DisplayState* ds = NewDisplayState(tab->filePath);
+            if (tab->ctrl) {
+                tab->ctrl->GetDisplayState(ds);
+            }
+            // TODO: pageNo should be good enough, as canvas size is restored as well
+            if (tab->AsEbook() && tab->ctrl) {
+                ds->pageNo = tab->ctrl->CurrentPageNo();
+            }
+            ds->showToc = tab->showToc;
+            *ds->tocState = tab->tocState;
+            data->tabStates->Append(NewTabState(ds));
+            DeleteDisplayState(ds);
+        }
+        data->tabIndex = win->tabs.Find(win->currentTab) + 1;
+        // TODO: allow recording this state without changing gGlobalPrefs
+        RememberDefaultWindowPosition(win);
+        data->windowState = gGlobalPrefs->windowState;
+        data->windowPos = gGlobalPrefs->windowPos;
+        data->sidebarDx = gGlobalPrefs->sidebarDx;
+        sessionData->Append(data);
+    }
 }
 
 // called whenever global preferences change or a file is
@@ -144,37 +198,41 @@ bool Save() {
             UpdateTabFileDisplayStateForTab(tab);
         }
     }
+    RememberSessionState();
 
     // remove entries which should (no longer) be remembered
     gFileHistory.Purge(!gGlobalPrefs->rememberStatePerDocument);
     // update display mode and zoom fields from internal values
-    str::ReplacePtr(&gGlobalPrefs->defaultDisplayMode, conv::FromDisplayMode(gGlobalPrefs->defaultDisplayModeEnum));
-    conv::FromZoom(&gGlobalPrefs->defaultZoom, gGlobalPrefs->defaultZoomFloat);
+    str::ReplacePtr(&gGlobalPrefs->defaultDisplayMode, DisplayModeToString(gGlobalPrefs->defaultDisplayModeEnum));
+    ZoomToString(&gGlobalPrefs->defaultZoom, gGlobalPrefs->defaultZoomFloat);
 
     AutoFreeWstr path = GetSettingsPath();
     DebugCrashIf(!path.data);
     if (!path.data) {
         return false;
     }
-    AutoFree prevPrefsData = file::ReadFile(path.data);
-    size_t prefsDataSize = 0;
-    AutoFree prefsData = SerializeGlobalPrefs(gGlobalPrefs, prevPrefsData.data, &prefsDataSize);
-
-    CrashIf(!prefsData.data || 0 == prefsDataSize);
-    if (!prefsData.data || 0 == prefsDataSize) {
+    std::span<u8> prevPrefs = file::ReadFile(path.data);
+    const char* prevPrefsData = (char*)prevPrefs.data();
+    std::span<u8> prefs = SerializeGlobalPrefs(gGlobalPrefs, prevPrefsData);
+    defer {
+        str::Free(prevPrefs.data());
+        str::Free(prefs.data());
+    };
+    CrashIf(prefs.empty());
+    if (prefs.empty()) {
         return false;
     }
 
     // only save if anything's changed at all
-    if (prevPrefsData.size() == prefsDataSize && str::Eq(prefsData.get(), prevPrefsData.data)) {
+    if (prevPrefs.size() == prefs.size() && str::Eq(prefs, prevPrefs)) {
         return true;
     }
 
-    bool ok = file::WriteFile(path.get(), prefsData.as_view());
+    bool ok = file::WriteFile(path.Get(), prefs);
     if (!ok) {
         return false;
     }
-    gGlobalPrefs->lastPrefUpdate = file::GetModificationTime(path.get());
+    gGlobalPrefs->lastPrefUpdate = file::GetModificationTime(path.Get());
     return true;
 }
 
@@ -220,12 +278,12 @@ bool Reload() {
 
     // TODO: about window doesn't have to be at position 0
     if (gWindows.size() > 0 && gWindows.at(0)->IsAboutWindow()) {
-        gWindows.at(0)->HideInfoTip();
+        gWindows.at(0)->HideToolTip();
         gWindows.at(0)->staticLinks.Reset();
         gWindows.at(0)->RedrawAll(true);
     }
 
-    if (!str::Eq(uiLanguage.get(), gGlobalPrefs->uiLanguage)) {
+    if (!str::Eq(uiLanguage.Get(), gGlobalPrefs->uiLanguage)) {
         SetCurrentLanguageAndRefreshUI(gGlobalPrefs->uiLanguage);
     }
 
@@ -238,6 +296,7 @@ bool Reload() {
     }
 
     UpdateDocumentColors();
+    UpdateFixedPageScrollbarsVisibility();
     return true;
 }
 
@@ -251,8 +310,9 @@ void schedulePrefsReload() {
 }
 
 void RegisterForFileChanges() {
-    if (!HasPermission(Perm_SavePreferences))
+    if (!HasPermission(Perm_SavePreferences)) {
         return;
+    }
 
     CrashIf(gWatchedSettingsFile); // only call me once
     AutoFreeWstr path = GetSettingsPath();

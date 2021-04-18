@@ -11,6 +11,7 @@
 #include <string.h>
 #ifdef _WIN32
 #include <io.h>
+#include <windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -75,6 +76,48 @@ fz_output *fz_stderr(fz_context *ctx)
 	return &fz_stderr_global;
 }
 
+#ifdef _WIN32
+static void
+stdods_write(fz_context *ctx, void *opaque, const void *buffer, size_t count)
+{
+	unsigned char *buf = fz_malloc(ctx, count+1);
+
+	memcpy(buf, buffer, count);
+	buf[count] = 0;
+	OutputDebugStringA(buf);
+	fz_free(ctx, buf);
+}
+
+static fz_output fz_stdods_global = {
+	NULL,
+	stdods_write,
+	NULL,
+	NULL,
+	NULL,
+};
+
+fz_output *fz_stdods(fz_context *ctx)
+{
+	return &fz_stdods_global;
+}
+#endif
+
+fz_output *fz_stddbg(fz_context *ctx)
+{
+	if (ctx->stddbg)
+		return ctx->stddbg;
+
+	return fz_stderr(ctx);
+}
+
+void fz_set_stddbg(fz_context *ctx, fz_output *out)
+{
+	if (ctx == NULL)
+		return;
+
+	ctx->stddbg = out;
+}
+
 static void
 file_seek(fz_context *ctx, void *opaque, int64_t off, int whence)
 {
@@ -125,9 +168,17 @@ static void file_truncate(fz_context *ctx, void *opaque)
 	fflush(file);
 
 #ifdef _WIN32
-	_chsize_s(fileno(file), ftell(file));
+	{
+		__int64 pos = _ftelli64(file);
+		if (pos >= 0)
+			_chsize_s(fileno(file), pos);
+	}
 #else
-	ftruncate(fileno(file), ftell(file));
+	{
+		off_t pos = ftello(file);
+		if (pos >= 0)
+			(void)ftruncate(fileno(file), pos);
+	}
 #endif
 }
 
@@ -172,9 +223,19 @@ fz_new_output_with_path(fz_context *ctx, const char *filename, int append)
 	FILE *file;
 	fz_output *out;
 
+	if (filename == NULL)
+		fz_throw(ctx, FZ_ERROR_GENERIC, "no output to write to");
+
 	if (!strcmp(filename, "/dev/null") || !fz_strcasecmp(filename, "nul:"))
 		return fz_new_output(ctx, 0, NULL, null_write, NULL, NULL);
 
+	/* If <append> is false, we use fopen()'s 'x' flag to force an error if
+	 * some other process creates the file immediately after we have removed
+	 * it - this avoids vunerability where a less-privilege process can create
+	 * a link and get us to overwrite a different file. See:
+	 * 	https://bugs.ghostscript.com/show_bug.cgi?id=701797
+	 * 	http://www.open-std.org/jtc1/sc22//WG14/www/docs/n1339.pdf
+	 */
 #ifdef _WIN32
 	/* Ensure we create a brand new file. We don't want to clobber our old file. */
 	if (!append)
@@ -183,7 +244,11 @@ fz_new_output_with_path(fz_context *ctx, const char *filename, int append)
 			if (errno != ENOENT)
 				fz_throw(ctx, FZ_ERROR_GENERIC, "cannot remove file '%s': %s", filename, strerror(errno));
 	}
-	file = fz_fopen_utf8(filename, append ? "rb+" : "wb+");
+#if defined(__MINGW32__) || defined(__MINGW64__)
+	file = fz_fopen_utf8(filename, append ? "rb+" : "wb+"); /* 'x' flag not suported. */
+#else
+	file = fz_fopen_utf8(filename, append ? "rb+" : "wb+x");
+#endif
 	if (append)
 	{
 		if (file == NULL)
@@ -199,7 +264,7 @@ fz_new_output_with_path(fz_context *ctx, const char *filename, int append)
 			if (errno != ENOENT)
 				fz_throw(ctx, FZ_ERROR_GENERIC, "cannot remove file '%s': %s", filename, strerror(errno));
 	}
-	file = fopen(filename, append ? "rb+" : "wb+");
+	file = fopen(filename, append ? "rb+" : "wb+x");
 	if (file == NULL && append)
 		file = fopen(filename, "wb+");
 #endif

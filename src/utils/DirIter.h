@@ -1,11 +1,11 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 /* How to use:
 
 DirIter di(dir, recursive);
-for (const WCHAR *filePath = di.First(); filePath; filePath = di.Next()) {
-    // process filePath
+for (const WCHAR *path = di.First(); path; path = di.Next()) {
+    // process path
 }
 
 */
@@ -15,15 +15,16 @@ class DirIter {
     WStrVec dirsToVisit;
     AutoFreeWstr startDir;
     AutoFreeWstr currDir;
-    AutoFreeWstr currPath;
-    HANDLE currFindHandle = nullptr;
-    WIN32_FIND_DATAW currFindData{};
     bool foundNext = false;
 
     bool StartDirIter(const WCHAR* dir);
     bool TryNextDir();
 
   public:
+    AutoFreeWstr currPath;
+    HANDLE currFindHandle = nullptr;
+    WIN32_FIND_DATAW currFindData{};
+
     DirIter(const WCHAR* dir, bool recur = false) {
         recursive = recur;
         startDir.SetCopy(dir);

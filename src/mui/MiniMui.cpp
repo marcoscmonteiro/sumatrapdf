@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // as little of mui as necessary to make ../EngineDump.cpp compile
@@ -37,10 +37,6 @@ using Gdiplus::StringFormat;
 using Gdiplus::StringFormatFlagsDirectionRightToLeft;
 using Gdiplus::TextRenderingHintClearTypeGridFit;
 using Gdiplus::UnitPixel;
-
-using Gdiplus::PointF;
-using Gdiplus::RectF;
-using Gdiplus::SizeF;
 
 namespace mui {
 
@@ -90,10 +86,12 @@ CachedFont* GetCachedFont(const WCHAR* name, float size, FontStyle style) {
 
     Font* font = ::new Font(name, size, style);
     CrashIf(!font);
-    if (!font) {
+    if (font->GetLastStatus() != Status::Ok) {
+        delete font;
         // fall back to the default font, if a desired font can't be created
         font = ::new Font(L"Times New Roman", size, style);
-        if (!font) {
+        if (font->GetLastStatus() != Status::Ok) {
+            delete font;
             return gFontCache;
         }
     }
@@ -131,8 +129,8 @@ Graphics* AllocGraphicsForMeasureText() {
     return &gGraphicsHack->gfx;
 }
 
-void FreeGraphicsForMeasureText(Graphics* g) {
-    UNUSED(g); /* deallocation happens in mui::Destroy */
+void FreeGraphicsForMeasureText([[maybe_unused]] Graphics* g) {
+    /* deallocation happens in mui::Destroy */
 }
 
 // allow for calls to mui::Initialize and mui::Destroy to be nested
@@ -143,8 +141,9 @@ void Initialize() {
 }
 
 void Destroy() {
-    if (InterlockedDecrement(&gMiniMuiRefCount) != 0)
+    if (InterlockedDecrement(&gMiniMuiRefCount) != 0) {
         return;
+    }
 
     delete gFontCache;
     gFontCache = nullptr;

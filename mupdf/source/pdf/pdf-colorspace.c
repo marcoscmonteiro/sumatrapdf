@@ -99,6 +99,8 @@ load_devicen(fz_context *ctx, pdf_obj *array, int is_devn)
 	char name[100];
 	int i, n;
 
+	fz_var(cs);
+
 	if (pdf_is_array(ctx, nameobj))
 	{
 		n = pdf_array_len(ctx, nameobj);
@@ -182,7 +184,7 @@ load_indexed(fz_context *ctx, pdf_obj *array)
 
 		high = pdf_to_int(ctx, highobj);
 		high = fz_clampi(high, 0, 255);
-		n = base->n * (high + 1);
+		n = (size_t)base->n * (high + 1);
 		lookup = Memento_label(fz_malloc(ctx, n), "cs_lookup");
 
 		if (pdf_is_string(ctx, lookupobj))

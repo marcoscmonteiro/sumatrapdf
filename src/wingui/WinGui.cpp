@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
 License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -10,34 +10,12 @@ License: Simplified BSD (see COPYING.BSD) */
 #include "wingui/Layout.h"
 #include "wingui/Window.h"
 
-/* Return size of a text <txt> in a given <hwnd>, taking into account its font */
-Size MeasureTextInHwnd(HWND hwnd, const WCHAR* txt, HFONT font) {
-    SIZE sz{};
-    size_t txtLen = str::Len(txt);
-    HDC dc = GetWindowDC(hwnd);
-    /* GetWindowDC() returns dc with default state, so we have to first set
-       window's current font into dc */
-    if (font == nullptr) {
-        font = (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0);
-    }
-    HGDIOBJ prev = SelectObject(dc, font);
-
-    RECT r{};
-    UINT fmt = DT_CALCRECT | DT_LEFT | DT_NOCLIP | DT_EDITCONTROL;
-    DrawTextExW(dc, (WCHAR*)txt, (int)txtLen, &r, fmt, nullptr);
-    SelectObject(dc, prev);
-    ReleaseDC(hwnd, dc);
-    int dx = RectDx(r);
-    int dy = RectDy(r);
-    return {dx, dy};
-}
-
 // TODDO: add rest of messages:
 // https://codeeval.dev/gist/9f8b444a5a181fbb6391d304b2dace52
 
 struct WinMsgWithName {
     UINT msg;
-    char* name;
+    const char* name;
 };
 
 #define dm(n) \
@@ -335,7 +313,7 @@ static WinMsgWithName gWinMessageNames[] = {
 };
 #undef dm
 
-char* getWinMessageName(UINT msg) {
+const char* GetWinMessageName(UINT msg) {
     for (size_t i = 0; i < dimof(gWinMessageNames); i++) {
         if (gWinMessageNames[i].msg == msg) {
             return gWinMessageNames[i].name;
@@ -346,29 +324,29 @@ char* getWinMessageName(UINT msg) {
 
 // we might want to not show frequently posted messages
 // clang-format off
-UINT gToIgnore[] = {
+uint gMsgToIgnore[] = {
     WM_NCHITTEST,
     WM_SETCURSOR,
     WM_MOUSEMOVE,
 };
 // clang-format on
 
-static bool shouldIgnoreMsg(UINT msg) {
-    int n = (int)dimof(gToIgnore);
+static bool ShouldIgnoreMsg(uint msg) {
+    int n = (int)dimof(gMsgToIgnore);
     for (int i = 0; i < n; i++) {
-        if (gToIgnore[i] == msg) {
+        if (gMsgToIgnore[i] == msg) {
             return true;
         }
     }
     return false;
 }
 
-void dbgLogMsg(char* prefix, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    if (shouldIgnoreMsg(msg)) {
+void DbgLogMsg(const char* prefix, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (ShouldIgnoreMsg(msg)) {
         return;
     }
 
-    char* msgName = getWinMessageName(msg);
+    auto msgName = GetWinMessageName(msg);
     if (!prefix) {
         prefix = "";
     }

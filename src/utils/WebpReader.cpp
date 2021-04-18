@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -11,29 +11,36 @@
 namespace webp {
 
 // checks whether this could be data for a WebP image
-bool HasSignature(const char* data, size_t len) {
-    return len > 12 && str::StartsWith(data, "RIFF") && str::StartsWith(data + 8, "WEBP");
+bool HasSignature(std::span<u8> d) {
+    if (d.size() <= 12) {
+        return false;
+    }
+    char* data = (char*)d.data();
+    return str::StartsWith(data, "RIFF") && str::StartsWith(data + 8, "WEBP");
 }
 
-Gdiplus::Size SizeFromData(const char* data, size_t len) {
-    Gdiplus::Size size;
-    WebPGetInfo((const uint8_t*)data, len, &size.Width, &size.Height);
+Size SizeFromData(std::span<u8> d) {
+    Size size;
+    WebPGetInfo((const u8*)d.data(), d.size(), &size.dx, &size.dy);
     return size;
 }
 
-Gdiplus::Bitmap* ImageFromData(const char* data, size_t len) {
+Gdiplus::Bitmap* ImageFromData(std::span<u8> d) {
     int w, h;
-    if (!WebPGetInfo((const uint8_t*)data, len, &w, &h))
+    if (!WebPGetInfo((const u8*)d.data(), d.size(), &w, &h)) {
         return nullptr;
+    }
 
     Gdiplus::Bitmap bmp(w, h, PixelFormat32bppARGB);
     Gdiplus::Rect bmpRect(0, 0, w, h);
     Gdiplus::BitmapData bmpData;
     Gdiplus::Status ok = bmp.LockBits(&bmpRect, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bmpData);
-    if (ok != Gdiplus::Ok)
+    if (ok != Gdiplus::Ok) {
         return nullptr;
-    if (!WebPDecodeBGRAInto((const uint8_t*)data, len, (uint8_t*)bmpData.Scan0, bmpData.Stride * h, bmpData.Stride))
+    }
+    if (!WebPDecodeBGRAInto((const u8*)d.data(), d.size(), (u8*)bmpData.Scan0, bmpData.Stride * h, bmpData.Stride)) {
         return nullptr;
+    }
     bmp.UnlockBits(&bmpData);
 
     // hack to avoid the use of ::new (because there won't be a corresponding ::delete)
@@ -43,21 +50,14 @@ Gdiplus::Bitmap* ImageFromData(const char* data, size_t len) {
 } // namespace webp
 
 #else
-
 namespace webp {
-bool HasSignature(const char* data, size_t len) {
-    UNUSED(data);
-    UNUSED(len);
+bool HasSignature(std::span<u8>) {
     return false;
 }
-Gdiplus::Size SizeFromData(const char* data, size_t len) {
-    UNUSED(data);
-    UNUSED(len);
-    return Gdiplus::Size();
+Size SizeFromData(std::span<u8>) {
+    return Size();
 }
-Gdiplus::Bitmap* ImageFromData(const char* data, size_t len) {
-    UNUSED(data);
-    UNUSED(len);
+Gdiplus::Bitmap* ImageFromData(std::span<u8>) {
     return nullptr;
 }
 } // namespace webp

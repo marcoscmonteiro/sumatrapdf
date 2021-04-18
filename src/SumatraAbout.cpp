@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -16,6 +16,7 @@
 #include "SumatraConfig.h"
 #include "Annotation.h"
 #include "EngineBase.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "FileHistory.h"
 #include "AppColors.h"
@@ -26,6 +27,7 @@
 #include "SumatraConfig.h"
 #include "WindowInfo.h"
 #include "resource.h"
+#include "Commands.h"
 #include "FileThumbnails.h"
 #include "SumatraAbout.h"
 #include "Translations.h"
@@ -37,13 +39,13 @@
 #define ABOUT_LINE_OUTER_SIZE 1
 #endif
 #define ABOUT_LINE_SEP_SIZE 1
-#define ABOUT_LEFT_RIGHT_SPACE_DX 8
-#define ABOUT_MARGIN_DX 10
-#define ABOUT_BOX_MARGIN_DY 6
+#define ABOUT_LEFT_RIGHT_SPACE_DX DpiScale(8)
+#define ABOUT_MARGIN_DX DpiScale(10)
+#define ABOUT_BOX_MARGIN_DY DpiScale(6)
 #define ABOUT_BORDER_COL RGB(0, 0, 0)
-#define ABOUT_TXT_DY 6
-#define ABOUT_RECT_PADDING 8
-#define ABOUT_INNER_PADDING 6
+#define ABOUT_TXT_DY DpiScale(6)
+#define ABOUT_RECT_PADDING DpiScale(8)
+#define ABOUT_INNER_PADDING DpiScale(8)
 
 #define ABOUT_CLASS_NAME L"SUMATRA_PDF_ABOUT"
 
@@ -66,16 +68,10 @@
 #define GIT_COMMIT_ID_STR TEXT(QM(GIT_COMMIT_ID))
 #endif
 
-// TODO: replace this link with a better one where license information is nicely collected/linked
-#if defined(PRE_RELEASE_VER) || defined(DEBUG)
 #define URL_LICENSE L"https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"
 #define URL_AUTHORS L"https://github.com/sumatrapdfreader/sumatrapdf/blob/master/AUTHORS"
 #define URL_TRANSLATORS L"https://github.com/sumatrapdfreader/sumatrapdf/blob/master/TRANSLATORS"
-#else
-#define URL_LICENSE L"https://github.com/sumatrapdfreader/sumatrapdf/blob/" UPDATE_CHECK_VER L"rel/AUTHORS"
-#define URL_AUTHORS L"https://github.com/sumatrapdfreader/sumatrapdf/blob/" UPDATE_CHECK_VER L"rel/AUTHORS"
-#define URL_TRANSLATORS L"https://github.com/sumatrapdfreader/sumatrapdf/blob/" UPDATE_CHECK_VER L"rel/TRANSLATORS"
-#endif
+#define URL_SUPPORT_SUMATRA L"https://www.sumatrapdfreader.org/backers.html"
 
 #define LAYOUT_LTR 0
 
@@ -210,8 +206,9 @@ static void DrawSumatraVersion(HWND hwnd, HDC hdc, Rect rect) {
     SelectObject(hdc, oldFont);
 }
 
-static Rect DrawBottomRightLink(HWND hwnd, HDC hdc, const WCHAR* txt) {
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, L"MS Shell Dlg", 14));
+// draw on the bottom right
+static Rect DrawHideFrequentlyReadLink(HWND hwnd, HDC hdc, const WCHAR* txt) {
+    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, L"MS Shell Dlg", 16));
     auto col = GetAppColor(AppColor::MainWindowLink);
     AutoDeletePen penLinkLine(CreatePen(PS_SOLID, 1, col));
     ScopedSelectObject font(hdc, fontLeftTxt);
@@ -222,11 +219,38 @@ static Rect DrawBottomRightLink(HWND hwnd, HDC hdc, const WCHAR* txt) {
 
     SIZE txtSize;
     GetTextExtentPoint32(hdc, txt, (int)str::Len(txt), &txtSize);
-    Rect rect(rc.dx - txtSize.cx - ABOUT_INNER_PADDING, rc.y + rc.dy - txtSize.cy - ABOUT_INNER_PADDING, txtSize.cx,
-              txtSize.cy);
-    if (IsUIRightToLeft())
-        rect.x = ABOUT_INNER_PADDING;
-    RECT rTmp = rect.ToRECT();
+    int x = rc.dx - txtSize.cx - ABOUT_INNER_PADDING;
+    int y = rc.y + rc.dy - txtSize.cy - ABOUT_INNER_PADDING;
+    Rect rect(x, y, txtSize.cx, txtSize.cy);
+    RECT rTmp = ToRECT(rect);
+    DrawText(hdc, txt, -1, &rTmp, IsUIRightToLeft() ? DT_RTLREADING : DT_LEFT);
+    {
+        ScopedSelectObject pen(hdc, penLinkLine);
+        PaintLine(hdc, Rect(rect.x, rect.y + rect.dy, rect.dx, 0));
+    }
+
+    // make the click target larger
+    rect.Inflate(ABOUT_INNER_PADDING, ABOUT_INNER_PADDING);
+    return rect;
+}
+
+// draw on the bottom left
+static Rect DrawSupportLink(HWND hwnd, HDC hdc, const WCHAR* txt) {
+    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, L"MS Shell Dlg", 16));
+    auto col = GetAppColor(AppColor::MainWindowLink);
+    AutoDeletePen penLinkLine(CreatePen(PS_SOLID, 1, col));
+    ScopedSelectObject font(hdc, fontLeftTxt);
+
+    SetTextColor(hdc, col);
+    SetBkMode(hdc, TRANSPARENT);
+    Rect rc = ClientRect(hwnd);
+
+    SIZE txtSize;
+    GetTextExtentPoint32(hdc, txt, (int)str::Len(txt), &txtSize);
+    int y = rc.y + rc.dy - txtSize.cy - ABOUT_INNER_PADDING;
+    Rect rect(ABOUT_INNER_PADDING, y, txtSize.cx, txtSize.cy);
+
+    RECT rTmp = ToRECT(rect);
     DrawText(hdc, txt, -1, &rTmp, IsUIRightToLeft() ? DT_RTLREADING : DT_LEFT);
     {
         ScopedSelectObject pen(hdc, penLinkLine);
@@ -254,7 +278,7 @@ static void DrawAbout(HWND hwnd, HDC hdc, Rect rect, Vec<StaticLinkInfo>& linkIn
     ScopedSelectObject font(hdc, fontLeftTxt); /* Just to remember the orig font */
 
     Rect rc = ClientRect(hwnd);
-    RECT rTmp = rc.ToRECT();
+    RECT rTmp = ToRECT(rc);
     col = GetAppColor(AppColor::MainWindowBg);
     ScopedGdiObj<HBRUSH> brushAboutBg(CreateSolidBrush(col));
     FillRect(hdc, &rTmp, brushAboutBg);
@@ -345,12 +369,14 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
         el->leftPos.dx = txtSize.cx;
         el->leftPos.dy = txtSize.cy;
 
-        if (el == &gAboutLayoutInfo[0])
+        if (el == &gAboutLayoutInfo[0]) {
             leftDy = el->leftPos.dy;
-        else
-            AssertCrash(leftDy == el->leftPos.dy);
-        if (leftLargestDx < el->leftPos.dx)
+        } else {
+            CrashIf(leftDy != el->leftPos.dy);
+        }
+        if (leftLargestDx < el->leftPos.dx) {
             leftLargestDx = el->leftPos.dx;
+        }
     }
 
     /* calculate right text dimensions */
@@ -361,40 +387,46 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
         SIZE txtSize;
         size_t txtLen = str::Len(el->rightTxt);
 #ifdef GIT_COMMIT_ID
-        if (str::EndsWith(el->rightTxt, GIT_COMMIT_ID_STR))
+        if (str::EndsWith(el->rightTxt, GIT_COMMIT_ID_STR)) {
             txtLen -= str::Len(GIT_COMMIT_ID_STR) - 7;
+        }
 #endif
         GetTextExtentPoint32W(hdc, el->rightTxt, (int)txtLen, &txtSize);
         el->rightPos.dx = txtSize.cx;
         el->rightPos.dy = txtSize.cy;
 
-        if (el == &gAboutLayoutInfo[0])
+        if (el == &gAboutLayoutInfo[0]) {
             rightDy = el->rightPos.dy;
-        else
-            AssertCrash(rightDy == el->rightPos.dy);
-        if (rightLargestDx < el->rightPos.dx)
+        } else {
+            CrashIf(rightDy != el->rightPos.dy);
+        }
+        if (rightLargestDx < el->rightPos.dx) {
             rightLargestDx = el->rightPos.dx;
+        }
     }
 
     /* calculate total dimension and position */
     Rect minRect;
     minRect.dx =
         ABOUT_LEFT_RIGHT_SPACE_DX + leftLargestDx + ABOUT_LINE_SEP_SIZE + rightLargestDx + ABOUT_LEFT_RIGHT_SPACE_DX;
-    if (minRect.dx < headerSize.dx)
+    if (minRect.dx < headerSize.dx) {
         minRect.dx = headerSize.dx;
+    }
     minRect.dx += 2 * ABOUT_LINE_OUTER_SIZE + 2 * ABOUT_MARGIN_DX;
 
     minRect.dy = headerSize.dy;
-    for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++)
+    for (AboutLayoutInfoEl* el = gAboutLayoutInfo; el->leftTxt; el++) {
         minRect.dy += rightDy + ABOUT_TXT_DY;
+    }
     minRect.dy += 2 * ABOUT_LINE_OUTER_SIZE + 4;
 
     Rect rc = ClientRect(hwnd);
     minRect.x = (rc.dx - minRect.dx) / 2;
     minRect.y = (rc.dy - minRect.dy) / 2;
 
-    if (rect)
+    if (rect) {
         *rect = minRect;
+    }
 
     /* calculate text positions */
     int linePosX = ABOUT_LINE_OUTER_SIZE + ABOUT_MARGIN_DX + leftLargestDx + ABOUT_LEFT_RIGHT_SPACE_DX;
@@ -420,8 +452,7 @@ static void OnPaintAbout(HWND hwnd) {
     EndPaint(hwnd, &ps);
 }
 
-static void CopyAboutInfoToClipboard(HWND hwnd) {
-    UNUSED(hwnd);
+static void CopyAboutInfoToClipboard([[maybe_unused]] HWND hwnd) {
     str::WStr info(512);
     AutoFreeWstr ver = GetAppVersion();
     info.AppendFmt(L"%s %s\r\n", GetAppName(), ver.Get());
@@ -481,13 +512,13 @@ static void DeleteInfotip() {
     gAboutTooltip = nullptr;
 }
 
-LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     const WCHAR* url;
     Point pt;
 
-    switch (message) {
+    switch (msg) {
         case WM_CREATE:
-            AssertCrash(!gHwndAbout);
+            CrashIf(gHwndAbout);
             break;
 
         case WM_ERASEBKGND:
@@ -503,42 +534,44 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
                 StaticLinkInfo linkInfo;
                 if (GetStaticLink(gLinkInfo, pt.x, pt.y, &linkInfo)) {
                     CreateInfotipForLink(linkInfo);
-                    SetCursor(IDC_HAND);
+                    SetCursorCached(IDC_HAND);
                     return TRUE;
                 }
             }
             DeleteInfotip();
-            return DefWindowProc(hwnd, message, wParam, lParam);
+            return DefWindowProc(hwnd, msg, wp, lp);
 
         case WM_LBUTTONDOWN:
-            gClickedURL = GetStaticLink(gLinkInfo, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            gClickedURL = GetStaticLink(gLinkInfo, GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             break;
 
         case WM_LBUTTONUP:
-            url = GetStaticLink(gLinkInfo, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            url = GetStaticLink(gLinkInfo, GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             if (url && url == gClickedURL) {
                 SumatraLaunchBrowser(url);
             }
             break;
 
         case WM_CHAR:
-            if (VK_ESCAPE == wParam)
+            if (VK_ESCAPE == wp) {
                 DestroyWindow(hwnd);
+            }
             break;
 
         case WM_COMMAND:
-            if (IDM_COPY_SELECTION == LOWORD(wParam))
+            if (CmdCopySelection == LOWORD(wp)) {
                 CopyAboutInfoToClipboard(hwnd);
+            }
             break;
 
         case WM_DESTROY:
             DeleteInfotip();
-            AssertCrash(gHwndAbout);
+            CrashIf(!gHwndAbout);
             gHwndAbout = nullptr;
             break;
 
         default:
-            return DefWindowProc(hwnd, message, wParam, lParam);
+            return DefWindowProc(hwnd, msg, wp, lp);
     }
     return 0;
 }
@@ -561,8 +594,9 @@ void OnMenuAbout() {
     gHwndAbout =
         CreateWindow(ABOUT_CLASS_NAME, ABOUT_WIN_TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT,
                      CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
-    if (!gHwndAbout)
+    if (!gHwndAbout) {
         return;
+    }
 
     SetRtl(gHwndAbout, IsUIRightToLeft());
 
@@ -590,7 +624,7 @@ void DrawAboutPage(WindowInfo* win, HDC hdc) {
     UpdateAboutLayoutInfo(win->hwndCanvas, hdc, &rc);
     DrawAbout(win->hwndCanvas, hdc, rc, win->staticLinks);
     if (HasPermission(Perm_SavePreferences | Perm_DiskAccess) && gGlobalPrefs->rememberOpenedFiles) {
-        Rect rect = DrawBottomRightLink(win->hwndCanvas, hdc, _TR("Show frequently read"));
+        Rect rect = DrawHideFrequentlyReadLink(win->hwndCanvas, hdc, _TR("Show frequently read"));
         win->staticLinks.Append(StaticLinkInfo(rect, SLINK_LIST_SHOW));
     }
 }
@@ -616,12 +650,17 @@ void DrawStartPage(WindowInfo* win, HDC hdc, FileHistory& fileHistory, COLORREF 
     AutoDeletePen penLinkLine(CreatePen(PS_SOLID, 1, col));
 
     AutoDeleteFont fontSumatraTxt(CreateSimpleFont(hdc, L"MS Shell Dlg", 24));
+    int fontSize = 24;
+    if (gIsRaMicroBuild) {
+        fontSize = 20;
+    }
+    AutoDeleteFont fontFrequentlyRead(CreateSimpleFont(hdc, L"MS Shell Dlg", fontSize));
     AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, L"MS Shell Dlg", 14));
 
     ScopedSelectObject font(hdc, fontSumatraTxt);
 
     Rect rc = ClientRect(win->hwndCanvas);
-    RECT rTmp = rc.ToRECT();
+    RECT rTmp = ToRECT(rc);
     col = GetAppColor(AppColor::MainWindowBg);
     AutoDeleteBrush brushLogoBg(CreateSolidBrush(col));
     FillRect(hdc, &rTmp, brushLogoBg);
@@ -645,7 +684,7 @@ void DrawStartPage(WindowInfo* win, HDC hdc, FileHistory& fileHistory, COLORREF 
 
     rc.y += titleBox.dy;
     rc.dy -= titleBox.dy;
-    rTmp = rc.ToRECT();
+    rTmp = ToRECT(rc);
     col = GetAppColor(AppColor::MainWindowBg);
     ScopedGdiObj<HBRUSH> brushAboutBg(CreateSolidBrush(col));
     FillRect(hdc, &rTmp, brushAboutBg);
@@ -654,30 +693,32 @@ void DrawStartPage(WindowInfo* win, HDC hdc, FileHistory& fileHistory, COLORREF 
     Vec<DisplayState*> list;
     fileHistory.GetFrequencyOrder(list);
 
-    int width = limitValue((rc.dx - DOCLIST_MARGIN_LEFT - DOCLIST_MARGIN_RIGHT + DOCLIST_MARGIN_BETWEEN_X) /
-                               (THUMBNAIL_DX + DOCLIST_MARGIN_BETWEEN_X),
-                           1, DOCLIST_MAX_THUMBNAILS_X);
-    int height = std::min((rc.dy - DOCLIST_MARGIN_TOP - DOCLIST_MARGIN_BOTTOM + DOCLIST_MARGIN_BETWEEN_Y) /
-                              (THUMBNAIL_DY + DOCLIST_MARGIN_BETWEEN_Y),
-                          FILE_HISTORY_MAX_FREQUENT / width);
-    Point offset(rc.x + DOCLIST_MARGIN_LEFT +
-                     (rc.dx - width * THUMBNAIL_DX - (width - 1) * DOCLIST_MARGIN_BETWEEN_X - DOCLIST_MARGIN_LEFT -
-                      DOCLIST_MARGIN_RIGHT) /
-                         2,
-                 rc.y + DOCLIST_MARGIN_TOP);
-    if (offset.x < ABOUT_INNER_PADDING)
+    int dx = (rc.dx - DOCLIST_MARGIN_LEFT - DOCLIST_MARGIN_RIGHT + DOCLIST_MARGIN_BETWEEN_X) /
+             (THUMBNAIL_DX + DOCLIST_MARGIN_BETWEEN_X);
+    int width = limitValue(dx, 1, DOCLIST_MAX_THUMBNAILS_X);
+    int dy = (rc.dy - DOCLIST_MARGIN_TOP - DOCLIST_MARGIN_BOTTOM + DOCLIST_MARGIN_BETWEEN_Y) /
+             (THUMBNAIL_DY + DOCLIST_MARGIN_BETWEEN_Y);
+    int height = std::min(dy, FILE_HISTORY_MAX_FREQUENT / width);
+    int x = rc.x + DOCLIST_MARGIN_LEFT +
+            (rc.dx - width * THUMBNAIL_DX - (width - 1) * DOCLIST_MARGIN_BETWEEN_X - DOCLIST_MARGIN_LEFT -
+             DOCLIST_MARGIN_RIGHT) /
+                2;
+    Point offset(x, rc.y + DOCLIST_MARGIN_TOP);
+    if (offset.x < ABOUT_INNER_PADDING) {
         offset.x = ABOUT_INNER_PADDING;
-    else if (list.size() == 0)
+    } else if (list.size() == 0) {
         offset.x = DOCLIST_MARGIN_LEFT;
+    }
 
-    SelectObject(hdc, fontSumatraTxt);
+    SelectObject(hdc, fontFrequentlyRead);
     SIZE txtSize;
     const WCHAR* txt = _TR("Frequently Read");
     GetTextExtentPoint32(hdc, txt, (int)str::Len(txt), &txtSize);
     Rect headerRect(offset.x, rc.y + (DOCLIST_MARGIN_TOP - txtSize.cy) / 2, txtSize.cx, txtSize.cy);
-    if (isRtl)
+    if (isRtl) {
         headerRect.x = rc.dx - offset.x - headerRect.dx;
-    rTmp = headerRect.ToRECT();
+    }
+    rTmp = ToRECT(headerRect);
     DrawText(hdc, txt, -1, &rTmp, (isRtl ? DT_RTLREADING : DT_LEFT) | DT_NOPREFIX);
 
     SelectObject(hdc, fontLeftTxt);
@@ -695,11 +736,13 @@ void DrawStartPage(WindowInfo* win, HDC hdc, FileHistory& fileHistory, COLORREF 
 
             Rect page(offset.x + w * (THUMBNAIL_DX + DOCLIST_MARGIN_BETWEEN_X),
                       offset.y + h * (THUMBNAIL_DY + DOCLIST_MARGIN_BETWEEN_Y), THUMBNAIL_DX, THUMBNAIL_DY);
-            if (isRtl)
+            if (isRtl) {
                 page.x = rc.dx - page.x - page.dx;
+            }
             bool loadOk = true;
-            if (!state->thumbnail)
+            if (!state->thumbnail) {
                 loadOk = LoadThumbnail(*state);
+            }
             if (loadOk && state->thumbnail) {
                 Size thumbSize = state->thumbnail->Size();
                 if (thumbSize.dx != THUMBNAIL_DX || thumbSize.dy != THUMBNAIL_DY) {
@@ -723,22 +766,20 @@ void DrawStartPage(WindowInfo* win, HDC hdc, FileHistory& fileHistory, COLORREF 
 
             int iconSpace = DpiScale(win->hwndFrame, 20);
             Rect rect(page.x + iconSpace, page.y + page.dy + 3, page.dx - iconSpace, iconSpace);
-            if (isRtl)
+            if (isRtl) {
                 rect.x -= iconSpace;
-            rTmp = rect.ToRECT();
+            }
+            rTmp = ToRECT(rect);
             DrawText(hdc, path::GetBaseNameNoFree(state->filePath), -1, &rTmp,
                      DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX | (isRtl ? DT_RIGHT : DT_LEFT));
 
-            // this crashes asan build in windows code
+            // note: this crashes asan build in windows code
             // see https://codeeval.dev/gist/bc761bb1ef1cce04e6a1d65e9d30201b
-#if !defined(ASAN_BUILD)
             SHFILEINFO sfi = {0};
-            HIMAGELIST himl = (HIMAGELIST)SHGetFileInfo(state->filePath, 0, &sfi, sizeof(sfi),
-                                                        SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
-            ImageList_Draw(himl, sfi.iIcon, hdc, isRtl ? page.x + page.dx - DpiScale(win->hwndFrame, 16) : page.x,
-                           rect.y, ILD_TRANSPARENT);
-#endif
-
+            uint flags = SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES;
+            HIMAGELIST himl = (HIMAGELIST)SHGetFileInfoW(state->filePath, 0, &sfi, sizeof(sfi), flags);
+            x = isRtl ? page.x + page.dx - DpiScale(win->hwndFrame, 16) : page.x;
+            ImageList_Draw(himl, sfi.iIcon, hdc, x, rect.y, ILD_TRANSPARENT);
             win->staticLinks.Append(StaticLinkInfo(rect.Union(page), state->filePath, state->filePath));
         }
     }
@@ -752,20 +793,22 @@ void DrawStartPage(WindowInfo* win, HDC hdc, FileHistory& fileHistory, COLORREF 
     SetTextColor(hdc, col);
     SelectObject(hdc, penLinkLine);
 
-    HIMAGELIST himl = (HIMAGELIST)SendMessage(win->hwndToolbar, TB_GETIMAGELIST, 0, 0);
+    HIMAGELIST himl = (HIMAGELIST)SendMessageW(win->hwndToolbar, TB_GETIMAGELIST, 0, 0);
     Rect rectIcon(offset.x, rc.y, 0, 0);
     ImageList_GetIconSize(himl, &rectIcon.dx, &rectIcon.dy);
     rectIcon.y += (rc.dy - rectIcon.dy) / 2;
-    if (isRtl)
+    if (isRtl) {
         rectIcon.x = rc.dx - offset.x - rectIcon.dx;
+    }
     ImageList_Draw(himl, 0 /* index of Open icon */, hdc, rectIcon.x, rectIcon.y, ILD_NORMAL);
 
     txt = _TR("Open a document...");
     GetTextExtentPoint32(hdc, txt, (int)str::Len(txt), &txtSize);
     Rect rect(offset.x + rectIcon.dx + 3, rc.y + (rc.dy - txtSize.cy) / 2, txtSize.cx, txtSize.cy);
-    if (isRtl)
+    if (isRtl) {
         rect.x = rectIcon.x - rect.dx - 3;
-    rTmp = rect.ToRECT();
+    }
+    rTmp = ToRECT(rect);
     DrawText(hdc, txt, -1, &rTmp, isRtl ? DT_RTLREADING : DT_LEFT);
     PaintLine(hdc, Rect(rect.x, rect.y + rect.dy, rect.dx, 0));
     // make the click target larger
@@ -773,6 +816,11 @@ void DrawStartPage(WindowInfo* win, HDC hdc, FileHistory& fileHistory, COLORREF 
     rect.Inflate(10, 10);
     win->staticLinks.Append(StaticLinkInfo(rect, SLINK_OPEN_FILE));
 
-    rect = DrawBottomRightLink(win->hwndCanvas, hdc, _TR("Hide frequently read"));
+    rect = DrawHideFrequentlyReadLink(win->hwndCanvas, hdc, _TR("Hide frequently read"));
     win->staticLinks.Append(StaticLinkInfo(rect, SLINK_LIST_HIDE));
+
+    if (!gIsRaMicroBuild) {
+        rect = DrawSupportLink(win->hwndCanvas, hdc, _TR("Support SumatraPDF"));
+        win->staticLinks.Append(StaticLinkInfo(rect, URL_SUPPORT_SUMATRA));
+    }
 }

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // Doc is to EbookController what EngineBase is to DisplayModel:
@@ -15,10 +15,10 @@ class PalmDoc;
 struct ImageData;
 class EbookTocVisitor;
 class HtmlFormatter;
-class HtmlFormatterArgs;
+struct HtmlFormatterArgs;
 
 enum class DocType { None, Epub, Fb2, Mobi, Pdb };
-enum class DocError { None, Unknown };
+enum class DocError { None, Unknown, NotSupported };
 
 class Doc {
   protected:
@@ -82,13 +82,13 @@ class Doc {
     const WCHAR* GetFilePath() const;
     const WCHAR* GetDefaultFileExt() const;
     WCHAR* GetProperty(DocumentProperty prop) const;
-    std::string_view GetHtmlData() const;
+    std::span<u8> GetHtmlData() const;
 
     ImageData* GetCoverImage() const;
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor) const;
     HtmlFormatter* CreateFormatter(HtmlFormatterArgs* args) const;
 
+    static bool IsSupportedFileType(Kind kind);
     static Doc CreateFromFile(const WCHAR* filePath);
-    static bool IsSupportedFile(const WCHAR* filePath, bool sniff = false);
 };

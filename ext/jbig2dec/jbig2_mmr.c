@@ -1,4 +1,4 @@
-/* Copyright (C) 2001-2019 Artifex Software, Inc.
+/* Copyright (C) 2001-2020 Artifex Software, Inc.
    All Rights Reserved.
 
    This software is provided AS-IS with no warranty, either express or
@@ -40,15 +40,12 @@
 #include "jbig2_mmr.h"
 #include "jbig2_segment.h"
 
-#if !defined (UINT32_MAX)
-#define UINT32_MAX 0xffffffff
-#endif
-
 typedef struct {
     uint32_t width;
     uint32_t height;
     const byte *data;
     size_t size;
+    size_t consumed_bits;
     uint32_t data_index;
     uint32_t bit_index;
     uint32_t word;
@@ -62,30 +59,34 @@ typedef struct {
 static void
 jbig2_decode_mmr_init(Jbig2MmrCtx *mmr, int width, int height, const byte *data, size_t size)
 {
-    size_t i;
-    uint32_t word = 0;
-
     mmr->width = width;
     mmr->height = height;
     mmr->data = data;
     mmr->size = size;
     mmr->data_index = 0;
-    mmr->bit_index = 0;
+    mmr->bit_index = 32;
+    mmr->word = 0;
+    mmr->consumed_bits = 0;
 
-    for (i = 0; i < size && i < 4; i++)
-        word |= (data[i] << ((3 - i) << 3));
-    mmr->word = word;
+    while (mmr->bit_index >= 8 && mmr->data_index < mmr->size) {
+        mmr->bit_index -= 8;
+        mmr->word |= (mmr->data[mmr->data_index] << mmr->bit_index);
+        mmr->data_index++;
+    }
 }
 
 static void
 jbig2_decode_mmr_consume(Jbig2MmrCtx *mmr, int n_bits)
 {
+    mmr->consumed_bits += n_bits;
+    if (mmr->consumed_bits > mmr->size * 8)
+        mmr->consumed_bits = mmr->size * 8;
+
     mmr->word <<= n_bits;
     mmr->bit_index += n_bits;
-    while (mmr->bit_index >= 8) {
+    while (mmr->bit_index >= 8 && mmr->data_index < mmr->size) {
         mmr->bit_index -= 8;
-        if (mmr->data_index + 4 < mmr->size)
-            mmr->word |= (mmr->data[mmr->data_index + 4] << mmr->bit_index);
+        mmr->word |= (mmr->data[mmr->data_index] << mmr->bit_index);
         mmr->data_index++;
     }
 }
@@ -743,6 +744,16 @@ const mmr_table_node jbig2_mmr_black_decode[] = {
 
 #define getbit(buf, x) ( ( buf[x >> 3] >> ( 7 - (x & 7) ) ) & 1 )
 
+/* On platforms that enforce aligned memory accesses, we can't just
+ * cast the byte * to the type of object we are accessing, we have
+ * unpack the requisite number of bytes, and deal with it that way.
+ * Note that the comments below about being 16/32 bit boundaries
+ * is referring to offsets into the byte stream, *not* memory
+ * addresses.
+ */
+#define getword16(b)  ((uint16_t)(b[0] | (b[1] << 8)))
+#define getword32(b)  ((uint32_t)(getword16(b) | (getword16((b + 2)) << 16)))
+
 static uint32_t
 jbig2_find_changing_element(const byte *line, uint32_t x, uint32_t w)
 {
@@ -816,7 +827,7 @@ jbig2_find_changing_element(const byte *line, uint32_t x, uint32_t w)
         if (w - x < 16) {
             goto check8;
         }
-        if ( ((uint16_t*) line)[ x / 16] != all16) {
+        if ( getword16((line + (x / 8))) != all16) {
             goto check8_no_eof;
         }
         x += 16; /* This will make x a multiple of 32. */
@@ -834,7 +845,7 @@ jbig2_find_changing_element(const byte *line, uint32_t x, uint32_t w)
             look at the next uint16, then uint8, then last 8 bits. */
             goto check16;
         }
-        if (((uint32_t*) line)[x/32] != all32) {
+        if ( getword32((line + (x / 8))) != all32) {
             goto check16_no_eof;
         }
         x += 32;
@@ -848,7 +859,7 @@ check16:
     }
 check16_no_eof:
     assert(w - x >= 16);
-    if ( ((uint16_t*) line)[x/16] != all16) {
+    if ( getword16((line + (x / 8))) != all16) {
         goto check8_no_eof;
     }
     x += 16;
@@ -888,6 +899,9 @@ check1:
 end:
     return x;
 }
+
+#undef getword16
+#undef getword32
 
 static uint32_t
 jbig2_find_changing_element_of_color(const byte *line, uint32_t x, uint32_t w, int color)
@@ -955,11 +969,11 @@ jbig2_decode_get_run(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const mmr_table_node *tabl
     do {
         val = jbig2_decode_get_code(mmr, table, initial_bits);
         if (val == ERROR)
-            return jbig2_error(ctx, JBIG2_SEVERITY_FATAL, -1, "invalid code detected in MMR-coded data");
+            return jbig2_error(ctx, JBIG2_SEVERITY_FATAL, JBIG2_UNKNOWN_SEGMENT_NUMBER, "invalid code detected in MMR-coded data");
         else if (val == UNCOMPRESSED)
-            return jbig2_error(ctx, JBIG2_SEVERITY_FATAL, -1, "uncompressed code in MMR-coded data");
+            return jbig2_error(ctx, JBIG2_SEVERITY_FATAL, JBIG2_UNKNOWN_SEGMENT_NUMBER, "uncompressed code in MMR-coded data");
         else if (val == ZEROES)
-            return jbig2_error(ctx, JBIG2_SEVERITY_FATAL, -1, "zeroes code in MMR-coded data");
+            return jbig2_error(ctx, JBIG2_SEVERITY_FATAL, JBIG2_UNKNOWN_SEGMENT_NUMBER, "zeroes code in MMR-coded data");
         result += val;
     } while (val >= 64);
 
@@ -992,10 +1006,10 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
             if (c == 0) {
                 white_run = jbig2_decode_get_run(ctx, mmr, jbig2_mmr_white_decode, 8);
                 if (white_run < 0)
-                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "failed to decode white H run");
+                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "failed to decode white H run");
                 black_run = jbig2_decode_get_run(ctx, mmr, jbig2_mmr_black_decode, 7);
                 if (black_run < 0)
-                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "failed to decode black H run");
+                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "failed to decode black H run");
                 /* printf ("H %d %d\n", white_run, black_run); */
                 a1 = a0 + white_run;
                 a2 = a1 + black_run;
@@ -1004,7 +1018,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 if (a2 > mmr->width)
                     a2 = mmr->width;
                 if (a2 < a1) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative black H run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative black H run");
                     a2 = a1;
                 }
                 if (a1 < mmr->width)
@@ -1013,10 +1027,10 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
             } else {
                 black_run = jbig2_decode_get_run(ctx, mmr, jbig2_mmr_black_decode, 7);
                 if (black_run < 0)
-                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "failed to decode black H run");
+                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "failed to decode black H run");
                 white_run = jbig2_decode_get_run(ctx, mmr, jbig2_mmr_white_decode, 8);
                 if (white_run < 0)
-                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "failed to decode white H run");
+                    return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "failed to decode white H run");
                 /* printf ("H %d %d\n", black_run, white_run); */
                 a1 = a0 + black_run;
                 a2 = a1 + white_run;
@@ -1025,7 +1039,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 if (a2 > mmr->width)
                     a2 = mmr->width;
                 if (a1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative white H run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative white H run");
                     a1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1041,7 +1055,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
             b2 = jbig2_find_changing_element(ref, b1, mmr->width);
             if (c) {
                 if (b2 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative P run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative P run");
                     b2 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1056,7 +1070,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
             b1 = jbig2_find_changing_element_of_color(ref, a0, mmr->width, !c);
             if (c) {
                 if (b1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative V(0) run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative V(0) run");
                     b1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1074,7 +1088,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 b1 += 1;
             if (c) {
                 if (b1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative VR(1) run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative VR(1) run");
                     b1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1092,7 +1106,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 b1 += 2;
             if (c) {
                 if (b1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative VR(2) run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative VR(2) run");
                     b1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1110,7 +1124,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 b1 += 3;
             if (c) {
                 if (b1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative VR(3) run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative VR(3) run");
                     b1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1128,7 +1142,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 b1 -= 1;
             if (c) {
                 if (b1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative VL(1) run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative VL(1) run");
                     b1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1146,7 +1160,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 b1 -= 2;
             if (c) {
                 if (b1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative VL(2) run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative VL(2) run");
                     b1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1164,7 +1178,7 @@ jbig2_decode_mmr_line(Jbig2Ctx *ctx, Jbig2MmrCtx *mmr, const byte *ref, byte *ds
                 b1 -= 3;
             if (c) {
                 if (b1 < a0) {
-                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "ignoring negative VL(3) run");
+                    jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "ignoring negative VL(3) run");
                     b1 = a0;
                 }
                 if (a0 < mmr->width)
@@ -1249,7 +1263,7 @@ jbig2_decode_halftone_mmr(Jbig2Ctx *ctx, const Jbig2GenericRegionParams *params,
         memset(dst, 0, rowstride);
         code = jbig2_decode_mmr_line(ctx, &mmr, ref, dst, &eofb);
         if (code < 0)
-            return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, -1, "failed to decode halftone mmr line");
+            return jbig2_error(ctx, JBIG2_SEVERITY_WARNING, JBIG2_UNKNOWN_SEGMENT_NUMBER, "failed to decode halftone mmr line");
         ref = dst;
         dst += rowstride;
     }
@@ -1263,6 +1277,6 @@ jbig2_decode_halftone_mmr(Jbig2Ctx *ctx, const Jbig2GenericRegionParams *params,
         jbig2_decode_mmr_consume(&mmr, 24);
     }
 
-    *consumed_bytes += mmr.data_index + (mmr.bit_index >> 3) + (mmr.bit_index > 0 ? 1 : 0);
+    *consumed_bytes += (mmr.consumed_bits + 7) / 8;
     return code;
 }

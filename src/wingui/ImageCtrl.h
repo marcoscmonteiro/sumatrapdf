@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct ImageCtrl : WindowBase {
@@ -11,8 +11,3 @@ struct ImageCtrl : WindowBase {
 
     Size GetIdealSize() override;
 };
-
-ILayout* NewImageLayout(ImageCtrl* b);
-
-bool IsImage(Kind);
-bool IsImage(ILayout*);

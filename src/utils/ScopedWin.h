@@ -52,13 +52,15 @@ class ScopedComPtr {
     explicit ScopedComPtr(T* ptr) : ptr(ptr) {
     }
     ~ScopedComPtr() {
-        if (ptr)
+        if (ptr) {
             ptr->Release();
+        }
     }
     bool Create(const CLSID clsid) {
         CrashIf(ptr);
-        if (ptr)
+        if (ptr) {
             return false;
+        }
         HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&ptr));
         return SUCCEEDED(hr);
     }
@@ -75,8 +77,9 @@ class ScopedComPtr {
         return ptr;
     }
     T* operator=(T* newPtr) {
-        if (ptr)
+        if (ptr) {
             ptr->Release();
+        }
         return (ptr = newPtr);
     }
 };
@@ -91,12 +94,14 @@ class ScopedComQIPtr {
 
     explicit ScopedComQIPtr(IUnknown* unk) {
         HRESULT hr = unk->QueryInterface(&ptr);
-        if (FAILED(hr))
+        if (FAILED(hr)) {
             ptr = nullptr;
+        }
     }
     ~ScopedComQIPtr() {
-        if (ptr)
+        if (ptr) {
             ptr->Release();
+        }
     }
     bool Create(const CLSID clsid) {
         CrashIf(ptr);

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // Common for EnginePdf.cpp and EngineXps.cpp
@@ -33,11 +33,11 @@ struct FzPageInfo {
     fz_link* links = nullptr;
 
     // auto-detected links
-    Vec<PageElement*> autoLinks;
+    Vec<IPageElement*> autoLinks;
     // comments are made out of annotations
-    Vec<PageElement*> comments;
+    Vec<IPageElement*> comments;
 
-    RectD mediabox = {};
+    RectF mediabox = {};
     Vec<FitzImagePos> images;
 
     // if false, only loaded page (fast)
@@ -50,8 +50,8 @@ struct LinkRectList {
     Vec<fz_rect> coords;
 };
 
-fz_rect RectD_to_fz_rect(RectD rect);
-RectD fz_rect_to_RectD(fz_rect rect);
+fz_rect To_fz_rect(RectF rect);
+RectF ToRectFl(fz_rect rect);
 fz_matrix fz_create_view_ctm(fz_rect mediabox, float zoom, int rotation);
 
 bool fz_is_pt_in_rect(fz_rect rect, fz_point pt);
@@ -62,8 +62,8 @@ WCHAR* pdf_clean_string(WCHAR* string);
 
 fz_stream* fz_open_istream(fz_context* ctx, IStream* stream);
 fz_stream* fz_open_file2(fz_context* ctx, const WCHAR* filePath);
-void fz_stream_fingerprint(fz_context* ctx, fz_stream* stm, unsigned char digest[16]);
-std::string_view fz_extract_stream_data(fz_context* ctx, fz_stream* stream);
+void fz_stream_fingerprint(fz_context* ctx, fz_stream* stm, u8 digest[16]);
+std::span<u8> fz_extract_stream_data(fz_context* ctx, fz_stream* stream);
 
 RenderedBitmap* new_rendered_fz_pixmap(fz_context* ctx, fz_pixmap* pixmap);
 
@@ -73,19 +73,17 @@ LinkRectList* LinkifyText(const WCHAR* pageText, Rect* coords);
 int is_external_link(const char* uri);
 int resolve_link(const char* uri, float* xp, float* yp);
 TocItem* newTocItemWithDestination(TocItem* parent, WCHAR* title, PageDestination* dest);
-PageElement* newFzComment(const WCHAR* comment, int pageNo, RectD rect);
 PageElement* newFzImage(int pageNo, fz_rect rect, size_t imageIdx);
 PageElement* newFzLink(int pageNo, fz_link* link, fz_outline* outline);
 PageDestination* newFzDestination(fz_outline*);
-PageElement* FzGetElementAtPos(FzPageInfo* pageInfo, PointD pt);
-void FzGetElements(Vec<PageElement*>* els, FzPageInfo* pageInfo);
-PageElement* makePdfCommentFromPdfAnnot(fz_context* ctx, int pageNo, pdf_annot* annot);
+IPageElement* FzGetElementAtPos(FzPageInfo* pageInfo, PointF pt);
+void FzGetElements(Vec<IPageElement*>* els, FzPageInfo* pageInfo);
 void FzLinkifyPageText(FzPageInfo* pageInfo, fz_stext_page* stext);
-void fz_run_page_transparency(fz_context* ctx, Vec<Annotation*>* annots, fz_device* dev, const fz_rect cliprect,
-                              bool endGroup, bool hasTransparency = false);
-void fz_run_user_page_annots(fz_context* ctx, Vec<Annotation*>* annots, fz_device* dev, fz_matrix ctm,
-                             const fz_rect cliprect, fz_cookie* cookie);
 fz_pixmap* fz_convert_pixmap2(fz_context* ctx, fz_pixmap* pix, fz_colorspace* ds, fz_colorspace* prf,
                               fz_default_colorspaces* default_cs, fz_color_params color_params, int keep_alpha);
 fz_image* fz_find_image_at_idx(fz_context* ctx, FzPageInfo* pageInfo, int idx);
 void fz_find_image_positions(fz_context* ctx, Vec<FitzImagePos>& images, fz_stext_page* stext);
+
+// float is in range 0...1
+COLORREF FromPdfColor(fz_context* ctx, int n, float color[4]);
+int ToPdfRgba(COLORREF c, float col[4]);

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 class EventMgr;
@@ -34,14 +34,14 @@ class Control : public ILayout {
     Control* GetChild(size_t idx) const;
     size_t GetChildCount() const;
 
-    void SetPosition(const Gdiplus::Rect& p);
+    void SetPosition(const Rect p);
 
     virtual void Paint(Graphics* gfx, int offX, int offY);
 
     // ILayout
-    virtual Gdiplus::Size Measure(const Gdiplus::Size availableSize);
-    virtual void Arrange(const Gdiplus::Rect finalRect);
-    virtual Gdiplus::Size DesiredSize();
+    Size Measure(const Size availableSize) override;
+    void Arrange(const Rect finalRect) override;
+    Size DesiredSize() override;
 
     // mouse enter/leave are used e.g. by a button to change the look when mouse
     // is over them. The intention is that in response to those a window should
@@ -50,9 +50,7 @@ class Control : public ILayout {
     virtual void NotifyMouseEnter();
     virtual void NotifyMouseLeave();
 
-    virtual void NotifyMouseMove(int x, int y) {
-        UNUSED(x);
-        UNUSED(y);
+    virtual void NotifyMouseMove([[maybe_unused]] int x, [[maybe_unused]] int y) {
     }
 
     bool WantsMouseClick() const;
@@ -67,14 +65,14 @@ class Control : public ILayout {
     void SetToolTip(const WCHAR*);
     void SetNamedEventClick(const char*);
 
-    void MeasureChildren(Gdiplus::Size availableSize) const;
+    void MeasureChildren(Size availableSize) const;
     void MapMyToRootPos(int& x, int& y) const;
     void MapRootToMyPos(int& x, int& y) const;
 
-    uint16_t wantedInputBits; // WndWantedInputBits
-    uint16_t stateBits;       // WndStateBits
+    u16 wantedInputBits; // WndWantedInputBits
+    u16 stateBits;       // WndStateBits
     // windows with bigger z-order are painted on top, 0 is default
-    int16_t zOrder;
+    i16 zOrder;
 
     ILayout* layout;
     Control* parent;
@@ -100,11 +98,11 @@ class Control : public ILayout {
     HCURSOR hCursor;
 
     // position and size (relative to parent, might be outside of parent's bounds)
-    Gdiplus::Rect pos;
+    Rect pos;
 
   protected:
     Vec<Control*> children;
 
     // desired size calculated in Measure()
-    Gdiplus::Size desiredSize;
+    Size desiredSize;
 };

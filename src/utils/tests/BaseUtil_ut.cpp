@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -7,23 +7,20 @@
 #include "utils/UtAssert.h"
 
 static void GeomTest() {
-    PointD ptD(12.4, -13.6);
-    utassert(ptD.x == 12.4 && ptD.y == -13.6);
-    Point ptI = ptD.ToInt();
-    utassert(ptI.x == 12 && ptI.y == -14);
-    ptD = ptI.Convert<double>();
-    utassert(PointD(12, -14) == ptD);
-    utassert(PointD(12.4, -13.6) != ptD);
+    PointF ptD(12.4f, -13.6f);
+    utassert(ptD.x == 12.4f && ptD.y == -13.6f);
+    Point ptI = ToPoint(ptD);
+    utassert(ptI.x == 12 && ptI.y == -13);
 
-    SizeD szD(7.7, -3.3);
-    utassert(szD.dx == 7.7 && szD.dy == -3.3);
-    Size szI = szD.ToInt();
+    SizeF szD(7.7f, -3.3f);
+    utassert(szD.dx == 7.7f && szD.dy == -3.3f);
+    Size szI = ToSize(szD);
     utassert(szI.dx == 8 && szI.dy == -3);
-    szD = szI.Convert<double>();
-    utassert(SizeD(8, -3) == szD);
+    szD = ToSizeFl(szI);
+    utassert(SizeF(8, -3) == szD);
 
     utassert(!szD.IsEmpty() && !szI.IsEmpty());
-    utassert(Size().IsEmpty() && SizeD().IsEmpty());
+    utassert(Size().IsEmpty() && SizeF().IsEmpty());
 
     struct SRIData {
         int x1s, x1e, y1s, y1e;
@@ -80,7 +77,7 @@ static void GeomTest() {
 static const char* strings[] = {"s1", "string", "another one", "and one more"};
 
 static void PoolAllocatorStringsTest(PoolAllocator& a, int nRounds) {
-    a.reset();
+    a.Reset();
 
     int nStrings = (int)dimof(strings);
     for (int i = 0; i < nRounds; i++) {

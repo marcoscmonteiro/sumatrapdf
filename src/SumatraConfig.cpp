@@ -1,9 +1,10 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
 
 #include "resource.h"
+#include "Commands.h"
 #include "Version.h"
 #include "SumatraConfig.h"
 
@@ -75,6 +76,12 @@ bool gOwnerDrawMenu = false;
 bool gShowDebugMenu = true;
 #else
 bool gShowDebugMenu = false;
+#endif
+
+#ifdef DISABLE_DOCUMENT_RESTRICTIONS
+bool gDisableDocumentRestrictions = true;
+#else
+bool gDisableDocumentRestrictions = false;
 #endif
 
 const WCHAR* GetAppName() {

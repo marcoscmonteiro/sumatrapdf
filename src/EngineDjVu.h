@@ -1,7 +1,7 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 void CleanupDjVuEngine();
-bool IsDjVuEngineSupportedFile(const WCHAR* fileName, bool sniff = false);
-EngineBase* CreateDjVuEngineFromFile(const WCHAR* fileName);
+bool IsDjVuEngineSupportedFileType(Kind kind);
+EngineBase* CreateDjVuEngineFromFile(const WCHAR* path);
 EngineBase* CreateDjVuEngineFromStream(IStream* stream);

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 struct ChmDoc;
@@ -7,8 +7,7 @@ class HtmlWindow;
 class HtmlWindowCallback;
 struct ChmCacheEntry;
 
-class ChmModel : public Controller {
-  public:
+struct ChmModel : Controller {
     explicit ChmModel(ControllerCallback* cb);
     ~ChmModel() override;
 
@@ -25,7 +24,7 @@ class ChmModel : public Controller {
     void Navigate(int dir) override;
 
     // view settings
-    void SetDisplayMode(DisplayMode mode, bool keepContinuous = false);
+    void SetDisplayMode(DisplayMode mode, bool keepContinuous = false) override;
     DisplayMode GetDisplayMode() const override;
     void SetPresentationMode(bool enable) override;
     void SetZoomVirtual(float zoom, Point* fixPt) override;
@@ -35,7 +34,7 @@ class ChmModel : public Controller {
 
     // table of contents
     TocTree* GetToc() override;
-    void ScrollToLink(PageDestination* dest) override;
+    void ScrollToLink(PageDestination* link) override;
     PageDestination* GetNamedDest(const WCHAR* name) override;
 
     void GetDisplayState(DisplayState* ds) override;
@@ -45,10 +44,8 @@ class ChmModel : public Controller {
     // for quick type determination and type-safe casting
     ChmModel* AsChm() override;
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
     static ChmModel* Create(const WCHAR* fileName, ControllerCallback* cb = nullptr);
 
-  public:
     // the following is specific to ChmModel
 
     bool SetParentHwnd(HWND hwnd);
@@ -58,16 +55,17 @@ class ChmModel : public Controller {
     void FindInCurrentPage();
     void SelectAll();
     void CopySelection();
-    LRESULT PassUIMsg(UINT msg, WPARAM wParam, LPARAM lParam);
+    LRESULT PassUIMsg(UINT msg, WPARAM wp, LPARAM lp);
 
     // for HtmlWindowCallback (called through htmlWindowCb)
     bool OnBeforeNavigate(const WCHAR* url, bool newWindow);
     void OnDocumentComplete(const WCHAR* url);
     void OnLButtonDown();
-    std::string_view GetDataForUrl(const WCHAR* url);
-    void DownloadData(const WCHAR* url, std::string_view data);
+    std::span<u8> GetDataForUrl(const WCHAR* url);
+    void DownloadData(const WCHAR* url, std::span<u8> data);
 
-  protected:
+    static bool IsSupportedFileType(Kind);
+
     AutoFreeWstr fileName;
     ChmDoc* doc = nullptr;
     TocTree* tocTree = nullptr;

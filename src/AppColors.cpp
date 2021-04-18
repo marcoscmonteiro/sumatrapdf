@@ -1,9 +1,10 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 #include "utils/BaseUtil.h"
 #include "utils/ColorUtil.h"
 #include "utils/WinUtil.h"
 
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "AppColors.h"
@@ -49,7 +50,7 @@
 #define COL_WINDOW_BG RGB(0x99, 0x99, 0x99)
 #endif
 
-static COLORREF rgb_to_bgr(COLORREF rgb) {
+static COLORREF RgbToCOLORREF(COLORREF rgb) {
     return ((rgb & 0x0000FF) << 16) | (rgb & 0x00FF00) | ((rgb & 0xFF0000) >> 16);
 }
 
@@ -167,7 +168,8 @@ COLORREF GetAppColor(AppColor col, bool ebook) {
     }
 
     if (col == AppColor::NotificationsBg) {
-        return GetAppColor(AppColor::MainWindowBg);
+        return MkGray(0xff);
+        // return GetAppColor(AppColor::MainWindowBg);
     }
 
     if (col == AppColor::NotificationsText) {
@@ -175,11 +177,14 @@ COLORREF GetAppColor(AppColor col, bool ebook) {
     }
 
     if (col == AppColor::NotificationsHighlightBg) {
-        return rgb_to_bgr(0x3399ff);
+        // yellow-ish background
+        // return MkRgb(0xff, 0xee, 0x70);
+        return RgbToCOLORREF(0xFFEE70);
     }
 
     if (col == AppColor::NotificationsHighlightText) {
-        return COL_WHITE;
+        // dark red
+        return RgbToCOLORREF(0x8d0801);
     }
 
     if (col == AppColor::NotifcationsProgress) {
@@ -200,7 +205,7 @@ COLORREF GetAppColor(AppColor col, bool ebook) {
     }
 
     if (col == AppColor::TabSelectedCloseCircle) {
-        return rgb_to_bgr(0xC13535);
+        return RgbToCOLORREF(0xC13535);
     }
 
     if (col == AppColor::TabBackgroundBg) {

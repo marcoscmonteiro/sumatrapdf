@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 namespace css {
@@ -65,8 +65,8 @@ enum class ElAlign { Center = 0, Top, Bottom, Left, Right };
 // This is more flexible than, say, VerticalAlignment property in WPF.
 // Note: this could be extended for values outside of <0.f - 1.f> range.
 struct ElAlignData {
-    float elementPoint;
-    float containerPoint;
+    float elementPoint{0};
+    float containerPoint{0};
 
     bool operator==(const ElAlignData& other) const;
     int CalcOffset(int elSize, int containerSize) const;
@@ -122,7 +122,7 @@ struct ColorDataGradientLinear {
     LinearGradientMode mode;
     ARGB startColor;
     ARGB endColor;
-    RectF* rect;
+    RectF rect;
     LinearGradientBrush* cachedBrush;
 };
 
@@ -263,10 +263,9 @@ CachedStyle* CacheStyle(Style* style, bool* changedOut);
 CachedStyle* CachedStyleByName(const char* name);
 Style* StyleByName(const char* name);
 
-Brush* BrushFromColorData(ColorData* color, const Gdiplus::Rect& r);
-Brush* BrushFromColorData(ColorData* color, const RectF& r);
+Brush* BrushFromColorData(ColorData* color, const RectF r);
 
 ARGB ParseCssColor(const char* color);
-Gdiplus::Size GetBorderAndPaddingSize(CachedStyle* s);
+Size GetBorderAndPaddingSize(CachedStyle* s);
 
 } // namespace css

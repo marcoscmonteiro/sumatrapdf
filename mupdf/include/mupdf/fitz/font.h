@@ -163,12 +163,12 @@ int fz_font_is_serif(fz_context *ctx, fz_font *font);
 int fz_font_is_monospaced(fz_context *ctx, fz_font *font);
 
 /**
-	Retrieve a pointer to the font bbox.
+	Retrieve the font bbox.
 
 	font: The font to query.
 
-	Returns a pointer to the font bbox (or NULL if the
-	font is NULL).
+	Returns the font bbox by value; it is valid only if
+	fz_font_flags(font)->invalid_bbox is zero.
 */
 fz_rect fz_font_bbox(fz_context *ctx, fz_font *font);
 
@@ -478,9 +478,7 @@ void fz_set_font_bbox(fz_context *ctx, fz_font *font, float xmin, float ymin, fl
 
 	trm: The matrix to apply to the glyph before bounding.
 
-	r: Pointer to a fz_rect to use for storage.
-
-	Returns r, after filling it in with the bounds of the given
+	Returns rectangle by value containing the bounds of the given
 	glyph.
 */
 fz_rect fz_bound_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm);

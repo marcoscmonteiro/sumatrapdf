@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -12,7 +12,7 @@
 #define kPdbRecordHeaderLen 8
 
 // Takes ownership of d
-bool PdbReader::Parse(std::string_view d) {
+bool PdbReader::Parse(std::span<u8> d) {
     data = d.data();
     dataSize = d.size();
     if (!ParseHeader()) {
@@ -68,7 +68,7 @@ bool PdbReader::ParseHeader() {
         recHdr.offset = dec.UInt32();
         recHdr.flags = dec.UInt8();
         dec.Bytes(recHdr.uniqueID, dimof(recHdr.uniqueID));
-        uint32_t off = recHdr.offset;
+        u32 off = recHdr.offset;
         if ((off < minOffset) || (off > maxOffset)) {
             return false;
         }
@@ -79,9 +79,9 @@ bool PdbReader::ParseHeader() {
     }
 
     // validate offsets
-    uint32_t prevOff = recInfos[0].offset;
+    u32 prevOff = recInfos[0].offset;
     for (size_t i = 1; i < nRecs - 1; i++) {
-        uint32_t off = recInfos[i].offset;
+        u32 off = recInfos[i].offset;
         if (prevOff > off) {
             return false;
         }
@@ -103,7 +103,7 @@ size_t PdbReader::GetRecordCount() {
 }
 
 // don't free, memory is owned by us
-std::string_view PdbReader::GetRecord(size_t recNo) {
+std::span<u8> PdbReader::GetRecord(size_t recNo) {
     size_t nRecs = recInfos.size();
     CrashIf(recNo >= nRecs);
     if (recNo >= nRecs) {
@@ -116,10 +116,10 @@ std::string_view PdbReader::GetRecord(size_t recNo) {
     }
     CrashIf(off > nextOff);
     size_t size = nextOff - off;
-    return {data + off, size};
+    return {(u8*)data + off, size};
 }
 
-PdbReader* PdbReader::CreateFromData(std::string_view d) {
+PdbReader* PdbReader::CreateFromData(std::span<u8> d) {
     if (d.empty()) {
         return nullptr;
     }
@@ -131,22 +131,38 @@ PdbReader* PdbReader::CreateFromData(std::string_view d) {
     return reader;
 }
 
-PdbReader* PdbReader::CreateFromFile(const char* filePath) {
-    std::string_view path(filePath);
+PdbReader* PdbReader::CreateFromFile(const char* path) {
     auto d = file::ReadFile(path);
-    return CreateFromData(d);
+    std::span<u8> ds = {(u8*)d.data(), d.size()};
+    return CreateFromData(ds);
 }
 
 #if OS_WIN
 #include "WinUtil.h"
 
 PdbReader* PdbReader::CreateFromFile(const WCHAR* filePath) {
-    std::string_view d = file::ReadFile(filePath);
+    std::span<u8> d = file::ReadFile(filePath);
     return CreateFromData(d);
 }
 
 PdbReader* PdbReader::CreateFromStream(IStream* stream) {
-    std::string_view data = GetDataFromStream(stream, nullptr);
-    return CreateFromData(data);
+    std::span<u8> d = GetDataFromStream(stream, nullptr);
+    return CreateFromData(d);
 }
 #endif
+
+PdbDocType GetPdbDocType(const char* typeCreator) {
+    if (memeq(typeCreator, MOBI_TYPE_CREATOR, 8)) {
+        return PdbDocType::Mobipocket;
+    }
+    if (memeq(typeCreator, PALMDOC_TYPE_CREATOR, 8)) {
+        return PdbDocType::PalmDoc;
+    }
+    if (memeq(typeCreator, TEALDOC_TYPE_CREATOR, 8)) {
+        return PdbDocType::TealDoc;
+    }
+    if (memeq(typeCreator, PLUCKER_TYPE_CREATOR, 8)) {
+        return PdbDocType::Plucker;
+    }
+    return PdbDocType::Unknown;
+}

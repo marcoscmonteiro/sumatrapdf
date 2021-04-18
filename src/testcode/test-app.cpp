@@ -6,8 +6,6 @@
 #include "wingui/Window.h"
 #include "wingui/ButtonCtrl.h"
 
-// in TestDirectDraw.cpp
-extern int TestDirectDraw(HINSTANCE hInstance, int nCmdShow);
 // in TestTab.cpp
 extern int TestTab(HINSTANCE hInstance, int nCmdShow);
 // in TestLayout.cpp
@@ -23,10 +21,6 @@ static std::tuple<ILayout*, ButtonCtrl*> CreateButtonLayout(HWND parent, std::st
 
 HINSTANCE gHinst = nullptr;
 
-static void LaunchDirectDraw() {
-    TestDirectDraw(gHinst, SW_SHOW);
-}
-
 static void LaunchTabs() {
     TestTab(gHinst, SW_SHOW);
 }
@@ -40,10 +34,6 @@ static ILayout* CreateMainLayout(HWND hwnd) {
 
     vbox->alignMain = MainAxisAlign::MainCenter;
     vbox->alignCross = CrossAxisAlign::CrossCenter;
-    {
-        auto [l, b] = CreateButtonLayout(hwnd, "DirectDraw test", LaunchDirectDraw);
-        vbox->addChild(l);
-    }
 
     {
         auto [l, b] = CreateButtonLayout(hwnd, "Tabs test", LaunchTabs);
@@ -65,11 +55,8 @@ void __cdecl SendCrashReport(char const*) {
     // a dummy implementation
 }
 
-int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine,
-                     _In_ int nCmdShow) {
-    UNUSED(hPrevInstance);
-    UNUSED(lpCmdLine);
-    UNUSED(nCmdShow);
+int APIENTRY WinMain(HINSTANCE hInstance, [[maybe_unused]]  HINSTANCE hPrevInstance, [[maybe_unused]]  LPSTR lpCmdLine,
+                     [[maybe_unused]]  int nCmdShow) {
     // SetProcessDpiAwareness(PROCESS_SYSTEM_DPI_AWARE);
     // SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
 
@@ -80,7 +67,6 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
     cc.dwICC = ICC_WIN95_CLASSES;
     InitCommonControlsEx(&cc);
 
-    // return TestDirectDraw(hInstance, nCmdShow);
     // return TestTab(hInstance, nCmdShow);
     // return TestLayout(hInstance, nCmdShow);
 
@@ -101,13 +87,7 @@ int APIENTRY WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
             return;
         }
         //auto c = Loose(Size{dx, dy});
-        Size windowSize{dx, dy};
-        auto c = Tight(windowSize);
-        auto size = l->Layout(c);
-        Point min{0, 0};
-        Point max{size.Width, size.Height};
-        Rect bounds{min, max};
-        l->SetBounds(bounds);
+        LayoutToSize(l, {dx, dy});
         InvalidateRect(hwnd, nullptr, false);
     };
 

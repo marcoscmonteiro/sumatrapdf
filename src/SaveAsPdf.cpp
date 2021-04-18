@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 extern "C" {
@@ -17,33 +17,34 @@ extern "C" {
 #include "wingui/TreeModel.h"
 
 #include "resource.h"
+#include "Commands.h"
 #include "Translations.h"
 
 #include "Annotation.h"
 #include "EngineBase.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
 
 #include "SaveAsPdf.h"
 
 // based on pdfmerge.c in mupdf
 
 const pdf_write_options pdf_default_write_options2 = {
-    0,  /* do_incremental */
-    0,  /* do_pretty */
-    0,  /* do_ascii */
-    0,  /* do_compress */
-    0,  /* do_compress_images */
-    0,  /* do_compress_fonts */
-    0,  /* do_decompress */
-    0,  /* do_garbage */
-    0,  /* do_linear */
-    0,  /* do_clean */
-    0,  /* do_sanitize */
-    0,  /* do_appearance */
-    0,  /* do_encrypt */
-    ~0, /* permissions */
-    "", /* opwd_utf8[128] */
-    "", /* upwd_utf8[128] */
+    0,   /* do_incremental */
+    0,   /* do_pretty */
+    0,   /* do_ascii */
+    0,   /* do_compress */
+    0,   /* do_compress_images */
+    0,   /* do_compress_fonts */
+    0,   /* do_decompress */
+    0,   /* do_garbage */
+    0,   /* do_linear */
+    0,   /* do_clean */
+    0,   /* do_sanitize */
+    0,   /* do_appearance */
+    0,   /* do_encrypt */
+    ~0,  /* permissions */
+    {0}, /* opwd_utf8[128] */
+    {0}, /* upwd_utf8[128] */
 };
 
 /* Copy as few key/value pairs as we can. Do not include items that reference other pages. */
@@ -154,7 +155,7 @@ bool PdfMerger::MergeAndSave(TocItem* root, char* dstPath) {
         return true;
     });
 
-    int nFiles = filePaths.size();
+    int nFiles = filePaths.Size();
     if (nFiles == 0) {
         // TODO: show an error message
         return false;

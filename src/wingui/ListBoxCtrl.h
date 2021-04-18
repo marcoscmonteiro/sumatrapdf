@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct ListBoxModel {
@@ -17,22 +17,32 @@ struct ListBoxModelStrings : ListBoxModel {
     std::string_view Item(int) override;
 };
 
+struct ListBoxCtrl;
+
+struct ListBoxSelectionChangedEvent : WndEvent {
+    ListBoxCtrl* listBox = nullptr;
+    int idx = 0;
+    std::string_view item;
+};
+
+typedef std::function<void(ListBoxSelectionChangedEvent*)> ListBoxSelectionChangedHandler;
+
 struct ListBoxCtrl : WindowBase {
     ListBoxModel* model = nullptr;
-    Size minSize{120, 32};
+    ListBoxSelectionChangedHandler onSelectionChanged = nullptr;
+
+    Size idealSize{};
+    int idealSizeLines = 0;
 
     ListBoxCtrl(HWND parent);
     ~ListBoxCtrl() override;
     bool Create() override;
 
+    int GetItemHeight(int);
+
     Size GetIdealSize() override;
 
-    int GetSelectedItem();
-    bool SetSelectedItem(int);
+    int GetCurrentSelection();
+    bool SetCurrentSelection(int);
     void SetModel(ListBoxModel*);
 };
-
-WindowBaseLayout* NewListBoxLayout(ListBoxCtrl*);
-
-bool IsListBox(Kind);
-bool IsListBox(ILayout*);

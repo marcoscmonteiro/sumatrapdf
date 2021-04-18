@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -21,15 +21,16 @@ size_t Utf8ToWcharBuf(const char* s, size_t cbLen, WCHAR* bufOut, size_t cchBufO
 size_t WcharToUtf8Buf(const WCHAR* s, char* bufOut, size_t cbBufOutSize) {
     CrashIf(!bufOut || (0 == cbBufOutSize));
     int cbConverted = WideCharToMultiByte(CP_UTF8, 0, s, -1, nullptr, 0, nullptr, nullptr);
-    if ((size_t)cbConverted >= cbBufOutSize)
+    if ((size_t)cbConverted >= cbBufOutSize) {
         cbConverted = (int)cbBufOutSize - 1;
+    }
     int res = WideCharToMultiByte(CP_UTF8, 0, s, (int)str::Len(s), bufOut, cbConverted, nullptr, nullptr);
     CrashIf(res > cbConverted);
     bufOut[res] = '\0';
     return res;
 }
 
-std::string_view WstrToCodePage(const WCHAR* txt, UINT codePage, int cchTxtLen) {
+std::string_view WstrToCodePage(const WCHAR* txt, uint codePage, int cchTxtLen) {
     CrashIf(!txt);
     if (!txt) {
         return {};
@@ -49,7 +50,7 @@ std::string_view WstrToCodePage(const WCHAR* txt, UINT codePage, int cchTxtLen) 
 }
 
 /* Caller needs to free() the result */
-WCHAR* ToWideChar(const char* src, UINT codePage, int cbSrcLen) {
+WCHAR* ToWideChar(const char* src, uint codePage, int cbSrcLen) {
     CrashIf(!src);
     if (!src) {
         return nullptr;
@@ -67,7 +68,7 @@ WCHAR* ToWideChar(const char* src, UINT codePage, int cbSrcLen) {
     return res;
 }
 
-std::string_view ToMultiByte(const char* src, UINT codePageSrc, UINT codePageDest) {
+std::string_view ToMultiByte(const char* src, uint codePageSrc, uint codePageDest) {
     CrashIf(!src);
     if (!src) {
         return {};
@@ -125,14 +126,14 @@ std::string_view UnknownToUtf8(const std::string_view& txt) {
     return strconv::WstrToUtf8(uni.Get());
 }
 
-size_t ToCodePageBuf(char* buf, int cbBufSize, const WCHAR* s, UINT cp) {
+size_t ToCodePageBuf(char* buf, int cbBufSize, const WCHAR* s, uint cp) {
     return WideCharToMultiByte(cp, 0, s, -1, buf, cbBufSize, nullptr, nullptr);
 }
-size_t FromCodePageBuf(WCHAR* buf, int cchBufSize, const char* s, UINT cp) {
+size_t FromCodePageBuf(WCHAR* buf, int cchBufSize, const char* s, uint cp) {
     return MultiByteToWideChar(cp, 0, s, -1, buf, cchBufSize);
 }
 
-WCHAR* FromCodePage(const char* src, UINT cp) {
+WCHAR* FromCodePage(const char* src, uint cp) {
     return ToWideChar(src, cp);
 }
 
@@ -156,28 +157,37 @@ std::string_view WstrToAnsi(const WCHAR* src) {
     return WstrToCodePage(src, CP_ACP);
 }
 
-StackWstrToUtf8::StackWstrToUtf8(std::wstring_view sv) {
-    buf[0] = 0;
-    if (sv.empty()) {
+static void Set(StackWstrToUtf8* o, const WCHAR* s, int cch) {
+    o->buf[0] = 0;
+    if (!s || cch == 0) {
         return;
     }
-    int cch = (int)sv.size();
-    const WCHAR* s = sv.data();
-    int cbBufSize = (int)sizeof(buf) - 1; // -1 for terminating zero
-    int res = WideCharToMultiByte(CP_UTF8, 0, s, cch, buf, cbBufSize, nullptr, nullptr);
+
+    int cbBufSize = (int)sizeof(o->buf) - 1; // -1 for terminating zero
+    int res = WideCharToMultiByte(CP_UTF8, 0, s, cch, o->buf, cbBufSize, nullptr, nullptr);
     if (res > 0) {
-        buf[res] = 0;
+        o->buf[res] = 0;
         return;
     }
 
     // the buffer wasn't big enough, so measure how much we need and allocate
     int cbNeeded = WideCharToMultiByte(CP_UTF8, 0, s, cch, nullptr, 0, nullptr, nullptr);
-    overflow = AllocArray<char>((size_t)cbNeeded + 1); // +1 for terminating 0
-    if (!overflow) {
+    o->overflow = AllocArray<char>((size_t)cbNeeded + 1); // +1 for terminating 0
+    if (!o->overflow) {
         return;
     }
-    res = WideCharToMultiByte(CP_UTF8, 0, s, cch, overflow, cbNeeded, nullptr, nullptr);
+    res = WideCharToMultiByte(CP_UTF8, 0, s, cch, o->overflow, cbNeeded, nullptr, nullptr);
     CrashIf(res != cbNeeded);
+}
+
+StackWstrToUtf8::StackWstrToUtf8(const WCHAR* s) {
+    int n = (int)str::Len(s);
+    Set(this, s, n);
+}
+
+StackWstrToUtf8::StackWstrToUtf8(std::wstring_view sv) {
+    int cch = (int)sv.size();
+    Set(this, sv.data(), cch);
 }
 
 char* StackWstrToUtf8::Get() const {

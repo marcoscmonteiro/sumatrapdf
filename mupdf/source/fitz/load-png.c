@@ -179,7 +179,7 @@ png_deinterlace(fz_context *ctx, struct info *info, unsigned int *passw, unsigne
 {
 	unsigned int n = info->n;
 	unsigned int depth = info->depth;
-	unsigned int stride = (info->width * n * depth + 7) / 8;
+	size_t stride = ((size_t)info->width * n * depth + 7) / 8;
 	unsigned char *output;
 	unsigned int p, x, y, k;
 
@@ -427,7 +427,7 @@ png_read_image(fz_context *ctx, struct info *info, const unsigned char *p, size_
 	/* Read IHDR chunk (must come first) */
 
 	size = getuint(p);
-	if (total < 12 || size > total - 12)
+	if (size > total - 12)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "premature end of data in png image");
 
 	if (!memcmp(p + 4, "IHDR", 4))
@@ -559,8 +559,8 @@ png_expand_palette(fz_context *ctx, struct info *info, fz_pixmap *src)
 	unsigned char *sp = src->samples;
 	unsigned char *dp = dst->samples;
 	unsigned int x, y;
-	int dstride = dst->stride - dst->w * dst->n;
-	int sstride = src->stride - src->w * src->n;
+	size_t dstride = dst->stride - dst->w * (size_t)dst->n;
+	size_t sstride = src->stride - src->w * (size_t)src->n;
 
 	dst->xres = src->xres;
 	dst->yres = src->yres;

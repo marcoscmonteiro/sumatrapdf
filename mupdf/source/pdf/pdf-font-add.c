@@ -317,13 +317,22 @@ pdf_add_cid_font_widths(fz_context *ctx, pdf_document *doc, pdf_obj *fobj, fz_fo
 			prev_code = curr_code;
 		}
 
+		if (pdf_array_len(ctx, run_obj) > 0)
+		{
+			pdf_array_push_int(ctx, fw, first_code);
+			pdf_array_push(ctx, fw, run_obj);
+		}
+
 		if (font->width_table != NULL)
 			pdf_dict_put_int(ctx, fobj, PDF_NAME(DW), font->width_default);
 		if (pdf_array_len(ctx, fw) > 0)
 			pdf_dict_put(ctx, fobj, PDF_NAME(W), fw);
 	}
 	fz_always(ctx)
+	{
 		pdf_drop_obj(ctx, fw);
+		pdf_drop_obj(ctx, run_obj);
+	}
 	fz_catch(ctx)
 		fz_rethrow(ctx);
 }
@@ -538,9 +547,9 @@ pdf_add_cid_font(fz_context *ctx, pdf_document *doc, fz_font *font)
 	pdf_obj *fobj = NULL;
 	pdf_obj *fref = NULL;
 	pdf_obj *dfonts = NULL;
-	unsigned char digest[16];
+	pdf_font_resource_key key;
 
-	fref = pdf_find_font_resource(ctx, doc, PDF_CID_FONT_RESOURCE, 0, font, digest);
+	fref = pdf_find_font_resource(ctx, doc, PDF_CID_FONT_RESOURCE, 0, font, &key);
 	if (fref)
 		return fref;
 
@@ -556,7 +565,7 @@ pdf_add_cid_font(fz_context *ctx, pdf_document *doc, fz_font *font)
 		dfonts = pdf_dict_put_array(ctx, fobj, PDF_NAME(DescendantFonts), 1);
 		pdf_array_push_drop(ctx, dfonts, pdf_add_descendant_cid_font(ctx, doc, font));
 
-		fref = pdf_insert_font_resource(ctx, doc, digest, fobj);
+		fref = pdf_insert_font_resource(ctx, doc, &key, fobj);
 	}
 	fz_always(ctx)
 		pdf_drop_obj(ctx, fobj);
@@ -615,9 +624,9 @@ pdf_add_simple_font(fz_context *ctx, pdf_document *doc, fz_font *font, int encod
 	pdf_obj *fobj = NULL;
 	pdf_obj *fref = NULL;
 	const char **enc;
-	unsigned char digest[16];
+	pdf_font_resource_key key;
 
-	fref = pdf_find_font_resource(ctx, doc, PDF_SIMPLE_FONT_RESOURCE, encoding, font, digest);
+	fref = pdf_find_font_resource(ctx, doc, PDF_SIMPLE_FONT_RESOURCE, encoding, font, &key);
 	if (fref)
 		return fref;
 
@@ -656,7 +665,7 @@ pdf_add_simple_font(fz_context *ctx, pdf_document *doc, fz_font *font, int encod
 				pdf_add_simple_font_widths(ctx, doc, fobj, font, enc);
 		}
 
-		fref = pdf_insert_font_resource(ctx, doc, digest, fobj);
+		fref = pdf_insert_font_resource(ctx, doc, &key, fobj);
 	}
 	fz_always(ctx)
 	{
@@ -687,7 +696,7 @@ pdf_add_cjk_font(fz_context *ctx, pdf_document *doc, fz_font *fzfont, int script
 	pdf_obj *fref, *font, *subfont, *fontdesc;
 	pdf_obj *dfonts;
 	fz_rect bbox = { -200, -200, 1200, 1200 };
-	unsigned char digest[16];
+	pdf_font_resource_key key;
 	int flags;
 
 	const char *basefont, *encoding, *ordering;
@@ -728,7 +737,7 @@ pdf_add_cjk_font(fz_context *ctx, pdf_document *doc, fz_font *fzfont, int script
 	if (serif)
 		flags |= PDF_FD_SERIF;
 
-	fref = pdf_find_font_resource(ctx, doc, PDF_CJK_FONT_RESOURCE, script, fzfont, digest);
+	fref = pdf_find_font_resource(ctx, doc, PDF_CJK_FONT_RESOURCE, script, fzfont, &key);
 	if (fref)
 		return fref;
 
@@ -760,7 +769,7 @@ pdf_add_cjk_font(fz_context *ctx, pdf_document *doc, fz_font *fzfont, int script
 			}
 		}
 
-		fref = pdf_insert_font_resource(ctx, doc, digest, font);
+		fref = pdf_insert_font_resource(ctx, doc, &key, font);
 	}
 	fz_always(ctx)
 		pdf_drop_obj(ctx, font);

@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2017 Marti Maria Saguer
+//  Copyright (c) 1998-2020 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -254,7 +254,7 @@ cmsBool SaveMemoryBlock(const cmsUInt8Number* Buffer, cmsUInt32Number dwLen, con
     }
 
     if (fwrite(Buffer, 1, dwLen, out) != dwLen) {
-        FatalError("Cannot write %ld bytes to %s", dwLen, Filename);
+        FatalError("Cannot write %ld bytes to %s", (long) dwLen, Filename);
         return FALSE;
     }
 

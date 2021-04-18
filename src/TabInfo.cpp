@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -11,7 +11,8 @@
 
 #include "Annotation.h"
 #include "EngineBase.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "GlobalPrefs.h"
@@ -26,6 +27,7 @@
 #include "Selection.h"
 #include "Translations.h"
 #include "ParseBKM.h"
+#include "EditAnnotations.h"
 
 TabInfo::TabInfo(WindowInfo* win, const WCHAR* filePath) {
     this->win = win;
@@ -41,6 +43,7 @@ TabInfo::~TabInfo() {
     delete selectionOnPage;
     delete ctrl;
     delete tocSorted;
+    CloseAndDeleteEditAnnotationsWindow(editAnnotsWindow);
 }
 
 bool TabInfo::IsDocLoaded() const {
@@ -126,7 +129,7 @@ LinkSaver::LinkSaver(TabInfo* tab, HWND parentHwnd, const WCHAR* fileName) {
 }
 #endif
 
-bool SaveDataToFile(HWND hwndParent, WCHAR* fileName, std::string_view data) {
+bool SaveDataToFile(HWND hwndParent, WCHAR* fileName, std::span<u8> data) {
     if (!HasPermission(Perm_DiskAccess)) {
         return false;
     }
@@ -135,7 +138,7 @@ bool SaveDataToFile(HWND hwndParent, WCHAR* fileName, std::string_view data) {
     if (fileName) {
         str::BufSet(dstFileName, dimof(dstFileName), fileName);
     }
-    CrashIf(fileName && str::FindChar(fileName, '/'));
+    // CrashIf(fileName && str::FindChar(fileName, '/'));
 
     // Prepare the file filters (use \1 instead of \0 so that the
     // double-zero terminated string isn't cut by the string handling

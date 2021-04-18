@@ -1,7 +1,7 @@
 //---------------------------------------------------------------------------------
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2017 Marti Maria Saguer
+//  Copyright (c) 1998-2020 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -166,6 +166,23 @@ void CMSEXPORT cmsDeleteTransform(cmsContext ContextID, cmsHTRANSFORM hTransform
     _cmsFree(ContextID, (void *)core);
 }
 
+
+static
+cmsUInt32Number PixelSize(cmsUInt32Number Format)
+{
+    cmsUInt32Number fmt_bytes = T_BYTES(Format);
+
+    // For double, the T_BYTES field is zero
+    if (fmt_bytes == 0)
+        return sizeof(cmsUInt64Number);
+
+    // Otherwise, it is already correct for all formats
+    return fmt_bytes;
+}
+
+
+
+
 // Apply transform.
 void CMSEXPORT cmsDoTransform(cmsContext ContextID, cmsHTRANSFORM  Transform,
                               const void* InputBuffer,
@@ -178,8 +195,8 @@ void CMSEXPORT cmsDoTransform(cmsContext ContextID, cmsHTRANSFORM  Transform,
 
     stride.BytesPerLineIn = 0;  // Not used
     stride.BytesPerLineOut = 0;
-    stride.BytesPerPlaneIn = Size;
-    stride.BytesPerPlaneOut = Size;
+    stride.BytesPerPlaneIn = Size * PixelSize(p->InputFormat);
+    stride.BytesPerPlaneOut = Size * PixelSize(p->OutputFormat);
 
     p -> xform(ContextID, p, InputBuffer, OutputBuffer, Size, 1, &stride);
 }
@@ -997,6 +1014,12 @@ void CMSEXPORT _cmsGetTransformFormattersFloat(struct _cmstransform_struct *CMMc
      if (ToOutput)  *ToOutput  = CMMcargo ->ToOutputFloat;
 }
 
+// returns original flags
+cmsUInt32Number CMSEXPORT _cmsGetTransformFlags(struct _cmstransform_struct* CMMcargo)
+{
+    _cmsAssert(CMMcargo != NULL);
+    return CMMcargo->core->dwOriginalFlags;
+}
 
 void
 _cmsFindFormatter(_cmsTRANSFORM* p, cmsUInt32Number InputFormat, cmsUInt32Number OutputFormat, cmsUInt32Number dwFlags)
@@ -1137,6 +1160,7 @@ _cmsTRANSFORM* AllocEmptyTransform(cmsContext ContextID, cmsPipeline* lut,
 
        // Let's see if any plug-in want to do the transform by itself
        if (core->Lut != NULL) {
+           if (!(*dwFlags & cmsFLAGS_NOOPTIMIZE)) {
 
               for (Plugin = ctx->TransformCollection;
                      Plugin != NULL;
@@ -1167,9 +1191,11 @@ _cmsTRANSFORM* AllocEmptyTransform(cmsContext ContextID, cmsPipeline* lut,
                                    p->OldXform = (_cmsTransformFn)(void*) p->xform;
                                    p->xform = _cmsTransform2toTransformAdaptor;
                             }
+
                             return p;
                      }
               }
+	   }
 
               // Not suitable for the transform plug-in, let's check the pipeline plug-in
               _cmsOptimizePipeline(ContextID, &core->Lut, Intent, InputFormat, OutputFormat, dwFlags);

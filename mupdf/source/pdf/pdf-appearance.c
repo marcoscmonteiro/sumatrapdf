@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <math.h>
 #include <string.h>
+#include <time.h>
 
 #include <stdio.h>
 
@@ -13,6 +14,32 @@
 
 #define REPLACEMENT 0xB7
 #define CIRCLE_MAGIC 0.551915f
+
+static fz_point rect_center(const fz_rect rect)
+{
+	fz_point c;
+	c.x = (rect.x0 + rect.x1) / 2.0f;
+	c.y = (rect.y0 + rect.y1) / 2.0f;
+	return c;
+}
+
+static fz_matrix center_rect_within_rect(const fz_rect tofit, const fz_rect within)
+{
+	float xscale = (within.x1 - within.x0) / (tofit.x1 - tofit.x0);
+	float yscale = (within.y1 - within.y0) / (tofit.y1 - tofit.y0);
+	float scale = fz_min(xscale, yscale);
+	fz_point tofit_center;
+	fz_point within_center;
+
+	within_center = rect_center(within);
+	tofit_center = rect_center(tofit);
+
+	/* Translate "tofit" to be centered on the origin
+	 * Scale "tofit" to a size that fits within "within"
+	 * Translate "tofit" to "within's" center
+	 * Do all the above in reverse order so that we can use the fz_pre_xx functions */
+	return fz_pre_translate(fz_pre_scale(fz_translate(within_center.x, within_center.y), scale, scale), -tofit_center.x, -tofit_center.y);
+}
 
 static float pdf_write_border_appearance(fz_context *ctx, pdf_annot *annot, fz_buffer *buf)
 {
@@ -1261,31 +1288,58 @@ write_string_with_quadding(fz_context *ctx, fz_buffer *buf,
 }
 
 static void
-write_comb_string(fz_context *ctx, fz_buffer *buf, const char *a, const char *b, fz_font *font, float cell_w)
+write_comb_string(fz_context *ctx, fz_buffer *buf,
+	fz_text_language lang, const char *fontname,
+	fz_font *font, float size, const char *text, float cell_w)
 {
-	float gw, pad, carry = 0;
-	fz_append_byte(ctx, buf, '[');
-	while (a < b)
+	struct text_walk_state state;
+	int last_enc = 0;
+	float pad, carry = 0;
+
+	init_text_walk(ctx, &state, lang, font, text, text + strlen(text));
+
+	while (next_text_walk(ctx, &state))
 	{
-		int c, g;
+		if (state.enc != last_enc)
+		{
+			if (last_enc)
+				fz_append_string(ctx, buf, "] TJ\n");
 
-		a += fz_chartorune(&c, a);
-		c = fz_windows_1252_from_unicode(c);
-		if (c < 0) c = REPLACEMENT;
+			switch (state.enc)
+			{
+			case ENC_LATIN: fz_append_printf(ctx, buf, "/%s %g Tf\n", fontname, size); break;
+			case ENC_GREEK: fz_append_printf(ctx, buf, "/%sGRK %g Tf\n", fontname, size); break;
+			case ENC_CYRILLIC: fz_append_printf(ctx, buf, "/%sCYR %g Tf\n", fontname, size); break;
+			case ENC_KOREAN: fz_append_printf(ctx, buf, "/Batang %g Tf\n", size); break;
+			case ENC_JAPANESE: fz_append_printf(ctx, buf, "/Mincho %g Tf\n", size); break;
+			case ENC_HANT: fz_append_printf(ctx, buf, "/Ming %g Tf\n", size); break;
+			case ENC_HANS: fz_append_printf(ctx, buf, "/Song %g Tf\n", size); break;
+			}
 
-		g = fz_encode_character(ctx, font, c);
-		gw = fz_advance_glyph(ctx, font, g, 0) * 1000;
-		pad = (cell_w - gw) / 2;
+			fz_append_byte(ctx, buf, '[');
+
+			last_enc = state.enc;
+		}
+
+		pad = (cell_w - state.w * 1000) / 2;
 		fz_append_printf(ctx, buf, "%g", -(carry + pad));
 		carry = pad;
 
-		fz_append_byte(ctx, buf, '(');
-		if (c == '(' || c == ')' || c == '\\')
-			fz_append_byte(ctx, buf, '\\');
-		fz_append_byte(ctx, buf, c);
-		fz_append_byte(ctx, buf, ')');
+		if (state.enc < ENC_KOREAN)
+		{
+			fz_append_byte(ctx, buf, '(');
+			if (state.c == '(' || state.c == ')' || state.c == '\\')
+				fz_append_byte(ctx, buf, '\\');
+			fz_append_byte(ctx, buf, state.c);
+			fz_append_byte(ctx, buf, ')');
+		}
+		else
+		{
+			fz_append_printf(ctx, buf, "<%04x>", state.c);
+		}
 	}
-	fz_append_string(ctx, buf, "] TJ\n");
+	if (last_enc)
+		fz_append_string(ctx, buf, "] TJ\n");
 }
 
 static void
@@ -1435,7 +1489,7 @@ write_variable_text(fz_context *ctx, pdf_annot *annot, fz_buffer *buf, pdf_obj *
 		{
 			float ty = (h - size) / 2;
 			fz_append_printf(ctx, buf, "%g %g Td\n", padding, padding+h-baseline-ty);
-			write_comb_string(ctx, buf, text, text + strlen(text), font, (w * 1000 / size) / comb);
+			write_comb_string(ctx, buf, lang, fontname, font, size, text, (w * 1000 / size) / comb);
 		}
 		else
 		{
@@ -2083,12 +2137,6 @@ static void pdf_update_button_appearance(fz_context *ctx, pdf_annot *annot)
 			ap = pdf_dict_put_dict(ctx, annot->obj, PDF_NAME(AP), 2);
 			pdf_dict_put(ctx, ap, PDF_NAME(N), ap_n);
 			pdf_dict_put(ctx, ap, PDF_NAME(D), ap_d);
-
-			pdf_drop_obj(ctx, annot->ap);
-			if (annot->is_hot && annot->is_active)
-				annot->ap = pdf_keep_obj(ctx, ap_d);
-			else
-				annot->ap = pdf_keep_obj(ctx, ap_n);
 			annot->has_new_ap = 1;
 		}
 		fz_always(ctx)
@@ -2141,12 +2189,6 @@ static void pdf_update_button_appearance(fz_context *ctx, pdf_annot *annot)
 			ap_n = pdf_dict_put_dict(ctx, ap, PDF_NAME(N), 2);
 			pdf_dict_put(ctx, ap_n, PDF_NAME(Off), ap_off);
 			pdf_dict_put(ctx, ap_n, as_yes, ap_yes);
-
-			pdf_drop_obj(ctx, annot->ap);
-			if (as == PDF_NAME(Off))
-				annot->ap = pdf_keep_obj(ctx, ap_off);
-			else
-				annot->ap = pdf_keep_obj(ctx, ap_yes);
 			annot->has_new_ap = 1;
 		}
 		fz_always(ctx)
@@ -2162,92 +2204,342 @@ static void pdf_update_button_appearance(fz_context *ctx, pdf_annot *annot)
 	}
 }
 
-void pdf_update_signature_appearance(fz_context *ctx, pdf_annot *annot, const char *name, const char *dn, const char *date)
+static void draw_logo(fz_context *ctx, fz_path *path)
 {
-	pdf_obj *ap, *new_ap_n, *res_font;
-	char tmp[500];
-	fz_font *helv = NULL;
-	fz_font *zadb = NULL;
-	pdf_obj *res = NULL;
-	fz_buffer *buf;
-	fz_rect rect;
-	float w, h, size, name_w;
-	fz_text_language lang;
+	/* Use mupdf logo for signature appearance background. */
+	fz_moveto(ctx, path, 122.25f, 0.0f);
+	fz_lineto(ctx, path, 122.25f, 14.249f);
+	fz_curveto(ctx, path, 125.98f, 13.842f, 129.73f, 13.518f, 133.5f, 13.277f);
+	fz_lineto(ctx, path, 133.5f, 0.0f);
+	fz_lineto(ctx, path, 122.25f, 0.0f);
+	fz_closepath(ctx, path);
+	fz_moveto(ctx, path, 140.251f, 0.0f);
+	fz_lineto(ctx, path, 140.251f, 12.935f);
+	fz_curveto(ctx, path, 152.534f, 12.477f, 165.03f, 12.899f, 177.75f, 14.249f);
+	fz_lineto(ctx, path, 177.75f, 21.749f);
+	fz_curveto(ctx, path, 165.304f, 20.413f, 152.809f, 19.871f, 140.251f, 20.348f);
+	fz_lineto(ctx, path, 140.251f, 39.0f);
+	fz_lineto(ctx, path, 133.5f, 39.0f);
+	fz_lineto(ctx, path, 133.5f, 20.704f);
+	fz_curveto(ctx, path, 129.756f, 20.956f, 126.006f, 21.302f, 122.25f, 21.749f);
+	fz_lineto(ctx, path, 122.25f, 50.999f);
+	fz_lineto(ctx, path, 177.751f, 50.999f);
+	fz_lineto(ctx, path, 177.751f, 0.0f);
+	fz_lineto(ctx, path, 140.251f, 0.0f);
+	fz_closepath(ctx, path);
+	fz_moveto(ctx, path, 23.482f, 129.419f);
+	fz_curveto(ctx, path, -20.999f, 199.258f, -0.418f, 292.039f, 69.42f, 336.519f);
+	fz_curveto(ctx, path, 139.259f, 381.0f, 232.04f, 360.419f, 276.52f, 290.581f);
+	fz_curveto(ctx, path, 321.001f, 220.742f, 300.42f, 127.961f, 230.582f, 83.481f);
+	fz_curveto(ctx, path, 160.743f, 39.0f, 67.962f, 59.581f, 23.482f, 129.419f);
+	fz_closepath(ctx, path);
+	fz_moveto(ctx, path, 254.751f, 128.492f);
+	fz_curveto(ctx, path, 303.074f, 182.82f, 295.364f, 263.762f, 237.541f, 309.165f);
+	fz_curveto(ctx, path, 179.718f, 354.568f, 93.57f, 347.324f, 45.247f, 292.996f);
+	fz_curveto(ctx, path, -3.076f, 238.668f, 4.634f, 157.726f, 62.457f, 112.323f);
+	fz_curveto(ctx, path, 120.28f, 66.92f, 206.428f, 74.164f, 254.751f, 128.492f);
+	fz_closepath(ctx, path);
+	fz_moveto(ctx, path, 111.0f, 98.999f);
+	fz_curveto(ctx, path, 87.424f, 106.253f, 68.25f, 122.249f, 51.75f, 144.749f);
+	fz_lineto(ctx, path, 103.5f, 297.749f);
+	fz_lineto(ctx, path, 213.75f, 298.499f);
+	fz_curveto(ctx, path, 206.25f, 306.749f, 195.744f, 311.478f, 185.25f, 314.249f);
+	fz_curveto(ctx, path, 164.22f, 319.802f, 141.22f, 319.775f, 120.0f, 314.999f);
+	fz_curveto(ctx, path, 96.658f, 309.745f, 77.25f, 298.499f, 55.5f, 283.499f);
+	fz_curveto(ctx, path, 69.75f, 299.249f, 84.617f, 311.546f, 102.75f, 319.499f);
+	fz_curveto(ctx, path, 117.166f, 325.822f, 133.509f, 327.689f, 149.25f, 327.749f);
+	fz_curveto(ctx, path, 164.21f, 327.806f, 179.924f, 326.532f, 193.5f, 320.249f);
+	fz_curveto(ctx, path, 213.95f, 310.785f, 232.5f, 294.749f, 245.25f, 276.749f);
+	fz_lineto(ctx, path, 227.25f, 276.749f);
+	fz_curveto(ctx, path, 213.963f, 276.749f, 197.25f, 263.786f, 197.25f, 250.499f);
+	fz_lineto(ctx, path, 197.25f, 112.499f);
+	fz_curveto(ctx, path, 213.75f, 114.749f, 228.0f, 127.499f, 241.5f, 140.999f);
+	fz_curveto(ctx, path, 231.75f, 121.499f, 215.175f, 109.723f, 197.25f, 101.249f);
+	fz_curveto(ctx, path, 181.5f, 95.249f, 168.412f, 94.775f, 153.0f, 94.499f);
+	fz_curveto(ctx, path, 139.42f, 94.256f, 120.75f, 95.999f, 111.0f, 98.999f);
+	fz_closepath(ctx, path);
+	fz_moveto(ctx, path, 125.25f, 105.749f);
+	fz_lineto(ctx, path, 125.25f, 202.499f);
+	fz_lineto(ctx, path, 95.25f, 117.749f);
+	fz_curveto(ctx, path, 105.75f, 108.749f, 114.0f, 105.749f, 125.25f, 105.749f);
+	fz_closepath(ctx, path);
+};
 
-	fz_var(helv);
-	fz_var(zadb);
-	fz_var(res);
+static float logo_color[3] = { (float)0xa4 / (float)0xFF, (float)0xca / (float)0xFF, (float)0xf5 / (float)0xFF };
 
-	buf = fz_new_buffer(ctx, 1024);
+fz_display_list *
+pdf_signature_appearance(fz_context *ctx, fz_rect rect, fz_text_language lang, fz_image *img, const char *left_text, const char *right_text, int include_logo)
+{
+	fz_display_list *dlist = NULL;
+	fz_device *dev = NULL;
+	fz_text *text = NULL;
+	fz_colorspace *cs = NULL;
+	fz_path *path = NULL;
+	fz_font *font = NULL;
+
+	fz_var(path);
+	fz_var(dlist);
+	fz_var(dev);
+	fz_var(text);
+	fz_var(font);
 	fz_try(ctx)
 	{
-		if (name && dn)
+		fz_rect prect;
+		fz_rect logo_bounds;
+		fz_matrix logo_tm;
+		float color[] = { 0.0, 0.0, 0.0 };
+
+		font = fz_new_base14_font(ctx, "Helvetica");
+
+		dlist = fz_new_display_list(ctx, rect);
+		dev = fz_new_list_device(ctx, dlist);
+		cs = fz_device_rgb(ctx);
+
+		if (include_logo)
 		{
-			lang = pdf_annot_language(ctx, annot);
-
-			helv = fz_new_base14_font(ctx, "Helvetica");
-			zadb = fz_new_base14_font(ctx, "ZapfDingbats");
-
-			res = pdf_new_dict(ctx, annot->page->doc, 1);
-			res_font = pdf_dict_put_dict(ctx, res, PDF_NAME(Font), 1);
-			pdf_dict_put_drop(ctx, res_font, PDF_NAME(ZaDb), pdf_add_simple_font(ctx, annot->page->doc, zadb, 0));
-
-			rect = pdf_dict_get_rect(ctx, annot->obj, PDF_NAME(Rect));
-			w = (rect.x1 - rect.x0) / 2;
-			h = (rect.y1 - rect.y0);
-
-			/* Use flower symbol from ZapfDingbats as sigil */
-			fz_append_printf(ctx, buf, "q 1 0.8 0.8 rg BT /ZaDb %g Tf %g %g Td (`) Tj ET Q\n",
-					h*1.1f,
-					rect.x0 + w - (h*0.4f),
-					rect.y0 + h*0.1f);
-
-			/* Name */
-			name_w = measure_string(ctx, FZ_LANG_UNSET, helv, name);
-			size = fz_min(fz_min((w - 4) / name_w, h), 24);
-			fz_append_string(ctx, buf, "BT\n");
-			fz_append_printf(ctx, buf, "%g %g Td\n", rect.x0+2, rect.y1 - size*0.8f - (h-size)/2);
-			add_required_fonts(ctx, annot->page->doc, res_font, lang, helv, "Helv", name);
-			write_string(ctx, buf, lang, helv, "Helv", size, name, name + strlen(name));
-			fz_append_string(ctx, buf, "ET\n");
-
-			/* Information text */
-			size = fz_min(fz_min((w / 12), h / 6), 16);
-			fz_append_string(ctx, buf, "BT\n");
-			fz_append_printf(ctx, buf, "%g TL\n", size);
-			fz_append_printf(ctx, buf, "%g %g Td\n", rect.x0+w+2, rect.y1);
-			if (date)
-				fz_snprintf(tmp, sizeof tmp, "Digitally signed by %s\nDN: %s\nDate: %s", name, dn, date);
-			else
-				fz_snprintf(tmp, sizeof tmp, "Digitally signed by %s\nDN: %s", name, dn);
-			add_required_fonts(ctx, annot->page->doc, res_font, lang, helv, "Helv", tmp);
-			write_string_with_quadding(ctx, buf, lang, "Helv", helv, size, size, tmp, w-4, 0);
-			fz_append_string(ctx, buf, "ET\n");
+			path = fz_new_path(ctx);
+			draw_logo(ctx, path);
+			logo_bounds = fz_bound_path(ctx, path, NULL, fz_identity);
+			logo_tm = center_rect_within_rect(logo_bounds, rect);
+			fz_fill_path(ctx, dev, path, 0, logo_tm, cs, logo_color, 1.0f, fz_default_color_params);
 		}
-		else
+
+		prect = rect;
+		/* If there is to be info on the right then use only the left half of the rectangle for
+		 * what is intended for the left */
+		if (right_text)
+			prect.x1 = (prect.x0 + prect.x1) / 2.0f;
+
+		if (img)
 		{
-			rect.x0 = rect.y0 = 0;
-			rect.x1 = rect.y1 = 100;
-			res = pdf_new_dict(ctx, annot->page->doc, 0);
-			fz_append_string(ctx, buf, "% DSBlank\n");
+			float img_aspect = img->w / img->h;
+			float rectw = prect.x1 - prect.x0;
+			float recth = prect.y1 - prect.y0;
+			float midx = (prect.x0 + prect.x1) / 2.0;
+			float midy = (prect.y0 + prect.y1) / 2.0;
+			float rect_aspect = rectw / recth;
+			float scale = img_aspect > rect_aspect ? rectw / img->w : recth / img->h;
+			fz_matrix ctm = fz_pre_translate(fz_pre_scale(fz_translate(midx, midy), scale * img->w, -scale * img->h), -0.5, -0.5);
+			fz_fill_image(ctx, dev, img, ctm, 1.0, fz_default_color_params);
 		}
+
+		if (left_text)
+		{
+			text = pdf_layout_fit_text(ctx, font, lang, left_text, prect);
+			fz_fill_text(ctx, dev, text, fz_identity, cs, color, 1.0f, fz_default_color_params);
+			fz_drop_text(ctx, text);
+			text = NULL;
+		}
+
+		prect = rect;
+		/* If there is to be info on the left then use only the right half of the rectangle for
+		 * what is intended for the right */
+		if (img || left_text)
+			prect.x0 = (prect.x0 + prect.x1) / 2.0f;
+
+		if (right_text)
+		{
+			text = pdf_layout_fit_text(ctx, font, lang, right_text, prect);
+			fz_fill_text(ctx, dev, text, fz_identity, cs, color, 1.0f, fz_default_color_params);
+		}
+	}
+	fz_always(ctx)
+	{
+		fz_drop_device(ctx, dev);
+		fz_drop_path(ctx, path);
+		fz_drop_text(ctx, text);
+		fz_drop_font(ctx, font);
+	}
+	fz_catch(ctx)
+	{
+		fz_drop_display_list(ctx, dlist);
+		fz_rethrow(ctx);
+	}
+
+	return dlist;
+}
+
+fz_display_list *
+pdf_signature_appearance_unsigned(fz_context *ctx, fz_rect rect, fz_text_language lang)
+{
+	fz_display_list *dlist = NULL;
+	fz_device *dev = NULL;
+	fz_text *text = NULL;
+	fz_colorspace *cs = NULL;
+	fz_path *path = NULL;
+	fz_font *font = NULL;
+
+	fz_var(path);
+	fz_var(dlist);
+	fz_var(dev);
+	fz_var(text);
+	fz_var(font);
+	fz_try(ctx)
+	{
+		float text_color[] = { 1.0f, 1.0f, 1.0f };
+		float arrow_color[] = { 0.95f, 0.33f, 0.18f };
+
+		rect.y0 = rect.y1 - (rect.y1 - rect.y0) / 6;
+		rect.x1 = rect.x0 + (rect.y1 - rect.y0) * 4;
+		font = fz_new_base14_font(ctx, "Helvetica");
+
+		dlist = fz_new_display_list(ctx, rect);
+		dev = fz_new_list_device(ctx, dlist);
+
+		path = fz_new_path(ctx);
+		/* Draw a rectangle with a protusion to the right [xxxxx> */
+		fz_moveto(ctx, path, rect.x0, rect.y0);
+		fz_lineto(ctx, path, rect.x1, rect.y0);
+		fz_lineto(ctx, path, rect.x1 + (rect.y1 - rect.y0) / 2.0, (rect.y0 + rect.y1) / 2.0);
+		fz_lineto(ctx, path, rect.x1, rect.y1);
+		fz_lineto(ctx, path, rect.x0, rect.y1);
+		fz_closepath(ctx, path);
+		cs = fz_device_rgb(ctx);
+		fz_fill_path(ctx, dev, path, 0, fz_identity, cs, arrow_color, 1.0f, fz_default_color_params);
+
+		text = pdf_layout_fit_text(ctx, font, lang, "SIGN", rect);
+		fz_fill_text(ctx, dev, text, fz_identity, cs, text_color, 1.0f, fz_default_color_params);
+		fz_drop_text(ctx, text);
+		text = NULL;
+	}
+	fz_always(ctx)
+	{
+		fz_drop_device(ctx, dev);
+		fz_drop_path(ctx, path);
+		fz_drop_text(ctx, text);
+		fz_drop_font(ctx, font);
+	}
+	fz_catch(ctx)
+	{
+		fz_drop_display_list(ctx, dlist);
+		fz_rethrow(ctx);
+	}
+
+	return dlist;
+}
+
+char *
+pdf_signature_info(fz_context *ctx, const char *name, pdf_pkcs7_designated_name *dn, const char *reason, const char *location, int64_t date, int include_labels)
+{
+	fz_buffer *fzbuf = NULL;
+	char *dn_str = NULL;
+	char *full_str = NULL;
+	time_t tdate = (time_t)date;
+
+	fz_var(fzbuf);
+	fz_var(dn_str);
+	fz_try(ctx)
+	{
+#ifdef _POSIX_SOURCE
+		struct tm tmbuf, *tm = localtime_r(&tdate, &tmbuf);
+#else
+		struct tm *tm = localtime(&tdate);
+#endif
+		char now_str[40];
+		size_t len = 0;
+#ifdef CLUSTER
+		memset(&date, 0, sizeof(date));
+		memset(tm, 0, sizeof(*tm));
+#endif
+
+		fzbuf = fz_new_buffer(ctx, 256);
+		if (name)
+		{
+			if (include_labels)
+				fz_append_string(ctx, fzbuf, "Digitally signed by ");
+			fz_append_string(ctx, fzbuf, name);
+		}
+
+		if (dn)
+		{
+			fz_append_string(ctx, fzbuf, "\n");
+			if (include_labels)
+				fz_append_string(ctx, fzbuf, "DN: ");
+			dn_str = pdf_signature_format_designated_name(ctx, dn);
+			fz_append_string(ctx, fzbuf, dn_str);
+		}
+
+		if (reason)
+		{
+			fz_append_string(ctx, fzbuf, "\n");
+			if (include_labels)
+				fz_append_string(ctx, fzbuf, "Reason: ");
+			fz_append_string(ctx, fzbuf, reason);
+		}
+
+		if (location)
+		{
+			fz_append_string(ctx, fzbuf, "\n");
+			if (include_labels)
+				fz_append_string(ctx, fzbuf, "Location: ");
+			fz_append_string(ctx, fzbuf, location);
+		}
+
+		if (tm)
+		{
+			len = strftime(now_str, sizeof now_str, "%FT%T%z", tm);
+			if (len)
+			{
+				fz_append_string(ctx, fzbuf, "\n");
+				if (include_labels)
+					fz_append_string(ctx, fzbuf, "Date: ");
+				fz_append_string(ctx, fzbuf, now_str);
+			}
+		}
+
+		fz_terminate_buffer(ctx, fzbuf);
+		(void)fz_buffer_extract(ctx, fzbuf, (unsigned char **)&full_str);
+	}
+	fz_always(ctx)
+	{
+		fz_drop_buffer(ctx, fzbuf);
+		fz_free(ctx, dn_str);
+	}
+	fz_catch(ctx)
+	{
+		fz_rethrow(ctx);
+	}
+
+	return full_str;
+}
+
+void
+pdf_update_appearance_from_display_list(fz_context *ctx, pdf_annot *annot, fz_rect rect, fz_display_list *disp_list)
+{
+	pdf_obj *ap, *new_ap_n;
+	pdf_document *doc = annot->page->doc;
+	fz_device *dev = NULL;
+	pdf_obj *res = NULL;
+	fz_buffer *contents = NULL;
+
+	fz_var(dev);
+	fz_var(res);
+	fz_var(contents);
+	fz_try(ctx)
+	{
+		res = pdf_new_dict(ctx, doc, 1);
+		contents = fz_new_buffer(ctx, 0);
+		dev = pdf_new_pdf_device(ctx, doc, fz_identity, rect, res, contents);
+		fz_run_display_list(ctx, disp_list, dev, fz_identity, fz_infinite_rect, NULL);
+		fz_close_device(ctx, dev);
+		fz_drop_device(ctx, dev);
+		dev = NULL;
 
 		/* Update the AP/N stream */
 		ap = pdf_dict_get(ctx, annot->obj, PDF_NAME(AP));
 		if (!ap)
 			ap = pdf_dict_put_dict(ctx, annot->obj, PDF_NAME(AP), 1);
-		new_ap_n = pdf_new_xobject(ctx, annot->page->doc, rect, fz_identity, res, buf);
-		pdf_drop_obj(ctx, annot->ap);
-		annot->ap = new_ap_n;
+		new_ap_n = pdf_new_xobject(ctx, doc, rect, fz_identity, res, contents);
+		annot->needs_new_ap = 0;
 		annot->has_new_ap = 1;
-		pdf_dict_put(ctx, ap, PDF_NAME(N), new_ap_n);
+		pdf_dict_put_drop(ctx, ap, PDF_NAME(N), new_ap_n);
+
 	}
 	fz_always(ctx)
 	{
-		fz_drop_font(ctx, helv);
-		fz_drop_font(ctx, zadb);
+		fz_drop_device(ctx, dev);
 		pdf_drop_obj(ctx, res);
-		fz_drop_buffer(ctx, buf);
+		fz_drop_buffer(ctx, contents);
 	}
 	fz_catch(ctx)
 	{
@@ -2255,25 +2547,51 @@ void pdf_update_signature_appearance(fz_context *ctx, pdf_annot *annot, const ch
 	}
 }
 
-void pdf_update_appearance(fz_context *ctx, pdf_annot *annot)
+void
+pdf_annot_push_local_xref(fz_context *ctx, pdf_annot *annot)
 {
-	pdf_obj *subtype;
-	pdf_obj *ap, *ap_n, *as, *ft;
+	pdf_document *doc = annot->page->doc;
 
-	subtype = pdf_dict_get(ctx, annot->obj, PDF_NAME(Subtype));
-	if (subtype == PDF_NAME(Popup))
+	doc->local_xref_nesting++;
+}
+
+void
+pdf_annot_ensure_local_xref(fz_context *ctx, pdf_annot *annot)
+{
+	pdf_document *doc = annot->page->doc;
+
+	if (doc->local_xref != NULL)
 		return;
-	if (subtype == PDF_NAME(Link))
-		return;
 
-	/* Check if the field is dirtied by JS events */
-	if (pdf_obj_is_dirty(ctx, annot->obj))
-		annot->needs_new_ap = 1;
+	/* We have no local_xref, but we want to be using one. */
+	/* First off, create one. */
+	doc->local_xref = pdf_new_local_xref(ctx, doc);
+}
 
-	/* Check if the current appearance has been swapped */
-	as = pdf_dict_get(ctx, annot->obj, PDF_NAME(AS));
-	ap = pdf_dict_get(ctx, annot->obj, PDF_NAME(AP));
-	ap_n = pdf_dict_get(ctx, ap, PDF_NAME(N));
+void
+pdf_annot_pop_local_xref(fz_context *ctx, pdf_annot *annot)
+{
+	pdf_document *doc = annot->page->doc;
+
+	--doc->local_xref_nesting;
+}
+
+void pdf_annot_pop_and_discard_local_xref(fz_context *ctx, pdf_annot *annot)
+{
+	pdf_document *doc = annot->page->doc;
+
+	--doc->local_xref_nesting;
+	assert(doc->local_xref_nesting == 0);
+	pdf_purge_local_font_resources(ctx, doc);
+	pdf_drop_local_xref(ctx, doc->local_xref);
+	doc->local_xref = NULL;
+}
+
+static pdf_obj *pdf_current_appearance_stream(fz_context *ctx, pdf_annot *annot, pdf_obj *subtype)
+{
+	pdf_obj *as = pdf_dict_get(ctx, annot->obj, PDF_NAME(AS));
+	pdf_obj *ap = pdf_dict_get(ctx, annot->obj, PDF_NAME(AP));
+	pdf_obj *ap_n = pdf_dict_get(ctx, ap, PDF_NAME(N));
 	if (annot->is_hot && annot->is_active && subtype == PDF_NAME(Widget))
 	{
 		pdf_obj *ap_d = pdf_dict_get(ctx, ap, PDF_NAME(D));
@@ -2282,84 +2600,181 @@ void pdf_update_appearance(fz_context *ctx, pdf_annot *annot)
 	}
 	if (!pdf_is_stream(ctx, ap_n))
 		ap_n = pdf_dict_get(ctx, ap_n, as);
-	if (annot->ap != ap_n)
+	return ap_n;
+}
+
+void pdf_update_appearance(fz_context *ctx, pdf_annot *annot)
+{
+	pdf_obj *subtype;
+	pdf_obj *ft = NULL;
+	pdf_obj *ap_n;
+	int pop_local_xref = 1;
+
+	/* Must have any local xref in place in order to check if it's dirty. */
+	pdf_annot_push_local_xref(ctx, annot);
+
+	pdf_begin_implicit_operation(ctx, annot->page->doc);
+
+	fz_var(pop_local_xref);
+
+	fz_try(ctx)
 	{
-		pdf_drop_obj(ctx, annot->ap);
-		annot->ap = NULL;
-		if (pdf_is_stream(ctx, ap_n))
-			annot->ap = pdf_keep_obj(ctx, ap_n);
-		annot->has_new_ap = 1;
-	}
+		int local_synthesis = 0;
 
-	ft = pdf_dict_get(ctx, annot->obj, PDF_NAME(FT));
+		/* Never update Popup and Link annotations */
+		subtype = pdf_dict_get(ctx, annot->obj, PDF_NAME(Subtype));
+		if (subtype == PDF_NAME(Popup) || subtype == PDF_NAME(Link))
+			break;
 
-	/* We cannot synthesise an appearance for a Sig, so don't even try.
-	 * Attempting to, will move the object into the new incremental
-	 * section, which will invalidate the signature. */
-	if ((!annot->ap && !pdf_name_eq(ctx, ft, PDF_NAME(Sig))) || annot->needs_new_ap)
-	{
-		fz_rect rect, bbox;
-		fz_matrix matrix = fz_identity;
-		fz_buffer *buf;
-		pdf_obj *res = NULL;
-		pdf_obj *new_ap_n = NULL;
-		fz_var(res);
-		fz_var(new_ap_n);
-
-		annot->needs_new_ap = 0;
-
-		/* Special case for Btn widgets that need multiple appearance streams. */
-		if (pdf_name_eq(ctx, pdf_dict_get(ctx, annot->obj, PDF_NAME(Subtype)), PDF_NAME(Widget)))
+		/* Never update signed Signature widgets */
+		if (subtype == PDF_NAME(Widget))
 		{
-			if (pdf_name_eq(ctx, pdf_dict_get_inheritable(ctx, annot->obj, PDF_NAME(FT)), PDF_NAME(Btn)))
+			ft = pdf_dict_get_inheritable(ctx, annot->obj, PDF_NAME(FT));
+			if (ft == PDF_NAME(Sig))
 			{
-				pdf_update_button_appearance(ctx, annot);
-				pdf_clean_obj(ctx, annot->obj);
-				return;
+				/* We cannot synthesise an appearance for a signed Sig, so don't even try. */
+				if (pdf_signature_is_signed(ctx, annot->page->doc, annot->obj))
+					break;
 			}
 		}
 
-		buf = fz_new_buffer(ctx, 1024);
-		fz_try(ctx)
-		{
-			rect = pdf_dict_get_rect(ctx, annot->obj, PDF_NAME(Rect));
-			pdf_write_appearance(ctx, annot, buf, &rect, &bbox, &matrix, &res);
-			pdf_dict_put_rect(ctx, annot->obj, PDF_NAME(Rect), rect);
+		/* Check if the field is dirtied by JS events */
+		if (pdf_obj_is_dirty(ctx, annot->obj))
+			annot->needs_new_ap = 1;
 
-			if (!ap_n)
+		/* Find the current appearance stream, if one exists. */
+		ap_n = pdf_current_appearance_stream(ctx, annot, subtype);
+
+		/* If there is no appearance stream, we need to create a local one for display purposes. */
+		if (!ap_n)
+			local_synthesis = 1;
+
+		/* Ignore appearance streams not created by us (so not local)
+		 * for unsigned digital signature widgets. They are often blank
+		 * and we want the "sign" arrow to be visible. Never write back
+		 * the forced appearance stream for unsigned signatures. */
+		if (subtype == PDF_NAME(Widget) && ft == PDF_NAME(Sig))
+		{
+			if (ap_n && !pdf_is_local_object(ctx, annot->page->doc, ap_n))
+				local_synthesis = 1;
+		}
+
+		/* We need to put this appearance stream back into the document. */
+		if (annot->needs_new_ap)
+			local_synthesis = 0;
+
+		if (local_synthesis || annot->needs_new_ap)
+		{
+			fz_display_list *dlist;
+			fz_rect rect, bbox;
+			fz_buffer *buf;
+			pdf_obj *res = NULL;
+			pdf_obj *new_ap_n = NULL;
+			fz_var(res);
+			fz_var(new_ap_n);
+
+#ifdef PDF_DEBUG_APPEARANCE_SYNTHESIS
+			fz_write_printf(ctx, fz_stddbg(ctx), "Update Appearance: %d\n", pdf_to_num(ctx, annot->obj));
+			pdf_debug_obj(ctx, annot->obj);
+			fz_write_printf(ctx, fz_stddbg(ctx), "\n");
+#endif
+
+			if (local_synthesis)
 			{
-				if (!ap)
-				{
-					ap = pdf_new_dict(ctx, annot->page->doc, 1);
-					pdf_dict_put_drop(ctx, annot->obj, PDF_NAME(AP), ap);
-				}
-				new_ap_n = pdf_new_xobject(ctx, annot->page->doc, bbox, matrix, res, buf);
-				pdf_dict_put(ctx, ap, PDF_NAME(N), new_ap_n);
+#ifdef PDF_DEBUG_APPEARANCE_SYNTHESIS
+				fz_write_printf(ctx, fz_stddbg(ctx), "Local synthesis\n");
+#endif
+				pdf_annot_ensure_local_xref(ctx, annot);
 			}
 			else
 			{
-				new_ap_n = pdf_keep_obj(ctx, ap_n);
-				pdf_update_xobject(ctx, annot->page->doc, ap_n, bbox, matrix, res, buf);
+#ifdef PDF_DEBUG_APPEARANCE_SYNTHESIS
+				fz_write_printf(ctx, fz_stddbg(ctx), "Non-Local synthesis\n");
+#endif
+				/* We don't want to be using any local xref, so
+				 * bin any that we have. */
+				pdf_annot_pop_and_discard_local_xref(ctx, annot);
+				/* Binning the xref may leave us holding pointers
+				 * to the wrong versions of ap_n. */
+				ap_n = pdf_current_appearance_stream(ctx, annot, subtype);
+				pop_local_xref = 0;
 			}
 
-			pdf_drop_obj(ctx, annot->ap);
-			annot->ap = NULL;
-			annot->ap = pdf_keep_obj(ctx, new_ap_n);
-			annot->has_new_ap = 1;
-		}
-		fz_always(ctx)
-		{
-			fz_drop_buffer(ctx, buf);
-			pdf_drop_obj(ctx, res);
-			pdf_drop_obj(ctx, new_ap_n);
-		}
-		fz_catch(ctx)
-		{
-			fz_warn(ctx, "cannot create appearance stream");
-		}
-	}
+			annot->needs_new_ap = 0;
 
-	pdf_clean_obj(ctx, annot->obj);
+			/* Special case for Btn widgets that need multiple appearance streams. */
+			if (subtype == PDF_NAME(Widget) && ft == PDF_NAME(Btn))
+			{
+				pdf_update_button_appearance(ctx, annot);
+				pdf_clean_obj(ctx, annot->obj);
+				break; /* all done here */
+			}
+
+			/* Special case for unsigned signature widgets,
+			 * which are most easily created via a display list. */
+			if (subtype == PDF_NAME(Widget) && ft == PDF_NAME(Sig))
+			{
+				rect = pdf_bound_annot(ctx, annot);
+				dlist = pdf_signature_appearance_unsigned(ctx, rect, pdf_annot_language(ctx, annot));
+				fz_try(ctx)
+					pdf_update_appearance_from_display_list(ctx, annot, rect, dlist);
+				fz_always(ctx)
+					fz_drop_display_list(ctx, dlist);
+				fz_catch(ctx)
+					fz_rethrow(ctx);
+				pdf_clean_obj(ctx, annot->obj);
+				break; /* all done here */
+			}
+
+			buf = fz_new_buffer(ctx, 1024);
+			fz_try(ctx)
+			{
+				fz_matrix matrix = fz_identity;
+				rect = pdf_dict_get_rect(ctx, annot->obj, PDF_NAME(Rect));
+				pdf_write_appearance(ctx, annot, buf, &rect, &bbox, &matrix, &res);
+				pdf_dict_put_rect(ctx, annot->obj, PDF_NAME(Rect), rect);
+
+				if (!ap_n)
+				{
+					pdf_obj *ap = pdf_dict_get(ctx, annot->obj, PDF_NAME(AP));
+					if (!ap)
+					{
+						ap = pdf_new_dict(ctx, annot->page->doc, 1);
+						pdf_dict_put_drop(ctx, annot->obj, PDF_NAME(AP), ap);
+					}
+					new_ap_n = pdf_new_xobject(ctx, annot->page->doc, bbox, matrix, res, buf);
+					pdf_dict_put(ctx, ap, PDF_NAME(N), new_ap_n);
+				}
+				else
+				{
+					new_ap_n = pdf_keep_obj(ctx, ap_n);
+					pdf_update_xobject(ctx, annot->page->doc, ap_n, bbox, matrix, res, buf);
+				}
+
+				annot->has_new_ap = 1;
+			}
+			fz_always(ctx)
+			{
+				fz_drop_buffer(ctx, buf);
+				pdf_drop_obj(ctx, res);
+				pdf_drop_obj(ctx, new_ap_n);
+			}
+			fz_catch(ctx)
+			{
+				fz_warn(ctx, "cannot create appearance stream");
+			}
+		}
+
+		pdf_clean_obj(ctx, annot->obj);
+	}
+	fz_always(ctx)
+	{
+		if (pop_local_xref)
+			pdf_annot_pop_local_xref(ctx, annot);
+		pdf_end_operation(ctx, annot->page->doc);
+	}
+	fz_catch(ctx)
+		fz_rethrow(ctx);
 }
 
 int

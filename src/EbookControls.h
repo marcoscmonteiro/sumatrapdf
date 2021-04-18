@@ -1,10 +1,10 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-class FrameRateWnd;
+struct FrameRateWnd;
 
 class HtmlFormatter;
-class HtmlFormatterArgs;
+struct HtmlFormatterArgs;
 class PageControl;
 class PagesLayout;
 using namespace mui;
@@ -21,17 +21,18 @@ struct EbookControls {
 };
 
 EbookControls* CreateEbookControls(HWND hwnd, FrameRateWnd*);
-void DestroyEbookControls(EbookControls* controls);
+void DestroyEbookControls(EbookControls* ctrls);
 void SetMainWndBgCol(EbookControls* ctrls);
 
-class HtmlPage;
+struct HtmlPage;
 struct DrawInstr;
 
 // control that shows a single ebook page
 // TODO: move to a separate file
 class PageControl : public Control {
-    HtmlPage* page;
-    int cursorX, cursorY;
+    HtmlPage* page{nullptr};
+    int cursorX{-1};
+    int cursorY{-1};
 
   public:
     PageControl();
@@ -42,12 +43,12 @@ class PageControl : public Control {
         return page;
     }
 
-    Gdiplus::Size GetDrawableSize() const;
+    Size GetDrawableSize() const;
     DrawInstr* GetLinkAt(int x, int y) const;
 
-    virtual void Paint(Graphics* gfx, int offX, int offY);
+    void Paint(Graphics* gfx, int offX, int offY) override;
 
-    virtual void NotifyMouseMove(int x, int y);
+    void NotifyMouseMove(int x, int y) override;
 };
 
 // PagesLayout is for 2 controls separated with a space:
@@ -57,7 +58,7 @@ class PageControl : public Control {
 // all the space
 class PagesLayout : public ILayout {
   protected:
-    Gdiplus::Size desiredSize;
+    Size desiredSize;
     PageControl* page1;
     PageControl* page2;
     int spaceDx;
@@ -71,12 +72,12 @@ class PagesLayout : public ILayout {
     }
     virtual ~PagesLayout() {
     }
-    virtual Gdiplus::Size DesiredSize() {
+    Size DesiredSize() override {
         return desiredSize;
     }
 
-    virtual Gdiplus::Size Measure(const Gdiplus::Size availableSize);
-    virtual void Arrange(const Gdiplus::Rect finalRect);
+    Size Measure(const Size availableSize) override;
+    void Arrange(const Rect finalRect) override;
 
     PageControl* GetPage1() const {
         return page1;

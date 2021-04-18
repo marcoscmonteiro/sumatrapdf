@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #define INSTALLER_FRAME_CLASS_NAME L"SUMATRA_PDF_INSTALLER_FRAME"
@@ -62,7 +62,7 @@ void NotifyFailed(const WCHAR* msg);
 void SetMsg(const WCHAR* msg, Gdiplus::Color color);
 void SetDefaultMsg();
 
-int KillProcessesWithModule(const WCHAR* processPath, bool waitUntilTerminated);
+int KillProcessesWithModule(const WCHAR* modulePath, bool waitUntilTerminated);
 
 const WCHAR** GetSupportedExts();
 

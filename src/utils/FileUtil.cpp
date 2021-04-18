@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -113,6 +113,7 @@ const WCHAR* GetBaseNameNoFree(const WCHAR* path) {
     return end;
 }
 
+// returns extension e.g. ".pdf"
 // do not free, returns pointer inside <path>
 const WCHAR* GetExtNoFree(const WCHAR* path) {
     const WCHAR* ext = path + str::Len(path);
@@ -176,7 +177,7 @@ WCHAR* Join(const WCHAR* path, const WCHAR* fileName, const WCHAR* fileName2) {
     if (IsSep(*fileName)) {
         fileName++;
     }
-    WCHAR* sepStr = nullptr;
+    const WCHAR* sepStr = nullptr;
     if (!IsSep(path[str::Len(path) - 1])) {
         sepStr = L"\\";
     }
@@ -340,7 +341,7 @@ bool HasVariableDriveLetter(const WCHAR* path) {
         return false;
     }
 
-    UINT driveType = GetDriveType(root);
+    uint driveType = GetDriveType(root);
     switch (driveType) {
         case DRIVE_REMOVABLE:
         case DRIVE_CDROM:
@@ -355,7 +356,7 @@ bool IsOnFixedDrive(const WCHAR* path) {
         return false;
     }
 
-    UINT type;
+    uint type;
     WCHAR root[MAX_PATH];
     if (GetVolumePathName(path, root, dimof(root))) {
         type = GetDriveType(root);
@@ -373,8 +374,9 @@ static bool MatchWildcardsRec(const WCHAR* fileName, const WCHAR* filter) {
             return AtEndOf(fileName);
         case '*':
             filter++;
-            while (!AtEndOf(fileName) && !MatchWildcardsRec(fileName, filter))
+            while (!AtEndOf(fileName) && !MatchWildcardsRec(fileName, filter)) {
                 fileName++;
+            }
             return !AtEndOf(fileName) || AtEndOf(filter) || *filter == ';';
         case '?':
             return !AtEndOf(fileName) && MatchWildcardsRec(fileName + 1, filter + 1);
@@ -455,22 +457,27 @@ FILE* OpenFILE(const char* path) {
 #endif
 }
 
-std::string_view ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
+std::span<u8> ReadFileWithAllocator(const char* filePath, Allocator* allocator) {
 #if 0 // OS_WIN
     WCHAR buf[512];
     strconv::Utf8ToWcharBuf(filePath, str::Len(filePath), buf, dimof(buf));
     return ReadFileWithAllocator(buf, fileSizeOut, allocator);
 #else
+    char* d = nullptr;
+    int res;
     FILE* fp = OpenFILE(filePath);
     if (!fp) {
         return {};
     }
-    char* d = nullptr;
-    int res = fseek(fp, 0, SEEK_END);
+    defer {
+        fclose(fp);
+    };
+    res = fseek(fp, 0, SEEK_END);
     if (res != 0) {
         return {};
     }
     size_t size = ftell(fp);
+    size_t nRead = 0;
     if (addOverflows<size_t>(size, ZERO_PADDING_COUNT)) {
         goto Error;
     }
@@ -483,7 +490,7 @@ std::string_view ReadFileWithAllocator(const char* filePath, Allocator* allocato
         return {};
     }
 
-    size_t nRead = fread((void*)d, 1, size, fp);
+    nRead = fread((void*)d, 1, size, fp);
     if (nRead != size) {
         int err = ferror(fp);
         CrashIf(err == 0);
@@ -492,55 +499,34 @@ std::string_view ReadFileWithAllocator(const char* filePath, Allocator* allocato
         goto Error;
     }
 
-    fclose(fp);
-    return {d, size};
+    return {(u8*)d, size};
 Error:
-    fclose(fp);
     Allocator::Free(allocator, (void*)d);
     return {};
 #endif
 }
 
-std::string_view ReadFile(std::string_view path) {
+std::span<u8> ReadFile(std::string_view path) {
     return ReadFileWithAllocator(path.data(), nullptr);
 }
 
-std::string_view ReadFile(const WCHAR* filePath) {
+std::span<u8> ReadFile(const WCHAR* filePath) {
     AutoFree path = strconv::WstrToUtf8(filePath);
     return ReadFileWithAllocator(path.data, nullptr);
 }
 
-bool WriteFile(const char* filePath, std::string_view d) {
-#if OS_WIN
+bool WriteFile(const char* filePath, std::span<u8> d) {
     WCHAR buf[512];
     strconv::Utf8ToWcharBuf(filePath, str::Len(filePath), buf, dimof(buf));
     return WriteFile(buf, d);
-#else
-    CrashAlwaysIf(true);
-    UNUSED(filePath);
-    UNUSED(data);
-    UNUSED(dataLen);
-    return false;
-#endif
 }
 
-#if OS_WIN
 bool Exists(std::string_view path) {
     WCHAR* wpath = strconv::Utf8ToWstr(path);
     bool exists = Exists(wpath);
     free(wpath);
     return exists;
 }
-
-#else
-bool Exists(std::string_view path) {
-    UNUSED(path);
-    // TODO: NYI
-    CrashMe();
-    return false;
-}
-
-#endif
 
 #if OS_WIN
 HANDLE OpenReadOnly(const WCHAR* filePath) {
@@ -598,7 +584,7 @@ i64 GetSize(std::string_view filePath) {
     return size.QuadPart;
 }
 
-std::string_view ReadFileWithAllocator(const WCHAR* path, Allocator* allocator) {
+std::span<u8> ReadFileWithAllocator(const WCHAR* path, Allocator* allocator) {
     AutoFree pathUtf8 = strconv::WstrToUtf8(path);
     return ReadFileWithAllocator(pathUtf8.data, allocator);
 }
@@ -620,7 +606,7 @@ int ReadN(const WCHAR* filePath, char* buf, size_t toRead) {
     return (int)nRead;
 }
 
-bool WriteFile(const WCHAR* filePath, std::string_view d) {
+bool WriteFile(const WCHAR* filePath, std::span<u8> d) {
     const void* data = d.data();
     size_t dataLen = d.size();
     DWORD access = GENERIC_WRITE;
@@ -634,7 +620,7 @@ bool WriteFile(const WCHAR* filePath, std::string_view d) {
 
     DWORD size = 0;
     BOOL ok = WriteFile(h, data, (DWORD)dataLen, &size, nullptr);
-    AssertCrash(!ok || (dataLen == (size_t)size));
+    CrashIf(ok && (dataLen != (size_t)size));
     return ok && dataLen == (size_t)size;
 }
 
@@ -668,7 +654,7 @@ bool StartsWithN(const WCHAR* filePath, const char* s, size_t len) {
         return false;
     }
 
-    if (!ReadN(filePath, buf.get(), len)) {
+    if (!ReadN(filePath, buf.Get(), len)) {
         return false;
     }
     return memeq(buf, s, len);
@@ -681,13 +667,18 @@ bool StartsWith(const WCHAR* filePath, const char* s) {
 
 int GetZoneIdentifier(const WCHAR* filePath) {
     AutoFreeWstr path(str::Join(filePath, L":Zone.Identifier"));
-    return GetPrivateProfileInt(L"ZoneTransfer", L"ZoneId", URLZONE_INVALID, path);
+    return GetPrivateProfileIntW(L"ZoneTransfer", L"ZoneId", URLZONE_INVALID, path);
 }
 
 bool SetZoneIdentifier(const WCHAR* filePath, int zoneId) {
     AutoFreeWstr path(str::Join(filePath, L":Zone.Identifier"));
     AutoFreeWstr id(str::Format(L"%d", zoneId));
-    return WritePrivateProfileString(L"ZoneTransfer", L"ZoneId", id, path);
+    return WritePrivateProfileStringW(L"ZoneTransfer", L"ZoneId", id, path);
+}
+
+bool DeleteZoneIdentifier(const WCHAR* filePath) {
+    AutoFreeWstr path(str::Join(filePath, L":Zone.Identifier"));
+    return !!DeleteFileW(path.Get());
 }
 
 #endif // OS_WIN
@@ -740,7 +731,7 @@ bool RemoveAll(const WCHAR* dir) {
     AutoFreeWstr path = AllocArray<WCHAR>(n);
     str::BufSet(path, n, dir);
     FILEOP_FLAGS flags = FOF_NO_UI;
-    UINT op = FO_DELETE;
+    uint op = FO_DELETE;
     SHFILEOPSTRUCTW shfo = {nullptr, op, path, nullptr, flags, FALSE, nullptr, nullptr};
     int res = SHFileOperationW(&shfo);
     return res == 0;

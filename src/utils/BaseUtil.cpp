@@ -1,7 +1,10 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
+
+// if > 1 we won't crash when memory allocation fails
+std::atomic<int> gAllowAllocFailure = 0;
 
 void* Allocator::Alloc(Allocator* a, size_t size) {
     if (!a) {
@@ -93,7 +96,7 @@ void PoolAllocator::FreeAll() {
 // optimization: frees all but first block
 // allows for more efficient re-use of PoolAllocator
 // with more effort we could preserve all blocks (not sure if worth it)
-void PoolAllocator::reset() {
+void PoolAllocator::Reset() {
     FreeAll();
 
     // TODO: optimize by not freeing the first block, to speed up re-use
@@ -190,6 +193,9 @@ void* PoolAllocator::At(int i) {
         curr = curr->next;
     }
     CrashIf(!curr);
+    if (!curr) {
+        return nullptr;
+    }
     CrashIf(i >= curr->nAllocs);
     i32* index = (i32*)curr->end;
     // elements are in reverse
@@ -267,22 +273,22 @@ size_t RoundToPowerOf2(size_t size) {
  * 2. It will not produce the same results on little-endian and big-endian
  *    machines.
  */
-static uint32_t hash_function_seed = 5381;
+static u32 hash_function_seed = 5381;
 
-uint32_t MurmurHash2(const void* key, size_t len) {
+u32 MurmurHash2(const void* key, size_t len) {
     /* 'm' and 'r' are mixing constants generated offline.
      They're not really 'magic', they just happen to work well.  */
-    const uint32_t m = 0x5bd1e995;
+    const u32 m = 0x5bd1e995;
     const int r = 24;
 
     /* Initialize the hash to a 'random' value */
-    uint32_t h = hash_function_seed ^ (uint32_t)len;
+    u32 h = hash_function_seed ^ (u32)len;
 
     /* Mix 4 bytes at a time into the hash */
-    const uint8_t* data = (const uint8_t*)key;
+    const u8* data = (const u8*)key;
 
     while (len >= 4) {
-        uint32_t k = *(uint32_t*)data;
+        u32 k = *(u32*)data;
 
         k *= m;
         k ^= k >> r;
@@ -315,11 +321,11 @@ uint32_t MurmurHash2(const void* key, size_t len) {
     return h;
 }
 
-int VecStrIndex::nLeft() {
+int VecStrIndex::ItemsLeft() {
     return kVecStrIndexSize - nStrings;
 }
 
-int VecStr::size() {
+int VecStr::Size() {
     VecStrIndex* idx = firstIndex;
     int n = 0;
     while (idx) {
@@ -352,35 +358,35 @@ std::string_view VecStr::at(int i) {
     return {s, (size_t)size};
 }
 
-bool VecStr::allocateIndexIfNeeded() {
-    if (currIndex && currIndex->nLeft() > 0) {
+static bool allocateIndexIfNeeded(VecStr& v) {
+    if (v.currIndex && v.currIndex->ItemsLeft() > 0) {
         return true;
     }
 
     // for structures we want aligned allocation. 8 should be good enough for everything
-    allocator.allocAlign = 8;
-    VecStrIndex* idx = allocator.AllocStruct<VecStrIndex>();
+    v.allocator.allocAlign = 8;
+    VecStrIndex* idx = v.allocator.AllocStruct<VecStrIndex>();
 
-    if (allowFailure && !idx) {
+    if (!idx && (gAllowAllocFailure.load() > 0)) {
         return false;
     }
     idx->next = nullptr;
     idx->nStrings = 0;
 
-    if (!firstIndex) {
-        firstIndex = idx;
-        currIndex = idx;
+    if (!v.firstIndex) {
+        v.firstIndex = idx;
+        v.currIndex = idx;
     } else {
-        CrashIf(!firstIndex);
-        CrashIf(!currIndex);
-        currIndex->next = idx;
-        currIndex = idx;
+        CrashIf(!v.firstIndex);
+        CrashIf(!v.currIndex);
+        v.currIndex->next = idx;
+        v.currIndex = idx;
     }
     return true;
 }
 
 bool VecStr::Append(std::string_view sv) {
-    bool ok = allocateIndexIfNeeded();
+    bool ok = allocateIndexIfNeeded(*this);
     if (!ok) {
         return false;
     }
@@ -399,8 +405,8 @@ bool VecStr::Append(std::string_view sv) {
     return true;
 }
 
-void VecStr::reset() {
-    allocator.reset();
+void VecStr::Reset() {
+    allocator.Reset();
     firstIndex = nullptr;
     currIndex = nullptr;
 }

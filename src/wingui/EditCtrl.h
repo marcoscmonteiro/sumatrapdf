@@ -1,5 +1,5 @@
 
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct EditTextChangedEvent : WndEvent {
@@ -21,7 +21,12 @@ struct EditCtrl : WindowBase {
     // data that can be set directly
 
     str::Str cueText;
-    OnTextChanged OnTextChanged;
+    OnTextChanged onTextChanged;
+
+    // set before Create()
+    bool isMultiLine = false;
+    int idealSizeLines = 1;
+    int maxDx = 0;
 
     // set those via SetColors() to keep bgBrush in sync with bgCol
     HBRUSH bgBrush = nullptr;
@@ -32,16 +37,7 @@ struct EditCtrl : WindowBase {
     ~EditCtrl();
     bool Create() override;
     Size GetIdealSize() override;
-    void WndProc(WndEvent*) override;
-
-    void HandleWM_COMMAND(WndEvent*);
-    void HandleWM_CTLCOLOREDIT(WndEvent*);
 
     void SetSelection(int start, int end);
     bool SetCueText(std::string_view);
 };
-
-ILayout* NewEditLayout(EditCtrl*);
-
-bool IsEdit(Kind);
-bool IsEdit(ILayout*);

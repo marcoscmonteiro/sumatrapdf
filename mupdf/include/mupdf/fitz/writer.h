@@ -106,6 +106,11 @@ fz_document_writer *fz_new_svg_writer(fz_context *ctx, const char *path, const c
 fz_document_writer *fz_new_text_writer(fz_context *ctx, const char *format, const char *path, const char *options);
 fz_document_writer *fz_new_text_writer_with_output(fz_context *ctx, const char *format, fz_output *out, const char *options);
 
+fz_document_writer *fz_new_odt_writer(fz_context *ctx, const char *format, const char *path, const char *options);
+fz_document_writer *fz_new_odt_writer_with_output(fz_context *ctx, fz_output *out, const char *options);
+fz_document_writer *fz_new_docx_writer(fz_context *ctx, const char *format, const char *path, const char *options);
+fz_document_writer *fz_new_docx_writer_with_output(fz_context *ctx, fz_output *out, const char *options);
+
 fz_document_writer *fz_new_ps_writer(fz_context *ctx, const char *path, const char *options);
 fz_document_writer *fz_new_ps_writer_with_output(fz_context *ctx, fz_output *out, const char *options);
 fz_document_writer *fz_new_pcl_writer(fz_context *ctx, const char *path, const char *options);
@@ -117,6 +122,10 @@ fz_document_writer *fz_new_pwg_writer_with_output(fz_context *ctx, fz_output *ou
 
 fz_document_writer *fz_new_cbz_writer(fz_context *ctx, const char *path, const char *options);
 fz_document_writer *fz_new_cbz_writer_with_output(fz_context *ctx, fz_output *out, const char *options);
+
+fz_document_writer *fz_new_pdfocr_writer(fz_context *ctx, const char *path, const char *options);
+fz_document_writer *fz_new_pdfocr_writer_with_output(fz_context *ctx, fz_output *out, const char *options);
+void fz_pdfocr_writer_set_progress(fz_context *ctx, fz_document_writer *writer, int (*progress)(fz_context *, void *, int), void *);
 
 fz_document_writer *fz_new_png_pixmap_writer(fz_context *ctx, const char *path, const char *options);
 fz_document_writer *fz_new_pam_pixmap_writer(fz_context *ctx, const char *path, const char *options);
@@ -142,6 +151,12 @@ fz_device *fz_begin_page(fz_context *ctx, fz_document_writer *wri, fz_rect media
 	document.
 */
 void fz_end_page(fz_context *ctx, fz_document_writer *wri);
+
+/**
+	Convenience function to feed all the pages of a document to
+	fz_begin_page/fz_run_page/fz_end_page.
+*/
+void fz_write_document(fz_context *ctx, fz_document_writer *wri, fz_document *doc);
 
 /**
 	Called to end the process of writing
@@ -171,6 +186,7 @@ extern const char *fz_svg_write_options_usage;
 extern const char *fz_pcl_write_options_usage;
 extern const char *fz_pclm_write_options_usage;
 extern const char *fz_pwg_write_options_usage;
+extern const char *fz_pdfocr_write_options_usage;
 
 /* Implementation details: subject to change. */
 

@@ -86,11 +86,11 @@ typedef unsigned __int64 uint64_t;
 #if HAVE_SIGSETJMP
 #define fz_setjmp(BUF) sigsetjmp(BUF, 0)
 #define fz_longjmp(BUF,VAL) siglongjmp(BUF, VAL)
-#define fz_jmp_buf sigjmp_buf
+typedef sigjmp_buf fz_jmp_buf;
 #else
 #define fz_setjmp(BUF) setjmp(BUF)
 #define fz_longjmp(BUF,VAL) longjmp(BUF,VAL)
-#define fz_jmp_buf jmp_buf
+typedef jmp_buf fz_jmp_buf;
 #endif
 
 /* these constants mirror the corresponding macros in stdio.h */
@@ -233,6 +233,42 @@ void fz_free_argv(int argc, char **argv);
 #define ENTER_THUMB
 #endif
 
+#endif
+
+/* Memory block alignment */
+
+/* Most architectures are happy with blocks being aligned to the size
+ * of void *'s. Some (notably sparc) are not.
+ *
+ * Some architectures (notably amd64) are happy for pointers to be 32bit
+ * aligned even on 64bit systems. By making use of this we can save lots
+ * of memory in data structures (notably the display list).
+ *
+ * We attempt to cope with these vagaries via the following definitions.
+ */
+
+/* All blocks allocated by mupdf's allocators are expected to be
+ * returned aligned to FZ_MEMORY_BLOCK_ALIGN_MOD. This is sizeof(void *)
+ * unless overwritten by a predefinition, or by a specific architecture
+ * being detected. */
+#ifndef FZ_MEMORY_BLOCK_ALIGN_MOD
+#if defined(sparc) || defined(__sparc) || defined(__sparc__)
+#define FZ_MEMORY_BLOCK_ALIGN_MOD 8
+#else
+#define FZ_MEMORY_BLOCK_ALIGN_MOD sizeof(void *)
+#endif
+#endif
+
+/* MuPDF will ensure that its use of pointers in packed structures
+ * (such as the display list) will be aligned to FZ_POINTER_ALIGN_MOD.
+ * This is the same as FZ_MEMORY_BLOCK_ALIGN_MOD unless overridden by
+ * a predefinition, or by a specific architecture being detected. */
+#ifndef FZ_POINTER_ALIGN_MOD
+#if defined(__amd64) || defined(__amd64__) || defined(__x86_64) || defined(__x86_64__)
+#define FZ_POINTER_ALIGN_MOD 4
+#else
+#define FZ_POINTER_ALIGN_MOD FZ_MEMORY_BLOCK_ALIGN_MOD
+#endif
 #endif
 
 #ifdef CLUSTER

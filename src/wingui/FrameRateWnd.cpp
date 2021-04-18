@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // SetWindowSubclass, RemoveWindowSubclass and DefSubclassProc require the WinXP SDK
@@ -30,8 +30,7 @@ that it's actually a part of that window.
 #define COL_WHITE RGB(0xff, 0xff, 0xff)
 #define COL_BLACK RGB(0, 0, 0)
 
-static void FrameRatePaint(FrameRateWnd* w, HDC hdc, PAINTSTRUCT& ps) {
-    UNUSED(ps);
+static void FrameRatePaint(FrameRateWnd* w, HDC hdc, [[maybe_unused]] PAINTSTRUCT& ps) {
     RECT rc = GetClientRect(w->hwnd);
     ScopedGdiObj<HBRUSH> brush(CreateSolidBrush(COL_BLACK));
     FillRect(hdc, &rc, brush);
@@ -77,9 +76,8 @@ static void FrameRateOnPaint(FrameRateWnd* w) {
     EndPaint(w->hwnd, &ps);
 }
 
-static LRESULT CALLBACK WndProcFrameRateAssociated(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uIdSubclass,
-                                                   DWORD_PTR dwRefData) {
-    UNUSED(uIdSubclass);
+static LRESULT CALLBACK WndProcFrameRateAssociated(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+                                                   [[maybe_unused]] UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     if (WM_MOVING == msg || WM_SIZING == msg || WM_SIZE == msg || WM_WINDOWPOSCHANGED == msg || WM_MOVE == msg) {
         FrameRateWnd* w = (FrameRateWnd*)dwRefData;
         PositionWindow(w, w->maxSizeSoFar);

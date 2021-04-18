@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -12,18 +12,13 @@
 #include "EngineBase.h"
 #include "EnginePdf.h"
 #include "EngineXps.h"
-#if defined(BUILD_EPUB_PREVIEW) || defined(BUILD_FB2_PREVIEW) || defined(BUILD_MOBI_PREVIEW)
 #include "mui/MiniMui.h"
 #include "EngineEbook.h"
-#endif
-#if defined(BUILD_CBZ_PREVIEW) || defined(BUILD_CBR_PREVIEW) || defined(BUILD_CB7_PREVIEW) || \
-    defined(BUILD_CBT_PREVIEW) || defined(BUILD_TGA_PREVIEW)
 #include "EngineImages.h"
-#endif
 #include "PdfPreview.h"
 #include "PdfPreviewBase.h"
 
-IFACEMETHODIMP PreviewBase::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE* pdwAlpha) {
+IFACEMETHODIMP PreviewBase::GetThumbnail(uint cx, HBITMAP* phbmp, WTS_ALPHATYPE* pdwAlpha) {
     EngineBase* engine = GetEngine();
     if (!engine) {
         return E_FAIL;
@@ -31,9 +26,9 @@ IFACEMETHODIMP PreviewBase::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE*
 
     dbglogf("PdfPreview: PreviewBase::GetThumbnail(cx=%d)\n", (int)cx);
 
-    RectD page = engine->Transform(engine->PageMediabox(1), 1, 1.0, 0);
+    RectF page = engine->Transform(engine->PageMediabox(1), 1, 1.0, 0);
     float zoom = std::min(cx / (float)page.dx, cx / (float)page.dy) - 0.001f;
-    Rect thumb = RectD(0, 0, page.dx * zoom, page.dy * zoom).Round();
+    Rect thumb = RectF(0, 0, page.dx * zoom, page.dy * zoom).Round();
 
     BITMAPINFO bmi = {0};
     bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
@@ -43,13 +38,13 @@ IFACEMETHODIMP PreviewBase::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE*
     bmi.bmiHeader.biBitCount = 32;
     bmi.bmiHeader.biCompression = BI_RGB;
 
-    unsigned char* bmpData = nullptr;
+    u8* bmpData = nullptr;
     HBITMAP hthumb = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, (void**)&bmpData, nullptr, 0);
     if (!hthumb) {
         return E_OUTOFMEMORY;
     }
 
-    page = engine->Transform(thumb.Convert<double>(), 1, zoom, 0, true);
+    page = engine->Transform(ToRectFl(thumb), 1, zoom, 0, true);
     RenderPageArgs args(1, zoom, 0, &page);
     RenderedBitmap* bmp = engine->RenderPage(args);
 
@@ -125,14 +120,14 @@ class PageRenderer {
         DeleteCriticalSection(&currAccess);
     }
 
-    RectD GetPageRect(int pageNo) {
+    RectF GetPageRect(int pageNo) {
         if (preventRecursion) {
-            return RectD();
+            return RectF();
         }
 
         preventRecursion = true;
         // assume that any engine methods could lead to a seek
-        RectD bbox = engine->PageMediabox(pageNo);
+        RectF bbox = engine->PageMediabox(pageNo);
         bbox = engine->Transform(bbox, pageNo, 1.0, 0);
         preventRecursion = false;
         return bbox;
@@ -179,11 +174,11 @@ class PageRenderer {
         delete pr->abortCookie;
         pr->abortCookie = nullptr;
 
-        HANDLE thread = pr->thread;
+        HANDLE th = pr->thread;
         pr->thread = nullptr;
-        PostMessage(pr->hwnd, UWM_PAINT_AGAIN, 0, 0);
+        PostMessageW(pr->hwnd, UWM_PAINT_AGAIN, 0, 0);
 
-        CloseHandle(thread);
+        CloseHandle(th);
         return 0;
     }
 };
@@ -194,20 +189,20 @@ static LRESULT OnPaint(HWND hwnd) {
     HDC hdc = buffer.GetDC();
     HBRUSH brushBg = CreateSolidBrush(COL_WINDOW_BG);
     HBRUSH brushWhite = GetStockBrush(WHITE_BRUSH);
-    RECT rcClient = rect.ToRECT();
+    RECT rcClient = ToRECT(rect);
     FillRect(hdc, &rcClient, brushBg);
 
     PreviewBase* preview = (PreviewBase*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
     if (preview && preview->renderer) {
         int pageNo = GetScrollPos(hwnd, SB_VERT);
-        RectD page = preview->renderer->GetPageRect(pageNo);
+        RectF page = preview->renderer->GetPageRect(pageNo);
         if (!page.IsEmpty()) {
             rect.Inflate(-PREVIEW_MARGIN, -PREVIEW_MARGIN);
             float zoom = (float)std::min(rect.dx / page.dx, rect.dy / page.dy) - 0.001f;
-            Rect onScreen = RectD(rect.x, rect.y, page.dx * zoom, page.dy * zoom).Round();
+            Rect onScreen = RectF((float)rect.x, (float)rect.y, (float)page.dx * zoom, (float)page.dy * zoom).Round();
             onScreen.Offset((rect.dx - onScreen.dx) / 2, (rect.dy - onScreen.dy) / 2);
 
-            RECT rcPage = onScreen.ToRECT();
+            RECT rcPage = ToRECT(onScreen);
             FillRect(hdc, &rcPage, brushWhite);
             preview->renderer->Render(hdc, onScreen, pageNo, zoom);
         }
@@ -222,13 +217,13 @@ static LRESULT OnPaint(HWND hwnd) {
     return 0;
 }
 
-static LRESULT OnVScroll(HWND hwnd, WPARAM wParam) {
+static LRESULT OnVScroll(HWND hwnd, WPARAM wp) {
     SCROLLINFO si = {0};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
     GetScrollInfo(hwnd, SB_VERT, &si);
 
-    switch (LOWORD(wParam)) {
+    switch (LOWORD(wp)) {
         case SB_TOP:
             si.nPos = si.nMin;
             break;
@@ -287,19 +282,19 @@ static LRESULT OnDestroy(HWND hwnd) {
     return 0;
 }
 
-static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    switch (message) {
+static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
         case WM_PAINT:
             return OnPaint(hwnd);
         case WM_VSCROLL:
-            return OnVScroll(hwnd, wParam);
+            return OnVScroll(hwnd, wp);
         case WM_KEYDOWN:
-            return OnKeydown(hwnd, wParam);
+            return OnKeydown(hwnd, wp);
         case WM_LBUTTONDOWN:
             SetFocus(hwnd);
             return 0;
         case WM_MOUSEWHEEL:
-            return OnVScroll(hwnd, GET_WHEEL_DELTA_WPARAM(wParam) > 0 ? SB_LINEUP : SB_LINEDOWN);
+            return OnVScroll(hwnd, GET_WHEEL_DELTA_WPARAM(wp) > 0 ? SB_LINEUP : SB_LINEDOWN);
         case WM_DESTROY:
             return OnDestroy(hwnd);
         case UWM_PAINT_AGAIN:
@@ -307,7 +302,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT message, WPARAM wParam, L
             UpdateWindow(hwnd);
             return 0;
         default:
-            return DefWindowProc(hwnd, message, wParam, lParam);
+            return DefWindowProc(hwnd, msg, wp, lp);
     }
 }
 
@@ -358,21 +353,15 @@ EngineBase* CPdfPreview::LoadEngine(IStream* stream) {
     return CreateEnginePdfFromStream(stream);
 }
 
-#ifdef BUILD_XPS_PREVIEW
 EngineBase* CXpsPreview::LoadEngine(IStream* stream) {
     return CreateXpsEngineFromStream(stream);
 }
-#endif
 
-#ifdef BUILD_DJVU_PREVIEW
 #include "EngineDjVu.h"
 
 EngineBase* CDjVuPreview::LoadEngine(IStream* stream) {
     return CreateDjVuEngineFromStream(stream);
 }
-#endif
-
-#ifdef BUILD_EPUB_PREVIEW
 
 CEpubPreview::CEpubPreview(long* plRefCount) : PreviewBase(plRefCount, SZ_EPUB_PREVIEW_CLSID) {
     m_gdiScope = new ScopedGdiPlus();
@@ -386,9 +375,6 @@ CEpubPreview::~CEpubPreview() {
 EngineBase* CEpubPreview::LoadEngine(IStream* stream) {
     return CreateEpubEngineFromStream(stream);
 }
-#endif
-
-#ifdef BUILD_FB2_PREVIEW
 
 CFb2Preview::CFb2Preview(long* plRefCount) : PreviewBase(plRefCount, SZ_FB2_PREVIEW_CLSID) {
     m_gdiScope = new ScopedGdiPlus();
@@ -402,9 +388,6 @@ CFb2Preview::~CFb2Preview() {
 EngineBase* CFb2Preview::LoadEngine(IStream* stream) {
     return CreateFb2EngineFromStream(stream);
 }
-#endif
-
-#ifdef BUILD_MOBI_PREVIEW
 
 CMobiPreview::CMobiPreview(long* plRefCount) : PreviewBase(plRefCount, SZ_MOBI_PREVIEW_CLSID) {
     m_gdiScope = new ScopedGdiPlus();
@@ -418,18 +401,11 @@ CMobiPreview::~CMobiPreview() {
 EngineBase* CMobiPreview::LoadEngine(IStream* stream) {
     return CreateMobiEngineFromStream(stream);
 }
-#endif
-
-#if defined(BUILD_CBZ_PREVIEW) || defined(BUILD_CBR_PREVIEW) || defined(BUILD_CB7_PREVIEW) || defined(BUILD_CBT_PREVIEW)
 
 EngineBase* CCbxPreview::LoadEngine(IStream* stream) {
     return CreateCbxEngineFromStream(stream);
 }
-#endif
-
-#ifdef BUILD_TGA_PREVIEW
 
 EngineBase* CTgaPreview::LoadEngine(IStream* stream) {
     return CreateImageEngineFromStream(stream);
 }
-#endif

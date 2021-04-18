@@ -22,7 +22,7 @@ func readFile(path string) string {
 
 func uploadStringsToServer(strs string, secret string) {
 	fmt.Printf("Uploading strings to the server...\n")
-	uri := fmt.Sprintf("%s/uploadstrings", TRANSLATION_SERVER)
+	uri := fmt.Sprintf("%s/uploadstrings", translationServer)
 
 	data := url.Values{}
 	data.Set("strings", strs)
@@ -55,7 +55,7 @@ func uploadStringsIfChanged() {
 	// needs to have upload secret to protect apptranslator.org server from abuse
 	// TODO: we used to have a check if svn is up-to-date
 	// should we restore it for git?
-	a1 := extract_strings_from_c_files()
+	a1 := extractStringsFromCFiles()
 	a := extractJustStrings(a1)
 	sort.Strings(a)
 	s := "AppTranslator strings\n" + strings.Join(a, "\n")
@@ -66,5 +66,5 @@ func uploadStringsIfChanged() {
 	uploadsecret := getTransSecret()
 	uploadStringsToServer(s, uploadsecret)
 	u.WriteFileMust(path, []byte(s))
-	logf("Don't forget to checkin strings/last_uploaded.txt")
+	logf("Don't forget to checkin strings/last_uploaded.txt\n")
 }

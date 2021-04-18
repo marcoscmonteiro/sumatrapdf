@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #ifndef NO_LIBMUPDF
@@ -16,23 +16,25 @@ extern "C" {
 
 #ifndef NO_LIBMUPDF
 
-void CalcMD5Digest(const unsigned char* data, size_t byteCount, unsigned char digest[16]) {
+void CalcMD5Digest(const u8* data, size_t byteCount, u8 digest[16]) {
     fz_md5 md5;
     fz_md5_init(&md5);
 #ifdef _WIN64
-    for (; byteCount > UINT_MAX; data += UINT_MAX, byteCount -= UINT_MAX)
+    for (; byteCount > UINT_MAX; data += UINT_MAX, byteCount -= UINT_MAX) {
         fz_md5_update(&md5, data, UINT_MAX);
+    }
 #endif
     fz_md5_update(&md5, data, (unsigned int)byteCount);
     fz_md5_final(&md5, digest);
 }
 
-void CalcSHA2Digest(const unsigned char* data, size_t byteCount, unsigned char digest[32]) {
+void CalcSHA2Digest(const u8* data, size_t byteCount, u8 digest[32]) {
     fz_sha256 sha2;
     fz_sha256_init(&sha2);
 #ifdef _WIN64
-    for (; byteCount > UINT_MAX; data += UINT_MAX, byteCount -= UINT_MAX)
+    for (; byteCount > UINT_MAX; data += UINT_MAX, byteCount -= UINT_MAX) {
         fz_sha256_update(&sha2, data, UINT_MAX);
+    }
 #endif
     fz_sha256_update(&sha2, data, (unsigned int)byteCount);
     fz_sha256_final(&sha2, digest);
@@ -40,18 +42,18 @@ void CalcSHA2Digest(const unsigned char* data, size_t byteCount, unsigned char d
 
 #else
 
-void CalcMD5Digest(const unsigned char* data, size_t byteCount, unsigned char digest[16]) {
+void CalcMD5Digest(const u8* data, size_t byteCount, u8 digest[16]) {
     CalcMD5DigestWin(data, byteCount, digest);
 }
 
-void CalcSHA2Digest(const unsigned char* data, size_t byteCount, unsigned char digest[32]) {
+void CalcSHA2Digest(const u8* data, size_t byteCount, u8 digest[32]) {
     CalcSha2DigestWin(data, byteCount, digest);
 }
 
 #endif
 
 // Note: this crashes under Win2000, use SHA2 or MD5 instad
-void CalcSHA1Digest(const unsigned char* data, size_t byteCount, unsigned char digest[20]) {
+void CalcSHA1Digest(const u8* data, size_t byteCount, u8 digest[20]) {
     CalcSha1DigestWin(data, byteCount, digest);
 }
 
@@ -74,14 +76,15 @@ void CalcSHA1Digest(const unsigned char* data, size_t byteCount, unsigned char d
 // MD5 digest that uses Windows' CryptoAPI. It's good for code that doesn't already
 // have MD5 code (smaller code) and it's probably faster than most other implementations
 // TODO: could try to use CryptoNG available starting in Vista. But then again, would that be worth it?
-void CalcMD5DigestWin(const void* data, size_t byteCount, unsigned char digest[16]) {
+void CalcMD5DigestWin(const void* data, size_t byteCount, u8 digest[16]) {
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
 
     // http://stackoverflow.com/questions/9794745/ms-cryptoapi-doesnt-work-on-windows-xp-with-cryptacquirecontext
     BOOL ok = CryptAcquireContext(&hProv, nullptr, MS_DEF_PROV, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT);
-    if (!ok)
+    if (!ok) {
         ok = CryptAcquireContext(&hProv, nullptr, MS_ENH_RSA_AES_PROV_XP, PROV_RSA_AES, CRYPT_VERIFYCONTEXT);
+    }
 
     CrashAlwaysIf(!ok);
     ok = CryptCreateHash(hProv, CALG_MD5, 0, 0, &hHash);
@@ -112,7 +115,7 @@ void CalcMD5DigestWin(const void* data, size_t byteCount, unsigned char digest[1
 // SHA1 digest that uses Windows' CryptoAPI. It's good for code that doesn't already
 // have SHA1 code (smaller code) and it's probably faster than most other implementations
 // TODO: hasn't been tested for corectness
-void CalcSha1DigestWin(const void* data, size_t byteCount, unsigned char digest[20]) {
+void CalcSha1DigestWin(const void* data, size_t byteCount, u8 digest[20]) {
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
 
@@ -143,7 +146,7 @@ void CalcSha1DigestWin(const void* data, size_t byteCount, unsigned char digest[
     CryptReleaseContext(hProv, 0);
 }
 
-void CalcSha2DigestWin(const void* data, size_t byteCount, unsigned char digest[32]) {
+void CalcSha2DigestWin(const void* data, size_t byteCount, u8 digest[32]) {
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
 
@@ -183,26 +186,31 @@ static bool ExtractSignature(const char* hexSignature, const void* data, size_t&
     // verify hexSignature format - must be either
     // * a string starting with "sha1:" followed by the signature (and optionally whitespace and further content)
     // * nullptr, then the signature must be found on the last line of non-binary data, starting at " Signature sha1:"
-    if (str::StartsWith(hexSignature, "sha1:"))
+    if (str::StartsWith(hexSignature, "sha1:")) {
         hexSignature += 5;
-    else if (!hexSignature) {
-        if (dataLen < 20 || memchr(data, 0, dataLen))
+    } else if (!hexSignature) {
+        if (dataLen < 20 || memchr(data, 0, dataLen)) {
             return false;
+        }
         const char* lastLine = (const char*)data + dataLen - 1;
-        while (lastLine > data && *(lastLine - 1) != '\n')
+        while (lastLine > data && *(lastLine - 1) != '\n') {
             lastLine--;
-        if (lastLine == data || !str::Find(lastLine, " Signature sha1:"))
+        }
+        if (lastLine == data || !str::Find(lastLine, " Signature sha1:")) {
             return false;
+        }
         dataLen = lastLine - (const char*)data;
         hexSignature = str::Find(lastLine, " Signature sha1:") + 16;
-    } else
+    } else {
         return false;
+    }
 
     Vec<BYTE> signatureBytes;
     for (const char* c = hexSignature; *c && !str::IsWs(*c); c += 2) {
-        int val;
-        if (1 != sscanf_s(c, "%02x", &val))
+        unsigned int val;
+        if (1 != sscanf_s(c, "%02x", &val)) {
             return false;
+        }
         signatureBytes.Append((BYTE)val);
     }
     signatureLen = signatureBytes.size();
@@ -237,9 +245,11 @@ bool VerifySHA1Signature(const void* data, size_t dataLen, const char* hexSignat
 #undef Check
 
 CleanUp:
-    if (hHash)
+    if (hHash) {
         CryptDestroyHash(hHash);
-    if (hProv)
+    }
+    if (hProv) {
         CryptReleaseContext(hProv, 0);
+    }
     return ok;
 }

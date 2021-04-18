@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 extern "C" {
@@ -51,7 +51,7 @@ static const char* gIconPageNext =
 </svg>)";
 
 // https://github.com/tabler/tabler-icons/blob/master/icons/layout-rows.svg
-static const char* gIconLayoutContinous =
+static const char* gIconLayoutContinuous =
     R"(<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-layout-rows" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
   <rect x="0" y="0" width="24" height="24" stroke="none"></rect>
   <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -117,13 +117,37 @@ static const char* gIconSave =
   <polyline points="4 8 10 8 10 4" />
 </svg>)";
 
+// https://github.com/tabler/tabler-icons/blob/master/icons/rotate-2.svg - modified
+static const char* gIconRotateLeft =
+    R"(<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-rotate-2" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M15 4.55a8 8 0 0 0 -6 14.9m0 -5.45v6h-6"/>
+  <circle cx="18.37" cy="7.16" r="0.15"/>
+  <circle cx="13" cy="19.94" r="0.15"/>
+  <circle cx="16.84" cy="18.37" r="0.15"/>
+  <circle cx="19.37" cy="15.1" r="0.15"/>
+  <circle cx="19.94" cy="11" r="0.15"/>
+</svg>)";
+
+// https://github.com/tabler/tabler-icons/blob/master/icons/rotate-clockwise-2.svg - modified
+static const char* gIconRotateRight =
+    R"(<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-rotate-clockwise-2" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M9 4.55a8 8 0 0 1 6 14.9m0 -5.45v6h6"/>
+  <circle cx="5.63" cy="7.16" r="0.15"/>
+  <circle cx="4.06" cy="11" r="0.15"/>
+  <circle cx="4.63" cy="15.1" r="0.15"/>
+  <circle cx="7.16" cy="18.37" r="0.15"/>
+  <circle cx="11" cy="19.94" r="0.15"/>
+</svg>)";
+
 // clang-format off
 static const char* gAllIcons[] = {
     gIconFileOpen,
     gIconPrint,
     gIconPagePrev,
     gIconPageNext,
-    gIconLayoutContinous,
+    gIconLayoutContinuous,
     gIconLayoutSinglePage,
     gIconZoomOut,
     gIconZoomIn,
@@ -132,6 +156,8 @@ static const char* gAllIcons[] = {
     gIconMatchCase,
     gIconMatchCase,  // TODO: remove this, is for compatiblity with bitmap icons
     gIconSave,
+    gIconRotateLeft,
+    gIconRotateRight,
 };
 // clang-format on
 
@@ -263,7 +289,7 @@ HBITMAP CreateBitmapFromPixmap(fz_pixmap* pixmap) {
     HANDLE hFile = INVALID_HANDLE_VALUE;
     DWORD fl = PAGE_READWRITE;
     HANDLE hMap = CreateFileMappingW(hFile, nullptr, fl, 0, imgSize, nullptr);
-    UINT usage = DIB_RGB_COLORS;
+    uint usage = DIB_RGB_COLORS;
     HBITMAP hbmp = CreateDIBSection(nullptr, bmi, usage, &data, hMap, 0);
     if (data) {
         u8* samples = pixmap->samples;

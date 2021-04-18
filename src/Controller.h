@@ -1,16 +1,15 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-class Controller;
-class ChmModel;
-class DisplayModel;
-class EbookController;
+struct Controller;
+struct ChmModel;
+struct DisplayModel;
+struct EbookController;
 struct EbookFormattingData;
 
 typedef std::function<void(RenderedBitmap*)> onBitmapRenderedCb;
 
-class ControllerCallback {
-  public:
+struct ControllerCallback {
     virtual ~ControllerCallback() {
     }
     // tell the UI to show the pageNo as current page (which also syncs
@@ -31,17 +30,15 @@ class ControllerCallback {
     // an HtmlWindow and thus outside the reach of the main UI)
     virtual void FocusFrame(bool always) = 0;
     // tell the UI to let the user save the provided data to a file
-    virtual void SaveDownload(const WCHAR* url, std::string_view data) = 0;
+    virtual void SaveDownload(const WCHAR* url, std::span<u8> data) = 0;
     // EbookController //
     virtual void HandleLayoutedPages(EbookController* ctrl, EbookFormattingData* data) = 0;
     virtual void RequestDelayedLayout(int delay) = 0;
 };
 
-class Controller {
-  protected:
+struct Controller {
     ControllerCallback* cb;
 
-  public:
     explicit Controller(ControllerCallback* cb) : cb(cb) {
         CrashIf(!cb);
     }
@@ -99,27 +96,30 @@ class Controller {
         return 1 <= pageNo && pageNo <= PageCount();
     }
     virtual bool GoToNextPage() {
-        if (CurrentPageNo() == PageCount())
+        if (CurrentPageNo() == PageCount()) {
             return false;
+        }
         GoToPage(CurrentPageNo() + 1, false);
         return true;
     }
-    virtual bool GoToPrevPage(bool toBottom = false) {
-        UNUSED(toBottom);
-        if (CurrentPageNo() == 1)
+    virtual bool GoToPrevPage([[maybe_unused]] bool toBottom = false) {
+        if (CurrentPageNo() == 1) {
             return false;
+        }
         GoToPage(CurrentPageNo() - 1, false);
         return true;
     }
     virtual bool GoToFirstPage() {
-        if (CurrentPageNo() == 1)
+        if (CurrentPageNo() == 1) {
             return false;
+        }
         GoToPage(1, true);
         return true;
     }
     virtual bool GoToLastPage() {
-        if (CurrentPageNo() == PageCount())
+        if (CurrentPageNo() == PageCount()) {
             return false;
+        }
         GoToPage(PageCount(), true);
         return true;
     }

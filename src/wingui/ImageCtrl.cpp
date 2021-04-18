@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -13,14 +13,6 @@
 #include "wingui/ImageCtrl.h"
 
 Kind kindImage = "image";
-
-bool IsImage(Kind kind) {
-    return kind == kindImage;
-}
-
-bool IsImage(ILayout* l) {
-    return IsLayoutOfKind(l, kindImage);
-}
 
 ImageCtrl::ImageCtrl(HWND p) : WindowBase(p) {
     dwStyle = WS_CHILD | WS_VISIBLE;
@@ -45,7 +37,7 @@ static void OnImageCtrlPaint(ImageCtrl* w, COLORREF bgCol) {
     int dx = RectDx(r);
     int dy = RectDy(r);
     Rect rc{0, 0, dx, dy};
-    Gdiplus::Rect rcp = rc.ToGdipRect();
+    Gdiplus::Rect rcp = ToGdipRect(rc);
 
     Color col(bgCol);
     SolidBrush tmpBrush(col);
@@ -63,11 +55,12 @@ static void OnImageCtrlPaint(ImageCtrl* w, COLORREF bgCol) {
     // TODO: allow for different image positioning (center, fit, fit-preserve-ratio)
 
     Gdiplus::Status ok = g.DrawImage(w->bmp, rcp, 0, 0, dx, dy, UnitPixel, &imgAttrs);
+    CrashIf(ok != Gdiplus::Status::Ok);
     EndPaint(w->hwnd, &ps);
 }
 
 static void ImageCtrlWndProc(WndEvent* ev) {
-    UINT msg = ev->msg;
+    uint msg = ev->msg;
     if (WM_ERASEBKGND == msg) {
         ev->didHandle = true;
         // do nothing, helps to avoid flicker
@@ -88,8 +81,8 @@ static void ImageCtrlWndProc(WndEvent* ev) {
     }
 
     // HWND hwnd = ev->hwnd;
-    // char* msgName = getWinMessageName(msg);
-    // dbglogf("hwnd: 0x%6p, msg: 0x%03x (%s), wp: 0x%x\n", hwnd, msg, msgName, ev->wparam);
+    // auto msgName = GetWinMessageName(msg);
+    // dbglogf("hwnd: 0x%6p, msg: 0x%03x (%s), wp: 0x%x\n", hwnd, msg, msgName, ev->wp);
 }
 
 bool ImageCtrl::Create() {
@@ -108,11 +101,7 @@ bool ImageCtrl::Create() {
 }
 
 Size ImageCtrl::GetIdealSize() {
-    UINT dx = bmp->GetWidth();
-    UINT dy = bmp->GetHeight();
+    uint dx = bmp->GetWidth();
+    uint dy = bmp->GetHeight();
     return Size{(int)dx, (int)dy};
-}
-
-ILayout* NewImageLayout(ImageCtrl* w) {
-    return new WindowBaseLayout(w, kindImage);
 }

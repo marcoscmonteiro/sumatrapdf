@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 class HtmlPullParser;
@@ -42,10 +42,10 @@ class EpubDoc {
     explicit EpubDoc(IStream* stream);
     ~EpubDoc();
 
-    std::string_view GetHtmlData() const;
+    std::span<u8> GetHtmlData() const;
 
-    ImageData* GetImageData(const char* id, const char* pagePath);
-    std::string_view GetFileData(const char* relPath, const char* pagePath);
+    ImageData* GetImageData(const char* fileName, const char* pagePath);
+    std::span<u8> GetFileData(const char* relPath, const char* pagePath);
 
     WCHAR* GetProperty(DocumentProperty prop) const;
     const WCHAR* GetFileName() const;
@@ -54,8 +54,9 @@ class EpubDoc {
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static EpubDoc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+
+    static EpubDoc* CreateFromFile(const WCHAR* path);
     static EpubDoc* CreateFromStream(IStream* stream);
 };
 
@@ -82,12 +83,9 @@ class Fb2Doc {
     explicit Fb2Doc(IStream* stream);
     ~Fb2Doc();
 
-    std::string_view Fb2Doc::GetXmlData() const;
-    // TODO: remove those
-    const char* GetXmlData(size_t* lenOut) const;
-    size_t GetXmlDataSize() const;
+    std::span<u8> GetXmlData() const;
 
-    ImageData* GetImageData(const char* id);
+    ImageData* GetImageData(const char* fileName);
     ImageData* GetCoverImage();
 
     WCHAR* GetProperty(DocumentProperty prop) const;
@@ -97,8 +95,9 @@ class Fb2Doc {
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static Fb2Doc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+
+    static Fb2Doc* CreateFromFile(const WCHAR* path);
     static Fb2Doc* CreateFromStream(IStream* stream);
 };
 
@@ -114,10 +113,10 @@ class PalmDoc {
     bool Load();
 
   public:
-    explicit PalmDoc(const WCHAR* fileName);
+    explicit PalmDoc(const WCHAR* path);
     ~PalmDoc();
 
-    std::string_view PalmDoc::GetHtmlData() const;
+    std::span<u8> GetHtmlData() const;
 
     WCHAR* GetProperty(DocumentProperty prop) const;
     const WCHAR* GetFileName() const;
@@ -125,8 +124,8 @@ class PalmDoc {
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static PalmDoc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+    static PalmDoc* CreateFromFile(const WCHAR* path);
 };
 
 /* ********** Plain HTML ********** */
@@ -139,21 +138,21 @@ class HtmlDoc {
     PropertyMap props;
 
     bool Load();
-    std::string_view LoadURL(const char* url);
+    std::span<u8> LoadURL(const char* url);
 
   public:
-    explicit HtmlDoc(const WCHAR* fileName);
+    explicit HtmlDoc(const WCHAR* path);
     ~HtmlDoc();
 
-    std::string_view HtmlDoc::GetHtmlData();
+    std::span<u8> GetHtmlData();
 
-    ImageData* GetImageData(const char* id);
-    std::string_view GetFileData(const char* relPath);
+    ImageData* GetImageData(const char* fileName);
+    std::span<u8> GetFileData(const char* relPath);
 
     WCHAR* GetProperty(DocumentProperty prop) const;
     const WCHAR* GetFileName() const;
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
+    static bool IsSupportedFileType(Kind kind);
     static HtmlDoc* CreateFromFile(const WCHAR* fileName);
 };
 
@@ -169,7 +168,7 @@ class TxtDoc {
   public:
     explicit TxtDoc(const WCHAR* fileName);
 
-    std::string_view TxtDoc::GetHtmlData() const;
+    std::span<u8> GetHtmlData() const;
 
     WCHAR* GetProperty(DocumentProperty prop) const;
     const WCHAR* GetFileName() const;
@@ -178,6 +177,6 @@ class TxtDoc {
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
+    static bool IsSupportedFileType(Kind kind);
     static TxtDoc* CreateFromFile(const WCHAR* fileName);
 };

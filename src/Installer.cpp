@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -34,11 +34,12 @@
 
 #include "AppPrefs.h"
 #include "SumatraConfig.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "AppUtil.h"
 #include "Flags.h"
-#include "Resource.h"
+#include "resource.h"
 #include "Version.h"
 #include "Installer.h"
 
@@ -98,7 +99,7 @@ static CheckboxCtrl* CreateCheckbox(HWND hwndParent, const WCHAR* s, bool isChec
 }
 
 static void OnButtonExit() {
-    SendMessage(gHwndFrame, WM_CLOSE, 0, 0);
+    SendMessageW(gHwndFrame, WM_CLOSE, 0, 0);
 }
 
 static void CreateButtonExit(HWND hwndParent) {
@@ -108,7 +109,7 @@ static void CreateButtonExit(HWND hwndParent) {
 
 bool ExtractFiles(lzma::SimpleArchive* archive, const WCHAR* destDir) {
     lzma::FileInfo* fi;
-    char* uncompressed;
+    u8* uncompressed;
 
     int nFiles = archive->filesCount;
 
@@ -124,7 +125,7 @@ bool ExtractFiles(lzma::SimpleArchive* archive, const WCHAR* destDir) {
         AutoFreeWstr fileName = strconv::Utf8ToWstr(fi->name);
         AutoFreeWstr filePath = path::Join(destDir, fileName);
 
-        std::string_view d = {uncompressed, fi->uncompressedSize};
+        std::span<u8> d = {uncompressed, fi->uncompressedSize};
         bool ok = file::WriteFile(filePath, d);
         free(uncompressed);
 
@@ -155,6 +156,10 @@ bool CopySelfToDir(const WCHAR* destDir) {
     auto* dstPath = path::Join(destDir, exeName);
     BOOL failIfExists = FALSE;
     BOOL ok = ::CopyFileW(exePath, dstPath, failIfExists);
+    // strip zone identifier (if exists) to avoid windows
+    // complaining when launching the file
+    // https://github.com/sumatrapdfreader/sumatrapdf/issues/1782
+    file::DeleteZoneIdentifier(dstPath);
     free(dstPath);
     return ok;
 }
@@ -167,7 +172,7 @@ static void CopySettingsFile() {
     AutoFreeWstr dstDir = GetSpecialFolder(CSIDL_LOCAL_APPDATA, false);
 
     const WCHAR* appName = GetAppName();
-    WCHAR* prefsFileName = prefs::GetSettingsFileNameNoFree();
+    const WCHAR* prefsFileName = prefs::GetSettingsFileNameNoFree();
     AutoFreeWstr srcPath = path::Join(srcDir.data, appName, prefsFileName);
     AutoFreeWstr dstPath = path::Join(dstDir.data, appName, prefsFileName);
 
@@ -208,8 +213,9 @@ static DWORD GetDirSize(const WCHAR* dir) {
     WIN32_FIND_DATA findData;
 
     HANDLE h = FindFirstFile(dirPattern, &findData);
-    if (h == INVALID_HANDLE_VALUE)
+    if (h == INVALID_HANDLE_VALUE) {
         return 0;
+    }
 
     DWORD totalSize = 0;
     do {
@@ -299,17 +305,17 @@ static bool WriteExtendedFileExtensionInfo(HKEY hkey) {
         AutoFreeWstr key = str::Join(REG_CLASSES_APPS, L"\\DefaultIcon");
         ok &= WriteRegStr(hkey, key, nullptr, iconPath);
     }
-    AutoFreeWstr cmdPath = str::Format(L"\"%s\" \"%%1\" %%*", exePath.get());
+    AutoFreeWstr cmdPath = str::Format(L"\"%s\" \"%%1\" %%*", exePath.Get());
     {
         AutoFreeWstr key = str::Join(REG_CLASSES_APPS, L"\\Shell\\Open\\Command");
         ok &= WriteRegStr(hkey, key, nullptr, cmdPath);
     }
-    AutoFreeWstr printPath = str::Format(L"\"%s\" -print-to-default \"%%1\"", exePath.get());
+    AutoFreeWstr printPath = str::Format(L"\"%s\" -print-to-default \"%%1\"", exePath.Get());
     {
         AutoFreeWstr key = str::Join(REG_CLASSES_APPS, L"\\Shell\\Print\\Command");
         ok &= WriteRegStr(hkey, key, nullptr, printPath);
     }
-    AutoFreeWstr printToPath = str::Format(L"\"%s\" -print-to \"%%2\" \"%%1\"", exePath.get());
+    AutoFreeWstr printToPath = str::Format(L"\"%s\" -print-to \"%%2\" \"%%1\"", exePath.Get());
     {
         AutoFreeWstr key = str::Join(REG_CLASSES_APPS, L"\\Shell\\PrintTo\\Command");
         ok &= WriteRegStr(hkey, key, nullptr, printToPath);
@@ -365,10 +371,10 @@ static void CreateAppShortcuts() {
 
 void onRaMicroInstallerFinished();
 
-static DWORD WINAPI InstallerThread(LPVOID data) {
-    UNUSED(data);
-
+static DWORD WINAPI InstallerThread([[maybe_unused]] LPVOID data) {
     success = false;
+    const WCHAR* appName{nullptr};
+    const WCHAR* exeName{nullptr};
 
     if (!ExtractInstallerFiles()) {
         log("ExtractInstallerFiles() failed\n");
@@ -421,8 +427,8 @@ static DWORD WINAPI InstallerThread(LPVOID data) {
         NotifyFailed(_TR("Failed to write the extended file extension information to the registry"));
     }
 
-    const WCHAR* appName = GetAppName();
-    const WCHAR* exeName = GetExeName();
+    appName = GetAppName();
+    exeName = GetExeName();
     if (!ListAsDefaultProgramWin10(appName, exeName, GetSupportedExts())) {
         log("Failed to register as default program on win 10\n");
         NotifyFailed(_TR("Failed to register as default program on win 10"));
@@ -439,7 +445,7 @@ Error:
     if (gHwndFrame) {
         if (!gCli->silent) {
             Sleep(500); // allow a glimpse of the completed progress bar before hiding it
-            PostMessage(gHwndFrame, WM_APP_INSTALLATION_FINISHED, 0, 0);
+            PostMessageW(gHwndFrame, WM_APP_INSTALLATION_FINISHED, 0, 0);
         }
     }
     return 0;
@@ -542,7 +548,7 @@ static void OnInstallationFinished() {
 
     if (gAutoUpdate && success) {
         // click the Start button
-        PostMessage(gHwndFrame, WM_COMMAND, IDOK, 0);
+        PostMessageW(gHwndFrame, WM_COMMAND, IDOK, 0);
     }
 }
 
@@ -556,7 +562,7 @@ static void EnableAndShow(WindowBase* w, bool enable) {
 static Size SetButtonTextAndResize(ButtonCtrl* b, const WCHAR* s) {
     b->SetText(s);
     Size size = b->GetIdealSize();
-    UINT flags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOREDRAW | SWP_NOACTIVATE | SWP_FRAMECHANGED;
+    uint flags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOREDRAW | SWP_NOACTIVATE | SWP_FRAMECHANGED;
     SetWindowPos(b->hwnd, nullptr, 0, 0, size.dx, size.dy, flags);
     return size;
 }
@@ -586,26 +592,26 @@ static void OnButtonOptions() {
     //] ACCESSKEY_GROUP Installer
 
     Rect rc = ClientRect(gHwndFrame);
-    RECT rcTmp = rc.ToRECT();
+    RECT rcTmp = ToRECT(rc);
     InvalidateRect(gHwndFrame, &rcTmp, TRUE);
 
     gButtonOptions->SetFocus();
 }
 
-static int CALLBACK BrowseCallbackProc(HWND hwnd, UINT msg, LPARAM lParam, LPARAM lpData) {
+static int CALLBACK BrowseCallbackProc(HWND hwnd, UINT msg, LPARAM lp, LPARAM lpData) {
     switch (msg) {
         case BFFM_INITIALIZED:
             if (!str::IsEmpty((WCHAR*)lpData)) {
-                SendMessage(hwnd, BFFM_SETSELECTION, TRUE, lpData);
+                SendMessageW(hwnd, BFFM_SETSELECTION, TRUE, lpData);
             }
             break;
 
         // disable the OK button for non-filesystem and inaccessible folders (and shortcuts to folders)
         case BFFM_SELCHANGED: {
             WCHAR path[MAX_PATH];
-            if (SHGetPathFromIDList((LPITEMIDLIST)lParam, path) && dir::Exists(path)) {
+            if (SHGetPathFromIDList((LPITEMIDLIST)lp, path) && dir::Exists(path)) {
                 SHFILEINFO sfi = {0};
-                SHGetFileInfo((LPCWSTR)lParam, 0, &sfi, sizeof(sfi), SHGFI_PIDL | SHGFI_ATTRIBUTES);
+                SHGetFileInfo((LPCWSTR)lp, 0, &sfi, sizeof(sfi), SHGFI_PIDL | SHGFI_ATTRIBUTES);
                 if (!(sfi.dwAttributes & SFGAO_LINK)) {
                     break;
                 }
@@ -676,8 +682,8 @@ static void OnButtonBrowse() {
     gTextboxInstDir->SetFocus();
 }
 
-static bool InstallerOnWmCommand(WPARAM wParam) {
-    switch (LOWORD(wParam)) {
+static bool InstallerOnWmCommand(WPARAM wp) {
+    switch (LOWORD(wp)) {
         case IDCANCEL:
             OnButtonExit();
             break;
@@ -703,7 +709,7 @@ static void OnCreateWindow(HWND hwnd) {
     btnSize = gButtonOptions->GetIdealSize();
     int x = WINDOW_MARGIN;
     int y = r.dy - btnSize.dy - WINDOW_MARGIN;
-    UINT flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW;
+    uint flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW;
     SetWindowPos(gButtonOptions->hwnd, nullptr, x, y, 0, 0, flags);
 
     gButtonDy = btnSize.dy;
@@ -719,11 +725,6 @@ static void OnCreateWindow(HWND hwnd) {
 
     // build options controls going from the bottom
     y -= (staticDy + WINDOW_MARGIN);
-
-    AutoFreeWstr defaultViewer(GetDefaultPdfViewer());
-    const WCHAR* appName = GetAppName();
-    BOOL hasOtherViewer = !str::EqI(defaultViewer, appName);
-    BOOL isSumatraDefaultViewer = defaultViewer && !hasOtherViewer;
 
     // only show this checkbox if the CPU arch of DLL and OS match
     // (assuming that the installer has the same CPU arch as its content!)
@@ -745,6 +746,11 @@ static void OnCreateWindow(HWND hwnd) {
     }
 
 #if ENABLE_REGISTER_DEFAULT
+    AutoFreeWstr defaultViewer(GetDefaultPdfViewer());
+    const WCHAR* appName = GetAppName();
+    BOOL hasOtherViewer = !str::EqI(defaultViewer, appName);
+
+    BOOL isSumatraDefaultViewer = defaultViewer && !hasOtherViewer;
     // only show the checbox if Sumatra is not already a default viewer.
     // the alternative (disabling the checkbox) is more confusing
     if (!isSumatraDefaultViewer) {
@@ -762,10 +768,10 @@ static void OnCreateWindow(HWND hwnd) {
 
     const WCHAR* s = L"&...";
     Size btnSize2 = TextSizeInHwnd(hwnd, s);
-    btnSize.dx += DpiScale(hwnd, 4);
+    btnSize2.dx += DpiScale(hwnd, 4);
     gButtonBrowseDir = CreateDefaultButtonCtrl(hwnd, s);
     gButtonBrowseDir->onClicked = OnButtonBrowse;
-    btnSize = gButtonBrowseDir->GetIdealSize();
+    // btnSize = gButtonBrowseDir->GetIdealSize();
     x = r.dx - WINDOW_MARGIN - btnSize2.dx;
     SetWindowPos(gButtonBrowseDir->hwnd, nullptr, x, y, btnSize2.dx, staticDy,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
@@ -795,7 +801,7 @@ static void OnCreateWindow(HWND hwnd) {
 
     if (gAutoUpdate) {
         // click the Install button
-        PostMessage(hwnd, WM_COMMAND, IDOK, 0);
+        PostMessageW(hwnd, WM_COMMAND, IDOK, 0);
     }
 }
 //] ACCESSKEY_GROUP Installer
@@ -807,7 +813,7 @@ static void CreateMainWindow() {
     if (trans::IsCurrLangRtl()) {
         exStyle = WS_EX_LAYOUTRTL;
     }
-    WCHAR* winCls = INSTALLER_FRAME_CLASS_NAME;
+    const WCHAR* winCls = INSTALLER_FRAME_CLASS_NAME;
     int x = CW_USEDEFAULT;
     int y = CW_USEDEFAULT;
     int dx = DpiScale(INSTALLER_WIN_DX);
@@ -904,11 +910,11 @@ static bool RegisterWinClass() {
     WNDCLASSEX wcex{};
 
     FillWndClassEx(wcex, INSTALLER_FRAME_CLASS_NAME, WndProcFrame);
-    auto h = GetModuleHandle(nullptr);
-    auto resName = MAKEINTRESOURCEW(GetAppIconID());
-    wcex.hIcon = LoadIcon(h, resName);
+    auto h = GetModuleHandleW(nullptr);
+    WCHAR* resName = MAKEINTRESOURCEW(GetAppIconID());
+    wcex.hIcon = LoadIconW(h, resName);
 
-    ATOM atom = RegisterClassEx(&wcex);
+    ATOM atom = RegisterClassExW(&wcex);
     CrashIf(!atom);
     return atom != 0;
 }
@@ -1011,12 +1017,12 @@ static void RelaunchElevatedIfNotDebug() {
         // elevation in debug build
         return;
     }
-    if (IsRunningElevated()) {
+    if (IsProcessRunningElevated()) {
         log("Already running elevated\n");
         return;
     }
     AutoFreeWstr exePath = GetExePath();
-    strconv::StackWstrToUtf8 exePathA = exePath.as_view();
+    strconv::StackWstrToUtf8 exePathA = exePath.AsView();
     logf("Re-launching '%s' as elevated\n", exePathA.Get());
     WCHAR* cmdline = GetCommandLineW(); // not owning the memory
     LaunchElevated(exePath, cmdline);
@@ -1042,10 +1048,10 @@ int RunInstaller(Flags* cli) {
 
     if (!gCli->silent && !IsProcessAndOsArchSame()) {
         logf("Mismatch of the OS and executable arch\n");
-        char* msg =
+        const char* msg =
             "You're installing 32-bit SumatraPDF on 64-bit OS. Are you sure?\nPress 'Ok' to proceed.\nPress 'Cancel' "
             "to download 64-bit version.";
-        UINT flags = MB_ICONERROR | MB_OK | MB_OKCANCEL;
+        uint flags = MB_ICONERROR | MB_OK | MB_OKCANCEL;
         flags |= MB_SETFOREGROUND | MB_TOPMOST;
         int res = MessageBoxA(nullptr, msg, "SumatraPDF Installer", flags);
         if (IDCANCEL == res) {
@@ -1185,18 +1191,11 @@ void RaMicroInstallerWindow::Install() {
     hThread = CreateThread(nullptr, 0, InstallerThread, nullptr, 0, 0);
 }
 
-static Rect layoutAndSize(ILayout* layout, int dx, int dy) {
+static Size layoutAndSize(ILayout* layout, int dx, int dy) {
     if (dx == 0 || dy == 0) {
         return {};
     }
-    Size windowSize{dx, dy};
-    auto c = Tight(windowSize);
-    auto size = layout->Layout(c);
-    Point min{0, 0};
-    Point max{size.dx, size.dy};
-    Rect bounds{min, max};
-    layout->SetBounds(bounds);
-    return bounds;
+    return LayoutToSize(layout, {dx, dy});
 }
 
 void RaMicroInstallerWindow::InstallationFinished() {
@@ -1242,20 +1241,20 @@ void RaMicroInstallerWindow::SizeHandler(SizeEvent* ev) {
 
 void onRaMicroInstallerFinished() {
     // called on a background thread
-    PostMessage(gRaMicroInstallerWindow->hwnd, WM_APP_INSTALLATION_FINISHED, 0, 0);
+    PostMessageW(gRaMicroInstallerWindow->hwnd, WM_APP_INSTALLATION_FINISHED, 0, 0);
 }
 
 static Gdiplus::Bitmap* LoadRaMicroSplash() {
-    std::string_view d = LoadDataResource(IDD_RAMICRO_SPLASH);
+    std::span<u8> d = LoadDataResource(IDD_RAMICRO_SPLASH);
     if (d.empty()) {
         return nullptr;
     }
-    return BitmapFromData(d.data(), d.size());
+    return BitmapFromData(d);
 }
 
 static bool CreateRaMicroInstallerWindow() {
     HMODULE h = GetModuleHandleW(nullptr);
-    LPCWSTR iconName = MAKEINTRESOURCEW(GetAppIconID());
+    WCHAR* iconName = MAKEINTRESOURCEW(GetAppIconID());
     HICON hIcon = LoadIconW(h, iconName);
 
     auto win = new RaMicroInstallerWindow();
@@ -1302,8 +1301,8 @@ static bool CreateRaMicroInstallerWindow() {
     */
 
     {
-        auto [l, b] = CreateButtonLayout(hwnd, "Install", [win]() { win->Install(); });
-        buttons->AddChild(l);
+        auto b = CreateButton(hwnd, "Install", [win]() { win->Install(); });
+        buttons->AddChild(b);
         win->btnInstall = b;
     }
 
@@ -1315,8 +1314,7 @@ static bool CreateRaMicroInstallerWindow() {
     splashCtrl->bmp = win->bmpSplash;
     ok = splashCtrl->Create();
     CrashIf(!ok);
-    ILayout* splashLayout = NewImageLayout(splashCtrl);
-    main->AddChild(splashLayout);
+    main->AddChild(splashCtrl);
 
     win->finishedText = new StaticCtrl(hwnd);
     win->finishedText->SetText("Installation finished!");
@@ -1324,15 +1322,12 @@ static bool CreateRaMicroInstallerWindow() {
     // win->finishedText->SetFont();
     win->finishedText->Create();
     win->finishedText->SetIsVisible(false);
-    ILayout* finishedTextLayout = NewLabelLayout(win->finishedText);
 
-    main->AddChild(finishedTextLayout);
+    main->AddChild(win->finishedText);
 
     main->AddChild(buttons);
 
-    auto* padding = new Padding();
-    padding->insets = DefaultInsets();
-    padding->child = main;
+    auto padding = new Padding(main, DpiScaledInsets(hwnd, 8));
     win->mainLayout = padding;
 
     w->onClose = std::bind(&RaMicroInstallerWindow::CloseHandler, win, _1);
@@ -1343,6 +1338,7 @@ static bool CreateRaMicroInstallerWindow() {
 
 int RunInstallerRaMicro() {
     int ret = 0;
+    bool ok = true;
 
     if (!OpenEmbeddedFilesArchive()) {
         return 1;
@@ -1359,7 +1355,7 @@ int RunInstallerRaMicro() {
         goto Exit;
     }
 
-    bool ok = CreateRaMicroInstallerWindow();
+    ok = CreateRaMicroInstallerWindow();
     if (!ok) {
         goto Exit;
     }

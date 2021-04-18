@@ -381,7 +381,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
 
         recent_add_tmp(parms->initialdir);
 
-        if (parms->initialfile)
+        if (parms->initialfile && *parms->initialfile != '.')
         {
           lstrcpyn_safe(tmp,parms->initialfile,sizeof(tmp));
           WDL_remove_filepart(tmp);
@@ -474,7 +474,7 @@ static LRESULT WINAPI swellFileSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         {
           char buf[maxPathLen];
           const char *filepart = "";
-          if (parms->initialfile && *parms->initialfile && strcmp(parms->initialfile,"."))
+          if (parms->initialfile && *parms->initialfile && *parms->initialfile != '.')
           { 
             lstrcpyn_safe(buf,parms->initialfile,sizeof(buf));
             char *p = (char *)WDL_get_filepart(buf);
@@ -496,7 +496,8 @@ get_dir:
             {
               lstrcpyn_safe(buf,parms->initialdir,sizeof(buf));
             }
-            else getcwd(buf,sizeof(buf));
+            else if (!getcwd(buf,sizeof(buf)))
+              buf[0]=0;
           }
 
           SetWindowText(edit,filepart);
@@ -561,9 +562,12 @@ get_dir:
 
             char buf[maxPathLen];
             const char *filt = NULL;
-            buf[0]=0;
-            int a = (int) SendDlgItemMessage(hwnd,IDC_EXT,CB_GETCURSEL,0,0);
-            if (a>=0) filt = (const char *)SendDlgItemMessage(hwnd,IDC_EXT,CB_GETITEMDATA,a,0);
+            HWND ext = GetDlgItem(hwnd,IDC_EXT);
+            if (ext)
+            {
+              LRESULT a = SendMessage(ext,CB_GETCURSEL,0,0);
+              if (a != CB_ERR) filt = (const char *)SendMessage(ext,CB_GETITEMDATA,a,0);
+            }
 
             GetDlgItemText(hwnd,IDC_DIR,buf,sizeof(buf));
             preprocess_user_path(buf,sizeof(buf));
@@ -1044,6 +1048,22 @@ char *BrowseForFiles(const char *text, const char *initialdir,
   return DialogBoxParam(NULL,NULL,GetForegroundWindow(),swellFileSelectProc,(LPARAM)&state) ? state.fnout : NULL;
 }
 
+static const char *mbidtostr(int idx)
+{
+  switch (idx)
+  {
+    case IDOK: return "OK";
+    case IDCANCEL: return "Cancel";
+    case IDYES: return "Yes";
+    case IDNO: return "No";
+    case IDRETRY: return "Retry";
+    case IDABORT: return "Abort";
+    case IDIGNORE: return "Ignore";
+    default:
+      WDL_ASSERT(idx == 0);
+    return "";
+  }
+}
 
 static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -1060,15 +1080,30 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         if (parms[1]) SetWindowText(hwnd,(const char*)parms[1]);
 
 
-        int nbuttons=1;
-        const char *buttons[3] = { "OK", "", "" };
-        int button_ids[3] = {IDOK,0,0};
-        int button_sizes[3];
+        int b1=IDOK, b2=0,b3=0;
 
-        int mode =  ((int)(INT_PTR)parms[2]);
-        if (mode == MB_RETRYCANCEL) { buttons[0]="Retry"; button_ids[0]=IDRETRY;  }
-        if (mode == MB_YESNO || mode == MB_YESNOCANCEL) { buttons[0]="Yes"; button_ids[0] = IDYES;  buttons[nbuttons] = "No"; button_ids[nbuttons] = IDNO; nbuttons++; }
-        if (mode == MB_OKCANCEL || mode == MB_YESNOCANCEL || mode == MB_RETRYCANCEL) { buttons[nbuttons] = "Cancel"; button_ids[nbuttons] = IDCANCEL; nbuttons++; }
+        const int fmode = (int)(INT_PTR)parms[2];
+        switch (fmode & 0xf)
+        {
+          case MB_ABORTRETRYIGNORE:
+            b1 = IDABORT;
+            b2 = IDRETRY;
+            b3 = IDIGNORE;
+          break;
+          case MB_RETRYCANCEL:
+            b1 = IDRETRY;
+            // fallthrough
+          case MB_OKCANCEL:
+            b2 = IDCANCEL;
+          break;
+          case MB_YESNOCANCEL:
+            b3 = IDCANCEL;
+            // fallthrough
+          case MB_YESNO:
+            b1 = IDYES;
+            b2 = IDNO;
+          break;
+        }
 
         SWELL_MakeSetCurParms(1,1,0,0,hwnd,false,false);
         RECT labsize = {0,0,300,20};
@@ -1094,10 +1129,13 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         int x;
         int button_height=0, button_total_w=0;;
         const int bspace = SWELL_UI_SCALE(button_spacing);
+        int button_sizes[3];
+        const int nbuttons = b3 ? 3 : b2 ? 2 : 1;
         for (x = 0; x < nbuttons; x ++)
         {
+          const int idx = x==0?b1:x==1?b2:b3;
           RECT r={0,0,35,12};
-          DrawText(dc,buttons[x],-1,&r,DT_CALCRECT|DT_NOPREFIX|DT_SINGLELINE);
+          DrawText(dc,mbidtostr(idx),-1,&r,DT_CALCRECT|DT_NOPREFIX|DT_SINGLELINE);
           button_sizes[x] = r.right-r.left + sc10;
           button_total_w += button_sizes[x] + (x ? bspace : 0);
           if (r.bottom-r.top+sc10 > button_height) button_height = r.bottom-r.top+sc10;
@@ -1106,9 +1144,12 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         if (labsize.right < button_total_w+sc8*2) labsize.right = button_total_w+sc8*2;
 
         int xpos = labsize.right/2 - button_total_w/2;
+        const int def_id = (fmode & MB_DEFBUTTON3)&&b3 ? b3 : (fmode & MB_DEFBUTTON2)&&b2 ? b2 : b1;
+
         for (x = 0; x < nbuttons; x ++)
         {
-          SWELL_MakeButton(!x,buttons[x],button_ids[x],xpos,labsize.bottom,button_sizes[x],button_height,0);
+          const int idx = x==0?b1:x==1?b2:b3;
+          SWELL_MakeButton(idx==def_id,mbidtostr(idx),idx,xpos,labsize.bottom,button_sizes[x],button_height,0);
           xpos += button_sizes[x] + bspace;
         }
 
@@ -1117,7 +1158,7 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         SetWindowPos(hwnd,NULL,0,0,
               labsize.right + sc8*2,labsize.bottom + button_height + sc8,SWP_NOACTIVATE|SWP_NOZORDER|SWP_NOMOVE);
         if (lab) SetWindowPos(lab,NULL,sc8,0,labsize.right,labsize.bottom,SWP_NOACTIVATE|SWP_NOZORDER);
-        SetFocus(GetDlgItem(hwnd,button_ids[0]));
+        SetFocus(GetDlgItem(hwnd,def_id));
       }
     break;
     case WM_SIZE:
@@ -1143,7 +1184,7 @@ static LRESULT WINAPI swellMessageBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, L
           h = GetWindow(h,GW_HWNDNEXT);
         }
         const int bspace = SWELL_UI_SCALE(button_spacing), sc8 = SWELL_UI_SCALE(8);
-        if (lbl) SetWindowPos(h,NULL,sc8,0,r.right,r.bottom - sc8 - button_height,  SWP_NOZORDER|SWP_NOACTIVATE);
+        if (lbl) SetWindowPos(lbl,NULL,sc8,0,r.right,r.bottom - sc8 - button_height,  SWP_NOZORDER|SWP_NOACTIVATE);
         int xo = r.right/2 - (bxwid + (tabsz-1)*bspace)/2;
         for (int x=0; x<tabsz; x++)
         {
@@ -1218,7 +1259,7 @@ int MessageBox(HWND hwndParent, const char *text, const char *caption, int type)
 #ifdef SWELL_LICE_GDI
 struct ChooseColor_State {
   int ncustom;
-  int *custom;
+  COLORREF *custom;
 
   double h,s,v;
 
@@ -1605,11 +1646,11 @@ static LRESULT WINAPI swellColorSelectProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
 }
 #endif //SWELL_LICE_GDI
 
-bool SWELL_ChooseColor(HWND h, int *val, int ncustom, int *custom)
+bool SWELL_ChooseColor(HWND h, COLORREF *val, int ncustom, COLORREF *custom)
 {
 #ifdef SWELL_LICE_GDI
   ChooseColor_State state = { ncustom, custom };
-  int c = val ? *val : 0;
+  COLORREF c = val ? *val : 0;
   _RGB2HSV(GetRValue(c),GetGValue(c),GetBValue(c),&state.h,&state.s,&state.v);
   bool rv = DialogBoxParam(NULL,NULL,h,swellColorSelectProc,(LPARAM)&state)!=0;
   delete state.bm;

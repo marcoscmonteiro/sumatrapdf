@@ -1,5 +1,5 @@
 
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -11,6 +11,14 @@
 
 #include "Annotation.h"
 #include "EngineBase.h"
+
+void FreePageText(PageText* pageText) {
+    str::Free(pageText->text);
+    free((void*)pageText->coords);
+    pageText->text = nullptr;
+    pageText->coords = nullptr;
+    pageText->len = 0;
+}
 
 RenderedBitmap::~RenderedBitmap() {
     DeleteObject(hbmp);
@@ -95,7 +103,7 @@ int PageDestination::GetPageNo() const {
 }
 
 // rectangle of the destination on the above returned page
-RectD PageDestination::GetRect() const {
+RectF PageDestination::GetRect() const {
     return rect;
 }
 
@@ -110,7 +118,7 @@ WCHAR* PageDestination::GetName() const {
     return name;
 }
 
-PageDestination* newSimpleDest(int pageNo, RectD rect, const WCHAR* value) {
+PageDestination* newSimpleDest(int pageNo, RectF rect, const WCHAR* value) {
     auto res = new PageDestination();
     res->pageNo = pageNo;
     res->rect = rect;
@@ -136,29 +144,33 @@ PageDestination* clonePageDestination(PageDestination* dest) {
     return res;
 }
 
+bool IPageElement::Is(Kind expectedKind) {
+    Kind kind = GetKind();
+    return kind == expectedKind;
+}
+
 PageElement::~PageElement() {
     free(value);
     delete dest;
 }
 
-// the type of this page element
-bool PageElement::Is(Kind expectedKind) const {
-    return kind == expectedKind;
+Kind PageElement::GetKind() {
+    return kind_;
 }
 
 // page this element lives on (0 for elements in a ToC)
-int PageElement::GetPageNo() const {
+int PageElement::GetPageNo() {
     return pageNo;
 }
 
 // rectangle that can be interacted with
-RectD PageElement::GetRect() const {
+RectF PageElement::GetRect() {
     return rect;
 }
 
 // string value associated with this element (e.g. displayed in an infotip)
 // caller must free() the result
-WCHAR* PageElement::GetValue() const {
+WCHAR* PageElement::GetValue() {
     return value;
 }
 
@@ -168,17 +180,21 @@ PageDestination* PageElement::AsLink() {
     return dest;
 }
 
-PageElement* clonePageElement(PageElement* el) {
+IPageElement* PageElement::Clone() {
+    auto* res = new PageElement();
+    res->kind_ = kind_;
+    res->pageNo = pageNo;
+    res->rect = rect;
+    res->value = str::Dup(value);
+    res->dest = clonePageDestination(dest);
+    return res;
+}
+
+IPageElement* clonePageElement(IPageElement* el) {
     if (!el) {
         return nullptr;
     }
-    auto* res = new PageElement();
-    res->kind = el->kind;
-    res->pageNo = el->pageNo;
-    res->rect = el->rect;
-    res->value = str::Dup(el->value);
-    res->dest = clonePageDestination(el->dest);
-    return res;
+    return el->Clone();
 }
 
 Kind kindTocFzOutline = "tocFzOutline";
@@ -432,7 +448,7 @@ void SetTocTreeParents(TocItem* treeRoot) {
     VisitTocTreeWithParent(treeRoot, setTocItemParent);
 }
 
-RenderPageArgs::RenderPageArgs(int pageNo, float zoom, int rotation, RectD* pageRect, RenderTarget target,
+RenderPageArgs::RenderPageArgs(int pageNo, float zoom, int rotation, RectF* pageRect, RenderTarget target,
                                AbortCookie** cookie_out) {
     this->pageNo = pageNo;
     this->zoom = zoom;
@@ -451,14 +467,11 @@ int EngineBase::PageCount() const {
     return pageCount;
 }
 
-RectD EngineBase::PageContentBox(int pageNo, RenderTarget target) {
-    UNUSED(target);
+RectF EngineBase::PageContentBox(int pageNo, [[maybe_unused]] RenderTarget target) {
     return PageMediabox(pageNo);
 }
 
-bool EngineBase::SaveFileAsPDF(const char* pdfFileName, bool includeUserAnnots) {
-    UNUSED(pdfFileName);
-    UNUSED(includeUserAnnots);
+bool EngineBase::SaveFileAsPDF([[maybe_unused]] const char* pdfFileName, [[maybe_unused]] bool includeUserAnnots) {
     return false;
 }
 
@@ -478,17 +491,7 @@ float EngineBase::GetFileDPI() const {
     return fileDPI;
 }
 
-void EngineBase::GetAnnotations(Vec<Annotation*>* annotsOut) {
-    // no-op implementation for most file types
-}
-
-void EngineBase::SetUserAnnotations(Vec<Annotation*>* annots) {
-    // owned by DisplayModel
-    userAnnots = annots;
-}
-
-PageDestination* EngineBase::GetNamedDest(const WCHAR* name) {
-    UNUSED(name);
+PageDestination* EngineBase::GetNamedDest([[maybe_unused]] const WCHAR* name) {
     return nullptr;
 }
 
@@ -522,10 +525,10 @@ char* EngineBase::GetDecryptionKey() const {
 }
 
 const WCHAR* EngineBase::FileName() const {
-    return fileNameBase.get();
+    return fileNameBase.Get();
 }
 
-RenderedBitmap* EngineBase::GetImageForPageElement(PageElement*) {
+RenderedBitmap* EngineBase::GetImageForPageElement(IPageElement*) {
     CrashMe();
     return nullptr;
 }
@@ -534,7 +537,21 @@ void EngineBase::SetFileName(const WCHAR* s) {
     fileNameBase.SetCopy(s);
 }
 
-PointD EngineBase::Transform(PointD pt, int pageNo, float zoom, int rotation, bool inverse) {
-    RectD rect = Transform(RectD(pt, SizeD()), pageNo, zoom, rotation, inverse);
-    return PointD(rect.x, rect.y);
+PointF EngineBase::Transform(PointF pt, int pageNo, float zoom, int rotation, bool inverse) {
+    RectF rc = RectF(pt, SizeF());
+    RectF rect = Transform(rc, pageNo, zoom, rotation, inverse);
+    return rect.TL();
+}
+
+// skip file:// and maybe file:/// from s. It might be added by mupdf.
+// do not free the result
+const WCHAR* SkipFileProtocol(const WCHAR* s) {
+    if (!str::StartsWithI(s, L"file://")) {
+        return s;
+    }
+    s += 7;
+    if (s[0] == L'/') {
+        s += 1;
+    }
+    return s;
 }

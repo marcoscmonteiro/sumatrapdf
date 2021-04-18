@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -7,6 +7,7 @@
 #include "utils/WinUtil.h"
 #include "utils/StrFormat.h"
 
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "Flags.h"
@@ -95,7 +96,7 @@ static void ParseCommandLineTest() {
             L"SumatraPDF.exe -page 37 -view continuousfacing -zoom fitcontent -scroll 45,1234 -reuse-instance", i);
         utassert(0 == i.fileNames.size());
         utassert(i.pageNumber == 37);
-        utassert(i.startView == DM_CONTINUOUS_FACING);
+        utassert(i.startView == DisplayMode::ContinuousFacing);
         utassert(i.startZoom == ZOOM_FIT_CONTENT);
         utassert(i.startScroll.x == 45 && i.startScroll.y == 1234);
     }
@@ -104,7 +105,7 @@ static void ParseCommandLineTest() {
         Flags i;
         ParseCommandLine(L"SumatraPDF.exe -view \"single page\" -zoom 237.45 -scroll -21,-1", i);
         utassert(0 == i.fileNames.size());
-        utassert(i.startView == DM_SINGLE_PAGE);
+        utassert(i.startView == DisplayMode::SinglePage);
         utassert(i.startZoom == 237.45f);
         utassert(i.startScroll.x == -21 && i.startScroll.y == -1);
     }
@@ -159,8 +160,8 @@ static void versioncheck_test() {
 }
 
 static void hexstrTest() {
-    unsigned char buf[6] = {1, 2, 33, 255, 0, 18};
-    unsigned char buf2[6] = {0};
+    u8 buf[6] = {1, 2, 33, 255, 0, 18};
+    u8 buf2[6] = {0};
     AutoFree s(_MemToHex(&buf));
     utassert(str::Eq(s, "010221ff0012"));
     bool ok = _HexToMem(s, &buf2);

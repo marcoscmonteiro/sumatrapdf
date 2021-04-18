@@ -789,6 +789,7 @@ fz_process_shade_type6(fz_context *ctx, fz_shade *shade, fz_matrix ctm, fz_mesh_
 
 			if (flag == 0)
 			{
+				/* No patch data to copy forwards */
 			}
 			else if (flag == 1 && prevc)
 			{
@@ -902,6 +903,7 @@ fz_process_shade_type7(fz_context *ctx, fz_shade *shade, fz_matrix ctm, fz_mesh_
 
 			if (flag == 0)
 			{
+				/* No patch data to copy forward */
 			}
 			else if (flag == 1 && prevc)
 			{
@@ -1048,10 +1050,10 @@ static fz_rect
 fz_bound_mesh_type4567(fz_context *ctx, fz_shade *shade)
 {
 	fz_rect bbox;
-	bbox.x0 = shade->u.m.x0;
-	bbox.y0 = shade->u.m.y0;
-	bbox.x1 = shade->u.m.x1;
-	bbox.y1 = shade->u.m.y1;
+	bbox.x0 = fz_min(shade->u.m.x0, shade->u.m.x1);
+	bbox.y0 = fz_min(shade->u.m.y0, shade->u.m.y1);
+	bbox.x1 = fz_max(shade->u.m.x0, shade->u.m.x1);
+	bbox.y1 = fz_max(shade->u.m.y0, shade->u.m.y1);
 	return bbox;
 }
 

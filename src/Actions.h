@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct Action {
@@ -14,5 +14,5 @@ enum class Actions {
 
 };
 
-Action* GetActionByClass(enum class Actions action);
+Action* GetActionByClass(enum Actions action);
 Action* GetActionByName(const char* name);

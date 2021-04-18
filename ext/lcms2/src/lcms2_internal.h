@@ -1,7 +1,7 @@
 
 //
 //  Little Color Management System
-//  Copyright (c) 1998-2017 Marti Maria Saguer
+//  Copyright (c) 1998-2020 Marti Maria Saguer
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the "Software"),
@@ -47,7 +47,7 @@
 #endif
 
 // BorlandC 5.5, VC2003 are broken on that
-#if defined(__BORLANDC__) || defined(_MSC_VER) && (_MSC_VER < 1400) // 1400 == VC++ 8.0
+#if defined(__BORLANDC__) || (defined(_MSC_VER) && (_MSC_VER < 1400)) // 1400 == VC++ 8.0
 #define sinf(x) (float)sin((float)x)
 #define sqrtf(x) (float)sqrt((float)x)
 #endif
@@ -62,7 +62,11 @@
 // even though sizeof(void *) is only four: for greatest flexibility
 // allow the build to specify ptr alignment.
 #ifndef CMS_PTR_ALIGNMENT
+# if defined(sparc) || defined(__sparc) || defined(__sparc__)
+#  define CMS_PTR_ALIGNMENT 8
+# else
 # define CMS_PTR_ALIGNMENT sizeof(void *)
+#endif
 #endif
 
 #define _cmsALIGNMEM(x)  (((x)+(CMS_PTR_ALIGNMENT - 1)) & ~(CMS_PTR_ALIGNMENT - 1))
@@ -88,11 +92,11 @@
 #   define cmsINLINE static inline
 #endif
 
-// Allow signed overflow, we know this is harmless in this particular context 
+// Allow signed overflow, we know this is harmless in this particular context
 #if defined(__clang__)
 #   define CMS_NO_SANITIZE __attribute__((no_sanitize("signed-integer-overflow")))
 #else
-#   define CMS_NO_SANITIZE 
+#   define CMS_NO_SANITIZE
 #endif
 
 // Other replacement functions
@@ -112,12 +116,13 @@
         #define isinf(x) (!_finite((x)))
 # endif
 
-#else
-#  if !defined(HAVE_ISINF)
+#if !defined(_MSC_VER) && (defined(__STDC_VERSION__) && __STDC_VERSION__ < 199901L)
 #    if !defined(isinf)
 #       define isinf(x) (!finite((x)))
 #    endif
 #  endif
+
+
 #endif
 
 // A fast way to convert from/to 16 <-> 8 bits
@@ -938,6 +943,9 @@ cmsBool           _cmsReadCHAD(cmsContext ContextID, cmsMAT3* Dest, cmsHPROFILE 
 
 // Profile linker --------------------------------------------------------------------------------------------------
 
+// Link several profiles to obtain a single LUT modelling the whole color transform. Intents, Black point
+// compensation and Adaptation parameters may vary across profiles. BPC and Adaptation refers to the PCS
+// after the profile. I.e, BPC[0] refers to connexion between profile(0) and profile(1)
 cmsPipeline* _cmsLinkProfiles(cmsContext         ContextID,
                               cmsUInt32Number    nProfiles,
                               cmsUInt32Number    TheIntents[],

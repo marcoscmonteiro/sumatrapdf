@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -12,9 +12,9 @@ void WinUtilTest() {
     ScopedCom comScope;
 
     {
-        char* string = "abcde";
+        const char* string = "abcde";
         size_t stringSize = 5;
-        auto strm = CreateStreamFromData({string, stringSize});
+        auto strm = CreateStreamFromData({(u8*)string, stringSize});
         ScopedComPtr<IStream> stream(strm);
         utassert(stream);
         AutoFree data = GetDataFromStream(stream, nullptr);
@@ -22,9 +22,9 @@ void WinUtilTest() {
     }
 
     {
-        WCHAR* string = L"abcde";
+        const WCHAR* string = L"abcde";
         size_t stringSize = 10;
-        auto strm = CreateStreamFromData({(char*)string, stringSize});
+        auto strm = CreateStreamFromData({(u8*)string, stringSize});
         ScopedComPtr<IStream> stream(strm);
         utassert(stream);
         AutoFree dataTmp = GetDataFromStream(stream, nullptr);

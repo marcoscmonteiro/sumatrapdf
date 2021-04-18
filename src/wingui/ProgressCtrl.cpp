@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -12,14 +12,6 @@
 // https://docs.microsoft.com/en-us/windows/win32/controls/progress-bar-control-reference
 
 Kind kindProgress = "progress";
-
-bool IsProgress(Kind kind) {
-    return kind == kindProgress;
-}
-
-bool IsProgress(ILayout* l) {
-    return IsLayoutOfKind(l, kindProgress);
-}
 
 ProgressCtrl::ProgressCtrl(HWND p, int initialMax) : WindowBase(p) {
     dwStyle = WS_CHILD | WS_VISIBLE;
@@ -65,8 +57,4 @@ int ProgressCtrl::GetMax() {
 int ProgressCtrl::GetCurrent() {
     current = (int)SendMessageW(hwnd, PBM_GETPOS, 0, 0);
     return current;
-}
-
-ILayout* NewProgressLayout(ProgressCtrl* w) {
-    return new WindowBaseLayout(w, kindProgress);
 }

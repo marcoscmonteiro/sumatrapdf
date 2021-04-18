@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // must be #included from Regress.cpp
@@ -8,7 +8,8 @@ static void RegressTestEpubLoading(const WCHAR *fileName)
 {
     WCHAR *filePath = path::Join(TestFilesDir(), fileName);
     VerifyFileExists(filePath);
-    CrashAlwaysIf(!EpubDoc::IsSupportedFile(filePath));
+    Kind kind = GuessFileType(filePath, true);
+    CrashAlwaysIf(!EpubDoc::IsSupportedFileType(kind));
     EpubDoc *doc = EpubDoc::CreateFromFile(filePath);
     CrashAlwaysIf(!doc);
     delete doc;
@@ -31,12 +32,16 @@ static void Regress00()
 {
     WCHAR *filePath = path::Join(TestFilesDir(), L"epub\\widget-figure-gallery-20120405.epub");
     VerifyFileExists(filePath);
-    CrashAlwaysIf(!EpubDoc::IsSupportedFile(filePath));
+    Kind kind = GuessFileType(filePath, true);
+    CrashAlwaysIf(!EpubDoc::IsSupportedFileType(kind));
     EpubDoc *doc = EpubDoc::CreateFromFile(filePath);
     CrashAlwaysIf(!doc);
 
     PoolAllocator textAllocator;
     HtmlFormatterArgs *args = CreateFormatterDefaultArgs(820, 920, &textAllocator);
+    if (!args) {
+        return;
+    }
     args->htmlStr = doc->GetHtmlData();
     HtmlPage *pages[3];
     HtmlFormatter *formatter = new EpubFormatter(args, doc);

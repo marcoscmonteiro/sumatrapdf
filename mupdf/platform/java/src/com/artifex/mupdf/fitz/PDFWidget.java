@@ -150,7 +150,13 @@ public class PDFWidget extends PDFAnnotation
 	public native boolean setChoiceValue(String val);
 
 	/* Signature fields */
-	public native boolean sign(PKCS7Signer signer);
+	public native boolean signNative(PKCS7Signer signer, Image image);
+	public boolean sign(PKCS7Signer signer, Image image) {
+		return signNative(signer, image);
+	}
+	public boolean sign(PKCS7Signer signer) {
+		return signNative(signer, null);
+	}
 	public native int checkCertificate(PKCS7Verifier verifier);
 	public native int checkDigest(PKCS7Verifier verifier);
 	public native boolean incrementalChangeAfterSigning();
@@ -164,5 +170,6 @@ public class PDFWidget extends PDFAnnotation
 	public native PKCS7DesignatedName getDesignatedName(PKCS7Verifier verifier);
 
 	public native int validateSignature();
+	public native void clearSignature();
 	public native boolean isSigned();
 }

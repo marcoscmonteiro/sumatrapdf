@@ -194,16 +194,14 @@ fz_drop_font(fz_context *ctx, fz_font *font)
 	if (!fz_drop_imp(ctx, font, &font->refs))
 		return;
 
+	free_resources(ctx, font);
 	if (font->t3lists)
-	{
-		free_resources(ctx, font);
 		for (i = 0; i < 256; i++)
 			fz_drop_display_list(ctx, font->t3lists[i]);
-		fz_free(ctx, font->t3procs);
-		fz_free(ctx, font->t3lists);
-		fz_free(ctx, font->t3widths);
-		fz_free(ctx, font->t3flags);
-	}
+	fz_free(ctx, font->t3procs);
+	fz_free(ctx, font->t3lists);
+	fz_free(ctx, font->t3widths);
+	fz_free(ctx, font->t3flags);
 
 	if (font->ft_face)
 	{
@@ -809,14 +807,19 @@ fz_new_cjk_font(fz_context *ctx, int ordering)
 {
 	const unsigned char *data;
 	int size, index;
+	fz_font *font;
 	if (ordering >= 0 && ordering < (int)nelem(ctx->font->cjk))
 	{
 		if (ctx->font->cjk[ordering])
 			return fz_keep_font(ctx, ctx->font->cjk[ordering]);
 		data = fz_lookup_cjk_font(ctx, ordering, &size, &index);
 		if (data)
+			font = fz_new_font_from_memory(ctx, NULL, data, size, index, 0);
+		else
+			font = fz_load_system_cjk_font(ctx, "SourceHanSerif", ordering, 1);
+		if (font)
 		{
-			ctx->font->cjk[ordering] = fz_new_font_from_memory(ctx, NULL, data, size, index, 0);
+			ctx->font->cjk[ordering] = font;
 			return fz_keep_font(ctx, ctx->font->cjk[ordering]);
 		}
 	}
@@ -1606,10 +1609,7 @@ fz_render_t3_glyph_direct(fz_context *ctx, fz_device *dev, fz_font *font, int gi
 		if (font->t3flags[gid] & FZ_DEVFLAG_COLOR)
 			fz_warn(ctx, "type3 glyph claims to be both masked and colored");
 	}
-	else if (font->t3flags[gid] & FZ_DEVFLAG_COLOR)
-	{
-	}
-	else
+	else if (!(font->t3flags[gid] & FZ_DEVFLAG_COLOR))
 	{
 		fz_warn(ctx, "type3 glyph doesn't specify masked or colored");
 	}
@@ -1634,7 +1634,7 @@ fz_rect
 fz_bound_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm)
 {
 	fz_rect rect;
-	if (font->bbox_table && gid < font->glyph_count)
+	if (font->bbox_table && gid < font->glyph_count && gid >= 0)
 	{
 		/* If the bbox is infinite or empty, distrust it */
 		if (fz_is_infinite_rect(font->bbox_table[gid]) || fz_is_empty_rect(font->bbox_table[gid]))

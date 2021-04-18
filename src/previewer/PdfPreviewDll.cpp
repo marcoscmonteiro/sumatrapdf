@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -16,11 +16,57 @@
 
 long g_lRefCount = 0;
 
+#ifdef BUILD_XPS_PREVIEW
+static bool gBuildXpsPreview = true;
+#else
+static bool gBuildXpsPreview = false;
+#endif
+
+#ifdef BUILD_DJVU_PREVIEW
+static bool gBuildDjVuPreview = true;
+#else
+static bool gBuildDjVuPreview = false;
+#endif
+
+#ifdef BUILD_EPUB_PREVIEW
+static bool gBuildEpubPreview = true;
+#else
+static bool gBuildEpubPreview = false;
+#endif
+
+#ifdef BUILD_FB2_PREVIEW
+static bool gBuildFb2Preview = true;
+#else
+static bool gBuildFb2Preview = false;
+#endif
+
+#ifdef BUILD_MOBI_PREVIEW
+static bool gBuildMobiPreview = true;
+#else
+static bool gBuildMobiPreview = false;
+#endif
+
+#if defined(BUILD_CBZ_PREVIEW) || defined(BUILD_CBR_PREVIEW) || defined(BUILD_CB7_PREVIEW) || defined(BUILD_CBT_PREVIEW)
+static bool gBuildCbxPreview = true;
+#else
+static bool gBuildCbxPreview = false;
+#endif
+
+#ifdef BUILD_TGA_PREVIEW
+static bool gBuildTgaPreview = true;
+#else
+static bool gBuildTgaPreview = false;
+#endif
+
 class CClassFactory : public IClassFactory {
   public:
-    CClassFactory(REFCLSID rclsid) : m_lRef(1), m_clsid(rclsid) { InterlockedIncrement(&g_lRefCount); }
+    CClassFactory(REFCLSID rclsid) : m_lRef(1), m_clsid(rclsid) {
+        InterlockedIncrement(&g_lRefCount);
+    }
 
-    ~CClassFactory() { InterlockedDecrement(&g_lRefCount); }
+    ~CClassFactory() {
+        InterlockedDecrement(&g_lRefCount);
+    }
 
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) {
@@ -29,12 +75,15 @@ class CClassFactory : public IClassFactory {
         return QISearch(this, qit, riid, ppv);
     }
 
-    IFACEMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&m_lRef); }
+    IFACEMETHODIMP_(ULONG) AddRef() {
+        return InterlockedIncrement(&m_lRef);
+    }
 
     IFACEMETHODIMP_(ULONG) Release() {
         long cRef = InterlockedDecrement(&m_lRef);
-        if (cRef == 0)
+        if (cRef == 0) {
             delete this;
+        }
         return cRef;
     }
 
@@ -43,44 +92,39 @@ class CClassFactory : public IClassFactory {
         dbglog("PdfPreview: CreateInstance()\n");
 
         *ppv = nullptr;
-        if (punkOuter)
+        if (punkOuter) {
             return CLASS_E_NOAGGREGATION;
+        }
 
         ScopedComPtr<IInitializeWithStream> pObject;
 
         CLSID clsid;
-        if (SUCCEEDED(CLSIDFromString(SZ_PDF_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        if (SUCCEEDED(CLSIDFromString(SZ_PDF_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CPdfPreview(&g_lRefCount);
-#ifdef BUILD_XPS_PREVIEW
-        else if (SUCCEEDED(CLSIDFromString(SZ_XPS_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        } else if (gBuildXpsPreview && SUCCEEDED(CLSIDFromString(SZ_XPS_PREVIEW_CLSID, &clsid)) &&
+                   IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CXpsPreview(&g_lRefCount);
-#endif
-#ifdef BUILD_DJVU_PREVIEW
-        else if (SUCCEEDED(CLSIDFromString(SZ_DJVU_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        } else if (gBuildDjVuPreview && SUCCEEDED(CLSIDFromString(SZ_DJVU_PREVIEW_CLSID, &clsid)) &&
+                   IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CDjVuPreview(&g_lRefCount);
-#endif
-#ifdef BUILD_EPUB_PREVIEW
-        else if (SUCCEEDED(CLSIDFromString(SZ_EPUB_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        } else if (gBuildEpubPreview && SUCCEEDED(CLSIDFromString(SZ_EPUB_PREVIEW_CLSID, &clsid)) &&
+                   IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CEpubPreview(&g_lRefCount);
-#endif
-#ifdef BUILD_FB2_PREVIEW
-        else if (SUCCEEDED(CLSIDFromString(SZ_FB2_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        } else if (gBuildFb2Preview && SUCCEEDED(CLSIDFromString(SZ_FB2_PREVIEW_CLSID, &clsid)) &&
+                   IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CFb2Preview(&g_lRefCount);
-#endif
-#ifdef BUILD_MOBI_PREVIEW
-        else if (SUCCEEDED(CLSIDFromString(SZ_MOBI_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        } else if (gBuildMobiPreview && SUCCEEDED(CLSIDFromString(SZ_MOBI_PREVIEW_CLSID, &clsid)) &&
+                   IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CMobiPreview(&g_lRefCount);
-#endif
-#if defined(BUILD_CBZ_PREVIEW) || defined(BUILD_CBR_PREVIEW) || defined(BUILD_CB7_PREVIEW) || defined(BUILD_CBT_PREVIEW)
-        else if (SUCCEEDED(CLSIDFromString(SZ_CBX_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        } else if (gBuildCbxPreview && SUCCEEDED(CLSIDFromString(SZ_CBX_PREVIEW_CLSID, &clsid)) &&
+                   IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CCbxPreview(&g_lRefCount);
-#endif
-#ifdef BUILD_TGA_PREVIEW
-        else if (SUCCEEDED(CLSIDFromString(SZ_TGA_PREVIEW_CLSID, &clsid)) && IsEqualCLSID(m_clsid, clsid))
+        } else if (gBuildTgaPreview && SUCCEEDED(CLSIDFromString(SZ_TGA_PREVIEW_CLSID, &clsid)) &&
+                   IsEqualCLSID(m_clsid, clsid)) {
             pObject = new CTgaPreview(&g_lRefCount);
-#endif
-        else
+        } else {
             return E_NOINTERFACE;
+        }
 
         if (!pObject) {
             return E_OUTOFMEMORY;
@@ -117,8 +161,7 @@ static const char* GetReason(DWORD dwReason) {
     return "Unknown reason";
 }
 
-STDAPI_(BOOL) DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID lpReserved) {
-    UNUSED(lpReserved);
+STDAPI_(BOOL) DllMain(HINSTANCE hInstance, DWORD dwReason, [[maybe_unused]] LPVOID lpReserved) {
     if (dwReason == DLL_PROCESS_ATTACH) {
         CrashIf(hInstance != GetInstance());
     }
@@ -198,7 +241,7 @@ STDAPI DllRegisterServer() {
     dbglog("PdfPreview: DllRegisterServer\n");
     AutoFreeWstr dllPath = path::GetPathOfFileInAppDir();
     if (!dllPath) {
-        return HRESULT_FROM_WIN32(GetLastError());        
+        return HRESULT_FROM_WIN32(GetLastError());
     }
 
 #define WriteOrFail_(key, value, data)                     \

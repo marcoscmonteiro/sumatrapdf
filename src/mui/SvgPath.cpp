@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 /*
@@ -73,9 +73,6 @@ using Gdiplus::TextRenderingHintClearTypeGridFit;
 using Gdiplus::UnitPixel;
 using Gdiplus::Win32Error;
 
-using Gdiplus::PointF;
-using Gdiplus::RectF;
-using Gdiplus::SizeF;
 namespace svg {
 
 enum class PathInstr {
@@ -104,25 +101,27 @@ enum class PathInstr {
 };
 
 // the order must match order of PathInstr enums
-static char* instructions = "MmLlHhVvCcSsQqTtAaZz";
+static const char* svgInstructions = "MmLlHhVvCcSsQqTtAaZz";
 
 struct SvgPathInstr {
-    SvgPathInstr(PathInstr type) : type(type) {
+    SvgPathInstr(PathInstr type) {
+        this->type = type;
     }
 
     PathInstr type;
     // the meaning of values depends on InstrType. We could be more safe
     // by giving them symbolic names but this gives us simpler parsing
-    float v[6];
-    bool largeArc, sweep;
+    float v[6]{};
+    bool largeArc = false;
+    bool sweep = false;
 };
 
 static PathInstr GetInstructionType(char c) {
-    const char* pos = str::FindChar(instructions, c);
+    const char* pos = str::FindChar(svgInstructions, c);
     if (!pos) {
         return PathInstr::Unknown;
     }
-    return (PathInstr)(pos - instructions);
+    return (PathInstr)(pos - svgInstructions);
 }
 
 static const char* skipWs(const char* s) {
@@ -196,16 +195,16 @@ static bool ParseSvgPathData(const char* s, VecSegmented<SvgPathInstr>& instr) {
     return true;
 }
 
-static void RelPointToAbs(const PointF& lastEnd, float* xy) {
+static void RelPointToAbs(const Gdiplus::PointF& lastEnd, float* xy) {
     xy[0] = lastEnd.X + xy[0];
     xy[1] = lastEnd.Y + xy[1];
 }
 
-static void RelXToAbs(const PointF& lastEnd, float* x) {
+static void RelXToAbs(const Gdiplus::PointF& lastEnd, float* x) {
     *x = lastEnd.X + *x;
 }
 
-static void RelYToAbs(const PointF& lastEnd, float* y) {
+static void RelYToAbs(const Gdiplus::PointF& lastEnd, float* y) {
     *y = lastEnd.Y + *y;
 }
 
@@ -215,7 +214,7 @@ GraphicsPath* GraphicsPathFromPathData(const char* s) {
         return nullptr;
     }
     GraphicsPath* gp = ::new GraphicsPath();
-    PointF prevEnd(0.f, 0.f);
+    Gdiplus::PointF prevEnd(0.f, 0.f);
     for (SvgPathInstr* i : instr) {
         PathInstr type = i->type;
 
@@ -237,20 +236,20 @@ GraphicsPath* GraphicsPathFromPathData(const char* s) {
         }
 
         if (PathInstr::MoveAbs == type) {
-            PointF p(i->v[0], i->v[1]);
+            Gdiplus::PointF p(i->v[0], i->v[1]);
             prevEnd = p;
             gp->StartFigure();
         } else if (PathInstr::LineToAbs == type) {
-            PointF p(i->v[0], i->v[1]);
+            Gdiplus::PointF p(i->v[0], i->v[1]);
             gp->AddLine(prevEnd, p);
             prevEnd = p;
         } else if (PathInstr::HLineAbs == type) {
-            PointF p(prevEnd);
+            Gdiplus::PointF p(prevEnd);
             p.X = i->v[0];
             gp->AddLine(prevEnd, p);
             prevEnd = p;
         } else if (PathInstr::VLineAbs == type) {
-            PointF p(prevEnd);
+            Gdiplus::PointF p(prevEnd);
             p.Y = i->v[0];
             gp->AddLine(prevEnd, p);
             prevEnd = p;

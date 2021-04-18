@@ -180,7 +180,12 @@ prepare_mesh_vertex(fz_context *ctx, void *arg, fz_vertex *v, const float *input
 	int i;
 
 	if (shade->use_function)
-		output[0] = input[0] * 255;
+	{
+		float f = input[0];
+		if (shade->type >= 4 && shade->type <= 7)
+			f = (f - shade->u.m.c0[0]) / (shade->u.m.c1[0] - shade->u.m.c0[0]);
+		output[0] = f * 255;
+	}
 	else
 	{
 		int n = fz_colorspace_n(ctx, dest->colorspace);
@@ -292,8 +297,8 @@ fz_paint_shade(fz_context *ctx, fz_shade *shade, fz_colorspace *colorspace, fz_m
 							*d++ = fz_clampi(255 * f[k], 0, 255);
 						*d++ = a;
 					}
-					d += conv->stride - conv->w * conv->n;
-					s += temp->stride - temp->w * temp->n;
+					d += conv->stride - conv->w * (size_t)conv->n;
+					s += temp->stride - temp->w * (size_t)temp->n;
 				}
 				fz_drop_pixmap(ctx, temp);
 				temp = conv;
@@ -354,8 +359,8 @@ fz_paint_shade(fz_context *ctx, fz_shade *shade, fz_colorspace *colorspace, fz_m
 						if (da)
 							*d++ = a;
 					}
-					d += conv->stride - conv->w * conv->n;
-					s += temp->stride - temp->w * temp->n;
+					d += conv->stride - conv->w * (size_t)conv->n;
+					s += temp->stride - temp->w * (size_t)temp->n;
 				}
 			}
 			fz_paint_pixmap_with_overprint(dest, conv, eop);

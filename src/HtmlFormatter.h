@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // using namespace Gdiplus;
@@ -46,15 +46,12 @@ using Gdiplus::UnitPixel;
 using Gdiplus::Win32Error;
 using Gdiplus::WrapModeTileFlipXY;
 
-using Gdiplus::PointF;
-using Gdiplus::RectF;
-using Gdiplus::SizeF;
-
 // Layout information for a given page is a list of
 // draw instructions that define what to draw and where.
 enum class DrawInstrType {
+    Unknown = 0,
     // a piece of text
-    String = 0,
+    String = 1,
     // elastic space takes at least spaceDx pixels but can take more
     // if a line is justified
     ElasticSpace,
@@ -78,22 +75,23 @@ enum class DrawInstrType {
 };
 
 struct DrawInstr {
-    DrawInstrType type;
+    DrawInstrType type{DrawInstrType::Unknown};
     union {
         // info specific to a given instruction
+        // InstrString, InstrLinkStart, InstrAnchor, InstrRtlString
         struct {
             const char* s;
             size_t len;
-        } str;                 // InstrString, InstrLinkStart, InstrAnchor, InstrRtlString
+        } str{nullptr, 0};
         mui::CachedFont* font; // InstrSetFont
         ImageData img;         // InstrImage
     };
-    RectF bbox; // common to most instructions
+    RectF bbox{}; // common to most instructions
 
     DrawInstr() {
     }
 
-    explicit DrawInstr(DrawInstrType t, RectF bbox = RectF()) : type(t), bbox(bbox) {
+    explicit DrawInstr(DrawInstrType t, RectF bbox = {}) : type(t), bbox(bbox) {
     }
 
     // helper constructors for instructions that need additional arguments
@@ -108,16 +106,16 @@ struct DrawInstr {
 class CssPullParser;
 
 struct StyleRule {
-    HtmlTag tag;
-    uint32_t classHash;
+    HtmlTag tag = Tag_NotFound;
+    u32 classHash{0};
 
     enum Unit { px, pt, em, inherit };
 
-    float textIndent;
-    Unit textIndentUnit;
-    AlignAttr textAlign;
+    float textIndent{0};
+    Unit textIndentUnit = inherit;
+    AlignAttr textAlign = AlignAttr::NotFound;
 
-    StyleRule();
+    StyleRule() = default;
 
     void Merge(StyleRule& source);
 
@@ -126,15 +124,13 @@ struct StyleRule {
 };
 
 struct DrawStyle {
-    mui::CachedFont* font;
-    AlignAttr align;
-    bool dirRtl;
+    mui::CachedFont* font{nullptr};
+    AlignAttr align{AlignAttr::NotFound};
+    bool dirRtl{false};
 };
 
-class HtmlPage {
-  public:
+struct HtmlPage {
     explicit HtmlPage(int reparseIdx = 0) : reparseIdx(reparseIdx) {
-        instructions.allowFailure = true;
     }
 
     Vec<DrawInstr> instructions;
@@ -147,12 +143,11 @@ class HtmlPage {
 };
 
 // just to pack args to HtmlFormatter
-class HtmlFormatterArgs {
-  public:
+struct HtmlFormatterArgs {
     HtmlFormatterArgs() = default;
 
-    float pageDx = 0;
-    float pageDy = 0;
+    float pageDx{0};
+    float pageDy{0};
 
     void SetFontName(const WCHAR* s) {
         fontName.SetCopy(s);
@@ -162,22 +157,21 @@ class HtmlFormatterArgs {
         return fontName;
     }
 
-    float fontSize = 0;
+    float fontSize{0};
 
     /* Most of the time string DrawInstr point to original html text
        that is read-only and outlives us. Sometimes (e.g. when resolving
        html entities) we need a modified text. This allocator is
        used to allocate this text. */
-    Allocator* textAllocator = nullptr;
+    Allocator* textAllocator{nullptr};
 
     mui::TextRenderMethod textRenderMethod = mui::TextRenderMethodGdiplus;
 
-    std::string_view htmlStr;
+    std::span<u8> htmlStr;
 
     // we start parsing from htmlStr + reparseIdx
-    int reparseIdx = 0;
+    int reparseIdx{0};
 
-  private:
     AutoFreeWstr fontName;
 };
 
@@ -205,14 +199,11 @@ class HtmlFormatter {
     void HandleText(HtmlToken* t);
     void HandleText(const char* s, size_t sLen);
     // blank convenience methods to override
-    virtual void HandleTagImg(HtmlToken* t) {
-        UNUSED(t);
+    virtual void HandleTagImg([[maybe_unused]] HtmlToken* t) {
     }
-    virtual void HandleTagPagebreak(HtmlToken* t) {
-        UNUSED(t);
+    virtual void HandleTagPagebreak([[maybe_unused]] HtmlToken* t) {
     }
-    virtual void HandleTagLink(HtmlToken* t) {
-        UNUSED(t);
+    virtual void HandleTagLink([[maybe_unused]] HtmlToken* t) {
     }
 
     float CurrLineDx();
@@ -242,7 +233,7 @@ class HtmlFormatter {
     }
     void SetFont(const WCHAR* fontName, FontStyle fs, float fontSize = -1);
     void SetFontBasedOn(mui::CachedFont* origFont, FontStyle fs, float fontSize = -1);
-    void ChangeFontStyle(FontStyle fs, bool isStart);
+    void ChangeFontStyle(FontStyle fs, bool addStyle);
     void SetAlignment(AlignAttr align);
     void RevertStyleChange();
 
@@ -257,70 +248,73 @@ class HtmlFormatter {
     void DumpLineDebugInfo();
 
     // constant during layout process
-    float pageDx;
-    float pageDy;
-    float lineSpacing;
-    float spaceDx;
-    Graphics* gfx; // for measuring text
+    float pageDx{0};
+    float pageDy{0};
+    float lineSpacing{0};
+    float spaceDx{0};
+    Graphics* gfx{nullptr}; // for measuring text
     AutoFreeWstr defaultFontName;
-    float defaultFontSize;
-    Allocator* textAllocator;
-    mui::ITextRender* textMeasure;
+    float defaultFontSize{0};
+    Allocator* textAllocator{nullptr};
+    mui::ITextRender* textMeasure{nullptr};
 
     // style stack of the current line
     Vec<DrawStyle> styleStack;
     // style for the start of the next page
     DrawStyle nextPageStyle;
     // current position in a page
-    float currX, currY;
+    float currX{0};
+    float currY{0};
     // remembered when we start a new line, used when we actually
     // layout a line
-    float currLineTopPadding;
+    float currLineTopPadding{0};
     // number of nested lists for indenting whole paragraphs
-    int listDepth;
+    int listDepth{0};
     // set if newlines are not to be ignored
-    bool preFormatted;
+    bool preFormatted{false};
     // set if the reading direction is RTL
-    bool dirRtl;
+    bool dirRtl{false};
     // list of currently opened tags for auto-closing when needed
     Vec<HtmlTag> tagNesting;
-    bool keepTagNesting;
+    bool keepTagNesting{false};
     // set from CSS and to be checked by the individual tag handlers
     Vec<StyleRule> styleRules;
 
     // isntructions for the current line
     Vec<DrawInstr> currLineInstr;
     // reparse point of the first instructions in a current line
-    ptrdiff_t currLineReparseIdx;
-    HtmlPage* currPage;
+    ptrdiff_t currLineReparseIdx{0};
+    HtmlPage* currPage{nullptr};
 
     // for tracking whether we're currently inside <a> tag
-    size_t currLinkIdx;
+    size_t currLinkIdx{0};
 
     // reparse point for the current HtmlToken
-    ptrdiff_t currReparseIdx;
+    ptrdiff_t currReparseIdx{0};
 
-    HtmlPullParser* htmlParser;
+    HtmlPullParser* htmlParser{nullptr};
 
     // list of pages that we've created but haven't yet sent to client
     Vec<HtmlPage*> pagesToSend;
 
-    bool finishedParsing;
+    bool finishedParsing{false};
     // number of pages generated so far, approximate. Only used
     // for detection of cover image duplicates in mobi formatting
-    int pageCount;
+    int pageCount{0};
 
-    WCHAR buf[512];
+    WCHAR buf[512]{};
 
   public:
     explicit HtmlFormatter(HtmlFormatterArgs* args);
+    HtmlFormatter(HtmlFormatter const&) = delete;
+    HtmlFormatter& operator=(HtmlFormatter const&) = delete;
     virtual ~HtmlFormatter();
 
     HtmlPage* Next(bool skipEmptyPages = true);
     Vec<HtmlPage*>* FormatAllPages(bool skipEmptyPages = true);
 };
 
-void DrawHtmlPage(Graphics* g, mui::ITextRender* textRender, Vec<DrawInstr>* drawInstructions, float offX, float offY,
+void DrawHtmlPage(Graphics* g, mui::ITextRender* textDraw, Vec<DrawInstr>* drawInstructions, float offX, float offY,
                   bool showBbox, Color textColor, bool* abortCookie = nullptr);
 
 mui::TextRenderMethod GetTextRenderMethod();

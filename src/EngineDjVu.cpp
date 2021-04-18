@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // hack to prevent libdjvu from being built as an export/import library
@@ -10,6 +10,7 @@
 #include <miniexp.h>
 #include "utils/ByteReader.h"
 #include "utils/FileUtil.h"
+#include "utils/GuessFileType.h"
 #include "utils/WinUtil.h"
 #include "utils/ScopedWin.h"
 #include "utils/Log.h"
@@ -39,7 +40,7 @@ static bool IsPageLink(const char* link) {
 //   http://example.net/#hyperlink
 static PageDestination* newDjVuDestination(const char* link) {
     auto res = new PageDestination();
-    res->rect = RectD(DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
+    res->rect = RectF(DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
 
     if (str::IsEmpty(link)) {
         res->kind = kindDestinationNone;
@@ -92,8 +93,8 @@ static PageDestination* newDjVuDestination(const char* link) {
 
     if (!res->kind) {
         logf("unsupported djvu link: '%s'\n", link);
-        CrashIf(!res->kind);
     }
+    CrashIf(!res->kind);
 
     res->kind = kindDestinationNone;
     return res;
@@ -101,13 +102,13 @@ static PageDestination* newDjVuDestination(const char* link) {
 
 static PageElement* newDjVuLink(int pageNo, Rect rect, const char* link, const char* comment) {
     auto res = new PageElement();
-    res->rect = rect.Convert<double>();
+    res->rect = ToRectFl(rect);
     res->pageNo = pageNo;
     res->dest = newDjVuDestination(link);
     if (!str::IsEmpty(comment)) {
         res->value = strconv::Utf8ToWstr(comment);
     }
-    res->kind = kindPageElementDest;
+    res->kind_ = kindPageElementDest;
     if (!str::IsEmpty(comment)) {
         res->value = strconv::Utf8ToWstr(comment);
     } else {
@@ -237,17 +238,17 @@ class EngineDjVu : public EngineBase {
     virtual ~EngineDjVu();
     EngineBase* Clone() override;
 
-    RectD PageMediabox(int pageNo) override;
-    RectD PageContentBox(int pageNo, RenderTarget target = RenderTarget::View) override;
+    RectF PageMediabox(int pageNo) override;
+    RectF PageContentBox(int pageNo, RenderTarget target = RenderTarget::View) override;
 
     RenderedBitmap* RenderPage(RenderPageArgs&) override;
 
-    PointD TransformPoint(PointD pt, int pageNo, float zoom, int rotation, bool inverse = false);
-    RectD Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse = false) override;
+    PointF TransformPoint(PointF pt, int pageNo, float zoom, int rotation, bool inverse = false);
+    RectF Transform(const RectF& rect, int pageNo, float zoom, int rotation, bool inverse = false) override;
 
-    std::string_view GetFileData() override;
+    std::span<u8> GetFileData() override;
     bool SaveFileAs(const char* copyFileName, bool includeUserAnnots = false) override;
-    WCHAR* ExtractPageText(int pageNo, Rect** coordsOut = nullptr) override;
+    PageText ExtractPageText(int pageNo) override;
     bool HasClipOptimizations(int pageNo) override;
 
     WCHAR* GetProperty(DocumentProperty prop) override;
@@ -255,8 +256,8 @@ class EngineDjVu : public EngineBase {
     // we currently don't load pages lazily, so there's nothing to do here
     bool BenchLoadPage(int pageNo) override;
 
-    Vec<PageElement*>* GetElements(int pageNo) override;
-    PageElement* GetElementAtPos(int pageNo, PointD pt) override;
+    Vec<IPageElement*>* GetElements(int pageNo) override;
+    IPageElement* GetElementAtPos(int pageNo, PointF pt) override;
 
     PageDestination* GetNamedDest(const WCHAR* name) override;
     TocTree* GetToc() override;
@@ -264,13 +265,13 @@ class EngineDjVu : public EngineBase {
     WCHAR* GetPageLabel(int pageNo) const override;
     int GetPageByLabel(const WCHAR* label) const override;
 
-    static EngineBase* CreateFromFile(const WCHAR* fileName);
+    static EngineBase* CreateFromFile(const WCHAR* path);
     static EngineBase* CreateFromStream(IStream* stream);
 
   protected:
     IStream* stream = nullptr;
 
-    RectD* mediaboxes = nullptr;
+    RectF* mediaboxes = nullptr;
 
     ddjvu_document_t* doc = nullptr;
     miniexp_t outline = miniexp_nil;
@@ -280,7 +281,6 @@ class EngineDjVu : public EngineBase {
     Vec<ddjvu_fileinfo_t> fileInfos;
 
     RenderedBitmap* CreateRenderedBitmap(const char* bmpData, Size size, bool grayscale) const;
-    void DrawUserAnnots(RenderedBitmap* bmp, int pageNo, float zoom, int rotation, Rect screen);
     bool ExtractPageText(miniexp_t item, str::WStr& extracted, Vec<Rect>& coords);
     char* ResolveNamedDest(const char* name);
     TocItem* BuildTocTree(TocItem* parent, miniexp_t entry, int& idCounter);
@@ -295,8 +295,6 @@ EngineDjVu::EngineDjVu() {
     defaultFileExt = L".djvu";
     // DPI isn't constant for all pages and thus premultiplied
     fileDPI = 300.0f;
-    supportsAnnotations = true;
-    supportsAnnotationsForSaving = false;
     GetDjVuContext();
 }
 
@@ -336,24 +334,21 @@ EngineBase* EngineDjVu::Clone() {
     return nullptr;
 }
 
-RectD EngineDjVu::PageMediabox(int pageNo) {
+RectF EngineDjVu::PageMediabox(int pageNo) {
     CrashIf(pageNo < 1 || pageNo > pageCount);
     return mediaboxes[pageNo - 1];
 }
 
-bool EngineDjVu::HasClipOptimizations(int pageNo) {
-    UNUSED(pageNo);
+bool EngineDjVu::HasClipOptimizations([[maybe_unused]] int pageNo) {
     return false;
 }
 
-WCHAR* EngineDjVu::GetProperty(DocumentProperty prop) {
-    UNUSED(prop);
+WCHAR* EngineDjVu::GetProperty([[maybe_unused]] DocumentProperty prop) {
     return nullptr;
 }
 
 // we currently don't load pages lazily, so there's nothing to do here
-bool EngineDjVu::BenchLoadPage(int pageNo) {
-    UNUSED(pageNo);
+bool EngineDjVu::BenchLoadPage([[maybe_unused]] int pageNo) {
     return true;
 }
 
@@ -470,7 +465,7 @@ bool EngineDjVu::FinishLoading() {
         return false;
     }
 
-    mediaboxes = AllocArray<RectD>(pageCount);
+    mediaboxes = AllocArray<RectF>(pageCount);
     bool ok = LoadMediaboxes();
     if (!ok) {
         // fall back to the slower but safer way to extract page mediaboxes
@@ -481,9 +476,9 @@ bool EngineDjVu::FinishLoading() {
                 gDjVuContext->SpinMessageLoop();
             }
             if (DDJVU_JOB_OK == status) {
-                double dx = info.width * GetFileDPI() / info.dpi;
-                double dy = info.height * GetFileDPI() / info.dpi;
-                mediaboxes[i] = RectD(0, 0, dx, dy);
+                float dx = (float)info.width * GetFileDPI() / (float)info.dpi;
+                float dy = (float)info.height * GetFileDPI() / (float)info.dpi;
+                mediaboxes[i] = RectF(0, 0, dx, dy);
             }
         }
     }
@@ -515,72 +510,6 @@ bool EngineDjVu::FinishLoading() {
     }
 
     return true;
-}
-
-void EngineDjVu::DrawUserAnnots(RenderedBitmap* bmp, int pageNo, float zoom, int rotation, Rect screen) {
-    using namespace Gdiplus;
-
-    if (!bmp || !userAnnots || userAnnots->size() == 0) {
-        return;
-    }
-
-    int n = userAnnots->isize();
-    HDC hdc = CreateCompatibleDC(nullptr);
-    {
-        ScopedSelectObject bmpScope(hdc, bmp->GetBitmap());
-        Graphics g(hdc);
-        g.SetCompositingQuality(CompositingQualityHighQuality);
-        g.SetPageUnit(UnitPixel);
-
-        for (int i = 0; i < n; i++) {
-            const Annotation& annot = *userAnnots->at(i);
-            if (annot.isDeleted) {
-                continue;
-            }
-            if (annot.pageNo != pageNo) {
-                continue;
-            }
-            RectD arect;
-            switch (annot.type) {
-                case AnnotationType::Highlight:
-                    arect = Transform(annot.rect, pageNo, zoom, rotation);
-                    arect.Offset(-screen.x, -screen.y);
-                    {
-                        SolidBrush tmpBrush(Unblend(annot.color, 119));
-                        g.FillRectangle(&tmpBrush, arect.ToGdipRectF());
-                    }
-                    break;
-                case AnnotationType::Underline:
-                case AnnotationType::StrikeOut:
-                    arect = RectD(annot.rect.x, annot.rect.BR().y, annot.rect.dx, 0);
-                    if (AnnotationType::StrikeOut == annot.type)
-                        arect.y -= annot.rect.dy / 2;
-                    arect = Transform(arect, pageNo, zoom, rotation);
-                    arect.Offset(-screen.x, -screen.y);
-                    {
-                        Pen tmpPen(FromColor(annot.color), zoom);
-                        g.DrawLine(&tmpPen, (float)arect.x, (float)arect.y, (float)arect.BR().x, (float)arect.BR().y);
-                    }
-                    break;
-                case AnnotationType::Squiggly: {
-                    Pen p(FromColor(annot.color), 0.5f * zoom);
-                    float dash[2] = {2, 2};
-                    p.SetDashPattern(dash, dimof(dash));
-                    p.SetDashOffset(1);
-                    arect = Transform(RectD(annot.rect.x, annot.rect.BR().y - 0.25f, annot.rect.dx, 0), pageNo, zoom,
-                                      rotation);
-                    arect.Offset(-screen.x, -screen.y);
-                    g.DrawLine(&p, (float)arect.x, (float)arect.y, (float)arect.BR().x, (float)arect.BR().y);
-                    p.SetDashOffset(3);
-                    arect = Transform(RectD(annot.rect.x, annot.rect.BR().y + 0.25f, annot.rect.dx, 0), pageNo, zoom,
-                                      rotation);
-                    arect.Offset(-screen.x, -screen.y);
-                    g.DrawLine(&p, (float)arect.x, (float)arect.y, (float)arect.BR().x, (float)arect.BR().y);
-                } break;
-            }
-        }
-    }
-    DeleteDC(hdc);
 }
 
 RenderedBitmap* EngineDjVu::CreateRenderedBitmap(const char* bmpData, Size size, bool grayscale) const {
@@ -625,7 +554,7 @@ RenderedBitmap* EngineDjVu::RenderPage(RenderPageArgs& args) {
     auto zoom = args.zoom;
     auto pageNo = args.pageNo;
     auto rotation = args.rotation;
-    RectD pageRc = pageRect ? *pageRect : PageMediabox(pageNo);
+    RectF pageRc = pageRect ? *pageRect : PageMediabox(pageNo);
     Rect screen = Transform(pageRc, pageNo, zoom, rotation).Round();
     Rect full = Transform(PageMediabox(pageNo), pageNo, zoom, rotation).Round();
     screen = full.Intersect(screen);
@@ -655,8 +584,8 @@ RenderedBitmap* EngineDjVu::RenderPage(RenderPageArgs& args) {
 
     int topToBottom = TRUE;
     ddjvu_format_set_row_order(fmt, topToBottom);
-    ddjvu_rect_t prect = {full.x, full.y, full.dx, full.dy};
-    ddjvu_rect_t rrect = {screen.x, 2 * full.y - screen.y + full.dy - screen.dy, screen.dx, screen.dy};
+    ddjvu_rect_t prect = {full.x, full.y, (uint)full.dx, (uint)full.dy};
+    ddjvu_rect_t rrect = {screen.x, 2 * full.y - screen.y + full.dy - screen.dy, (uint)screen.dx, (uint)screen.dy};
 
     RenderedBitmap* bmp = nullptr;
     size_t bytesPerPixel = isBitonal ? 1 : 3;
@@ -677,16 +606,14 @@ RenderedBitmap* EngineDjVu::RenderPage(RenderPageArgs& args) {
         isBitonal = true;
     }
     bmp = CreateRenderedBitmap(bmpData, screen.Size(), isBitonal);
-    DrawUserAnnots(bmp, pageNo, zoom, rotation, screen);
 
     return bmp;
 }
 
-RectD EngineDjVu::PageContentBox(int pageNo, RenderTarget target) {
-    UNUSED(target);
+RectF EngineDjVu::PageContentBox(int pageNo, [[maybe_unused]] RenderTarget target) {
     ScopedCritSec scope(&gDjVuContext->lock);
 
-    RectD pageRc = PageMediabox(pageNo);
+    RectF pageRc = PageMediabox(pageNo);
     ddjvu_page_t* page = ddjvu_page_create_by_pageno(doc, pageNo - 1);
     if (!page) {
         return pageRc;
@@ -709,9 +636,10 @@ RectD EngineDjVu::PageContentBox(int pageNo, RenderTarget target) {
     };
 
     ddjvu_format_set_row_order(fmt, /* top_to_bottom */ TRUE);
-    double zoom = std::min(std::min(250.0 / pageRc.dx, 250.0 / pageRc.dy), 1.0);
-    Rect full = RectD(0, 0, pageRc.dx * zoom, pageRc.dy * zoom).Round();
-    ddjvu_rect_t prect = {full.x, full.y, full.dx, full.dy}, rrect = prect;
+    float zoom = std::min(std::min(250.0f / pageRc.dx, 250.0f / pageRc.dy), 1.0f);
+    Rect full = RectF(0, 0, pageRc.dx * zoom, pageRc.dy * zoom).Round();
+    ddjvu_rect_t prect = {full.x, full.y, (uint)full.dx, (uint)full.dy};
+    ddjvu_rect_t rrect = prect;
 
     AutoFree bmpData = AllocArray<char>(full.dx * full.dy + 1);
     if (!bmpData) {
@@ -724,7 +652,7 @@ RectD EngineDjVu::PageContentBox(int pageNo, RenderTarget target) {
     }
 
     // determine the content box by counting white pixels from the edges
-    RectD content(full.dx, -1, 0, 0);
+    RectF content((float)full.dx, -1, 0, 0);
     for (int y = 0; y < full.dy; y++) {
         int x;
         for (x = 0; x < full.dx && bmpData[y * full.dx + x] == '\xFF'; x++) {
@@ -733,7 +661,7 @@ RectD EngineDjVu::PageContentBox(int pageNo, RenderTarget target) {
         if (x < full.dx) {
             // narrow the left margin down (if necessary)
             if (x < content.x) {
-                content.x = x;
+                content.x = (float)x;
             }
             // narrow the right margin down (if necessary)
             for (x = full.dx - 1; x > content.x + content.dx && bmpData[y * full.dx + x] == '\xFF'; x--) {
@@ -744,7 +672,7 @@ RectD EngineDjVu::PageContentBox(int pageNo, RenderTarget target) {
             }
             // narrow either the top or the bottom margin down
             if (content.y == -1) {
-                content.y = y;
+                content.y = (float)y;
             } else {
                 content.dy = y - content.y + 1;
             }
@@ -756,19 +684,19 @@ RectD EngineDjVu::PageContentBox(int pageNo, RenderTarget target) {
         content.dx /= zoom;
         content.y /= zoom;
         content.dy /= zoom;
-        pageRc = content.Round().Convert<double>();
+        pageRc = ToRectFl(content.Round());
     }
 
     return pageRc;
 }
 
-PointD EngineDjVu::TransformPoint(PointD pt, int pageNo, float zoom, int rotation, bool inverse) {
+PointF EngineDjVu::TransformPoint(PointF pt, int pageNo, float zoom, int rotation, bool inverse) {
     CrashIf(zoom <= 0);
     if (zoom <= 0) {
         return pt;
     }
 
-    SizeD page = PageMediabox(pageNo).Size();
+    SizeF page = PageMediabox(pageNo).Size();
 
     if (inverse) {
         // transform the page size to get a correct frame of reference
@@ -786,35 +714,34 @@ PointD EngineDjVu::TransformPoint(PointD pt, int pageNo, float zoom, int rotatio
     while (rotation < 0) {
         rotation += 360;
     }
-    PointD res = pt; // for rotation == 0
+    PointF res = pt; // for rotation == 0
     if (90 == rotation) {
-        res = PointD(page.dy - pt.y, pt.x);
+        res = PointF(page.dy - pt.y, pt.x);
     } else if (180 == rotation) {
-        res = PointD(page.dx - pt.x, page.dy - pt.y);
+        res = PointF(page.dx - pt.x, page.dy - pt.y);
     } else if (270 == rotation) {
-        res = PointD(pt.y, page.dx - pt.x);
+        res = PointF(pt.y, page.dx - pt.x);
     }
     res.x *= zoom;
     res.y *= zoom;
     return res;
 }
 
-RectD EngineDjVu::Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse) {
-    PointD TL = TransformPoint(rect.TL(), pageNo, zoom, rotation, inverse);
-    PointD BR = TransformPoint(rect.BR(), pageNo, zoom, rotation, inverse);
-    return RectD::FromXY(TL, BR);
+RectF EngineDjVu::Transform(const RectF& rect, int pageNo, float zoom, int rotation, bool inverse) {
+    PointF TL = TransformPoint(rect.TL(), pageNo, zoom, rotation, inverse);
+    PointF BR = TransformPoint(rect.BR(), pageNo, zoom, rotation, inverse);
+    return RectF::FromXY(TL, BR);
 }
 
-std::string_view EngineDjVu::GetFileData() {
+std::span<u8> EngineDjVu::GetFileData() {
     return GetStreamOrFileData(stream, FileName());
 }
 
-bool EngineDjVu::SaveFileAs(const char* copyFileName, bool includeUserAnnots) {
-    UNUSED(includeUserAnnots);
+bool EngineDjVu::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots) {
     AutoFreeWstr path = strconv::Utf8ToWstr(copyFileName);
     if (stream) {
         AutoFree d = GetDataFromStream(stream, nullptr);
-        bool ok = !d.empty() && file::WriteFile(path, d.as_view());
+        bool ok = !d.empty() && file::WriteFile(path, d.AsSpan());
         if (ok) {
             return true;
         }
@@ -828,15 +755,15 @@ bool EngineDjVu::SaveFileAs(const char* copyFileName, bool includeUserAnnots) {
 
 static void AppendNewline(str::WStr& extracted, Vec<Rect>& coords, const WCHAR* lineSep) {
     if (extracted.size() > 0 && ' ' == extracted.Last()) {
-        extracted.Pop();
-        coords.Pop();
+        extracted.RemoveLast();
+        coords.RemoveLast();
     }
     extracted.Append(lineSep);
     coords.AppendBlanks(str::Len(lineSep));
 }
 
 bool EngineDjVu::ExtractPageText(miniexp_t item, str::WStr& extracted, Vec<Rect>& coords) {
-    WCHAR* lineSep = L"\n";
+    const WCHAR* lineSep = L"\n";
     miniexp_t type = miniexp_car(item);
     if (!miniexp_symbolp(type)) {
         return false;
@@ -895,7 +822,7 @@ bool EngineDjVu::ExtractPageText(miniexp_t item, str::WStr& extracted, Vec<Rect>
     return !item;
 }
 
-WCHAR* EngineDjVu::ExtractPageText(int pageNo, Rect** coordsOut) {
+PageText EngineDjVu::ExtractPageText(int pageNo) {
     const WCHAR* lineSep = L"\n";
     ScopedCritSec scope(&gDjVuContext->lock);
 
@@ -904,7 +831,7 @@ WCHAR* EngineDjVu::ExtractPageText(int pageNo, Rect** coordsOut) {
         gDjVuContext->SpinMessageLoop();
     }
     if (miniexp_nil == pagetext) {
-        return nullptr;
+        return {};
     }
 
     str::WStr extracted;
@@ -912,46 +839,48 @@ WCHAR* EngineDjVu::ExtractPageText(int pageNo, Rect** coordsOut) {
     bool success = ExtractPageText(pagetext, extracted, coords);
     ddjvu_miniexp_release(doc, pagetext);
     if (!success) {
-        return nullptr;
+        return {};
     }
     if (extracted.size() > 0 && !str::EndsWith(extracted.Get(), lineSep)) {
         AppendNewline(extracted, coords, lineSep);
     }
 
-    CrashIf(str::Len(extracted.Get()) != coords.size());
-    if (coordsOut) {
-        ddjvu_status_t status;
-        ddjvu_pageinfo_t info;
-        while ((status = ddjvu_document_get_pageinfo(doc, pageNo - 1, &info)) < DDJVU_JOB_OK) {
-            gDjVuContext->SpinMessageLoop();
-        }
-        float dpiFactor = 1.0;
-        if (DDJVU_JOB_OK == status)
-            dpiFactor = GetFileDPI() / info.dpi;
+    PageText res;
 
-        // TODO: the coordinates aren't completely correct yet
-        Rect page = PageMediabox(pageNo).Round();
-        for (size_t i = 0; i < coords.size(); i++) {
-            if (coords.at(i) != Rect()) {
-                if (dpiFactor != 1.0) {
-                    geomutil::RectT<float> pageF = coords.at(i).Convert<float>();
-                    pageF.x *= dpiFactor;
-                    pageF.dx *= dpiFactor;
-                    pageF.y *= dpiFactor;
-                    pageF.dy *= dpiFactor;
-                    coords.at(i) = pageF.Round();
-                }
-                coords.at(i).y = page.dy - coords.at(i).y - coords.at(i).dy;
-            }
-        }
-        CrashIf(coords.size() != extracted.size());
-        *coordsOut = coords.StealData();
+    CrashIf(str::Len(extracted.Get()) != coords.size());
+    ddjvu_status_t status;
+    ddjvu_pageinfo_t info;
+    while ((status = ddjvu_document_get_pageinfo(doc, pageNo - 1, &info)) < DDJVU_JOB_OK) {
+        gDjVuContext->SpinMessageLoop();
+    }
+    float dpiFactor = 1.0;
+    if (DDJVU_JOB_OK == status) {
+        dpiFactor = GetFileDPI() / info.dpi;
     }
 
-    return extracted.StealData();
+    // TODO: the coordinates aren't completely correct yet
+    Rect page = PageMediabox(pageNo).Round();
+    for (size_t i = 0; i < coords.size(); i++) {
+        if (!coords.at(i).IsEmpty()) {
+            if (dpiFactor != 1.0) {
+                RectF pageF = ToRectFl(coords.at(i));
+                pageF.x *= dpiFactor;
+                pageF.dx *= dpiFactor;
+                pageF.y *= dpiFactor;
+                pageF.dy *= dpiFactor;
+                coords.at(i) = pageF.Round();
+            }
+            coords.at(i).y = page.dy - coords.at(i).y - coords.at(i).dy;
+        }
+    }
+    CrashIf(coords.size() != extracted.size());
+    res.len = (int)extracted.size();
+    res.text = extracted.StealData();
+    res.coords = coords.StealData();
+    return res;
 }
 
-Vec<PageElement*>* EngineDjVu::GetElements(int pageNo) {
+Vec<IPageElement*>* EngineDjVu::GetElements(int pageNo) {
     CrashIf(pageNo < 1 || pageNo > PageCount());
     if (annos && miniexp_dummy == annos[pageNo - 1]) {
         ScopedCritSec scope(&gDjVuContext->lock);
@@ -965,7 +894,7 @@ Vec<PageElement*>* EngineDjVu::GetElements(int pageNo) {
 
     ScopedCritSec scope(&gDjVuContext->lock);
 
-    Vec<PageElement*>* els = new Vec<PageElement*>();
+    auto els = new Vec<IPageElement*>();
     Rect page = PageMediabox(pageNo).Round();
 
     ddjvu_status_t status;
@@ -1009,22 +938,26 @@ Vec<PageElement*>* EngineDjVu::GetElements(int pageNo) {
         }
 
         area = miniexp_cdr(area);
-        if (!miniexp_numberp(miniexp_car(area)))
+        if (!miniexp_numberp(miniexp_car(area))) {
             continue;
+        }
         int x = miniexp_to_int(miniexp_car(area));
         area = miniexp_cdr(area);
-        if (!miniexp_numberp(miniexp_car(area)))
+        if (!miniexp_numberp(miniexp_car(area))) {
             continue;
+        }
         int y = miniexp_to_int(miniexp_car(area));
         area = miniexp_cdr(area);
-        if (!miniexp_numberp(miniexp_car(area)))
+        if (!miniexp_numberp(miniexp_car(area))) {
             continue;
+        }
         int w = miniexp_to_int(miniexp_car(area));
         area = miniexp_cdr(area);
-        if (!miniexp_numberp(miniexp_car(area)))
+        if (!miniexp_numberp(miniexp_car(area))) {
             continue;
+        }
         int h = miniexp_to_int(miniexp_car(area));
-        area = miniexp_cdr(area);
+        // area = miniexp_cdr(area); // TODO: dead store, why was it here?
         if (dpiFactor != 1.0) {
             x = (int)(x * dpiFactor);
             w = (int)(w * dpiFactor);
@@ -1034,7 +967,7 @@ Vec<PageElement*>* EngineDjVu::GetElements(int pageNo) {
         Rect rect(x, page.dy - y - h, w, h);
 
         AutoFree link = ResolveNamedDest(urlUtf8);
-        const char* tmp = link.get();
+        const char* tmp = link.Get();
         if (!tmp) {
             tmp = urlUtf8;
         }
@@ -1046,8 +979,8 @@ Vec<PageElement*>* EngineDjVu::GetElements(int pageNo) {
     return els;
 }
 
-PageElement* EngineDjVu::GetElementAtPos(int pageNo, PointD pt) {
-    Vec<PageElement*>* els = GetElements(pageNo);
+IPageElement* EngineDjVu::GetElementAtPos(int pageNo, PointF pt) {
+    Vec<IPageElement*>* els = GetElements(pageNo);
     if (!els) {
         return nullptr;
     }
@@ -1056,7 +989,7 @@ PageElement* EngineDjVu::GetElementAtPos(int pageNo, PointD pt) {
     // in top-to-bottom order, so reverse the list first
     els->Reverse();
 
-    PageElement* el = nullptr;
+    IPageElement* el = nullptr;
     for (size_t i = 0; i < els->size() && !el; i++) {
         if (els->at(i)->GetRect().Contains(pt)) {
             el = els->at(i);
@@ -1180,9 +1113,9 @@ int EngineDjVu::GetPageByLabel(const WCHAR* label) const {
     return EngineBase::GetPageByLabel(label);
 }
 
-EngineBase* EngineDjVu::CreateFromFile(const WCHAR* fileName) {
+EngineBase* EngineDjVu::CreateFromFile(const WCHAR* path) {
     EngineDjVu* engine = new EngineDjVu();
-    if (!engine->Load(fileName)) {
+    if (!engine->Load(path)) {
         delete engine;
         return nullptr;
     }
@@ -1198,16 +1131,12 @@ EngineBase* EngineDjVu::CreateFromStream(IStream* stream) {
     return engine;
 }
 
-bool IsDjVuEngineSupportedFile(const WCHAR* fileName, bool sniff) {
-    if (sniff) {
-        return file::StartsWith(fileName, "AT&T");
-    }
-
-    return str::EndsWithI(fileName, L".djvu");
+bool IsDjVuEngineSupportedFileType(Kind kind) {
+    return kind == kindFileDjVu;
 }
 
-EngineBase* CreateDjVuEngineFromFile(const WCHAR* fileName) {
-    return EngineDjVu::CreateFromFile(fileName);
+EngineBase* CreateDjVuEngineFromFile(const WCHAR* path) {
+    return EngineDjVu::CreateFromFile(path);
 }
 
 EngineBase* CreateDjVuEngineFromStream(IStream* stream) {

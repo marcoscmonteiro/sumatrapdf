@@ -1,7 +1,7 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-class NotificationWnd;
+struct NotificationWnd;
 
 typedef std::function<void(NotificationWnd*)> NotificationWndRemovedCallback;
 
@@ -9,13 +9,19 @@ typedef std::function<void(NotificationWnd*)> NotificationWndRemovedCallback;
 // from the rest of the code.
 typedef const char* NotificationGroupId;
 
-class NotificationWnd : public ProgressUpdateUI {
-  public:
+enum NotificationOptions {
+    NOS_WITH_TIMEOUT = 0, // timeout after 3 seconds, no highlight
+    NOS_PERSIST = (1 << 0),
+    NOS_HIGHLIGHT = (1 << 1),
+    NOS_WARNING = NOS_PERSIST | NOS_HIGHLIGHT,
+};
+
+struct NotificationWnd : public ProgressUpdateUI {
     HWND parent = nullptr;
     HWND hwnd = nullptr;
     int timeoutInMS = 0; // 0 means no timeout
     bool hasProgress = false;
-    bool hasCancel = false;
+    bool hasClose = false;
 
     HFONT font = nullptr;
     bool highlight = false;
@@ -28,7 +34,6 @@ class NotificationWnd : public ProgressUpdateUI {
     WCHAR* progressMsg = nullptr; // must contain two %d (for current and total)
 
     bool Create(const WCHAR* msg, const WCHAR* progressMsg);
-    void UpdateWindowPosition(const WCHAR* message, bool init);
 
     NotificationGroupId groupId = nullptr; // for use by Notifications
 
@@ -48,21 +53,14 @@ class NotificationWnd : public ProgressUpdateUI {
     bool WasCanceled() override;
 };
 
-class Notifications {
+struct Notifications {
     Vec<NotificationWnd*> wnds;
 
-    int GetWndX(NotificationWnd* wnd);
     void MoveBelow(NotificationWnd* fix, NotificationWnd* move);
     void Remove(NotificationWnd* wnd);
 
-  public:
-    ~Notifications() {
-        DeleteVecMembers(wnds);
-    }
-
-    bool Contains(NotificationWnd* wnd) const {
-        return wnds.Contains(wnd);
-    }
+    ~Notifications();
+    bool Contains(NotificationWnd* wnd) const;
 
     // groupId is used to classify notifications and causes a notification
     // to replace any other notification of the same group

@@ -171,13 +171,13 @@ xps_open_document(fz_context *ctx, const char *filename)
 	char *p;
 	fz_document *doc = NULL;
 
-	if (strstr(filename, "/_rels/.rels") || strstr(filename, "\\_rels\\.rels"))
+	p = strstr(filename, "/_rels/.rels");
+	if (p == NULL)
+		p = strstr(filename, "\\_rels\\.rels");
+	if (p)
 	{
 		char *buf = fz_strdup(ctx, filename);
-		p = strstr(buf, "/_rels/.rels");
-		if (!p)
-			p = strstr(buf, "\\_rels\\.rels");
-		*p = 0;
+		buf[p-filename] = 0;
 		fz_try(ctx)
 			doc = xps_open_document_with_directory(ctx, buf);
 		fz_always(ctx)
@@ -226,7 +226,7 @@ xps_drop_document(fz_context *ctx, fz_document *doc_)
 static int
 xps_lookup_metadata(fz_context *ctx, fz_document *doc_, const char *key, char *buf, int size)
 {
-	if (!strcmp(key, "format"))
+	if (!strcmp(key, FZ_META_FORMAT))
 		return (int)fz_strlcpy(buf, "XPS", size);
 	return -1;
 }

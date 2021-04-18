@@ -1,16 +1,16 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 namespace lzma {
 
 struct FileInfo {
     // public data
-    uint32_t compressedSize;
-    uint32_t uncompressedSize;
-    uint32_t uncompressedCrc32;
+    u32 compressedSize;
+    u32 uncompressedSize;
+    u32 uncompressedCrc32;
     FILETIME ftModified;
     const char* name;
-    const char* compressedData;
+    const u8* compressedData;
 };
 
 // Note: good enough for our purposes, can be expanded when needed
@@ -21,10 +21,10 @@ struct SimpleArchive {
     FileInfo files[MAX_LZMA_ARCHIVE_FILES];
 };
 
-bool ParseSimpleArchive(const char* archiveHeader, size_t dataLen, SimpleArchive* archiveOut);
+bool ParseSimpleArchive(const u8* archiveHeader, size_t dataLen, SimpleArchive* archiveOut);
 int GetIdxFromName(SimpleArchive* archive, const char* name);
-char* GetFileDataByIdx(SimpleArchive* archive, int idx, Allocator* allocator);
-char* GetFileDataByName(SimpleArchive* archive, const char* fileName, Allocator* allocator);
+u8* GetFileDataByIdx(SimpleArchive* archive, int idx, Allocator* allocator);
+u8* GetFileDataByName(SimpleArchive* archive, const char* fileName, Allocator* allocator);
 // files is an array of char * entries, last element must be nullptr
 bool ExtractFiles(const char* archivePath, const char* dstDir, const char** files, Allocator* allocator);
 

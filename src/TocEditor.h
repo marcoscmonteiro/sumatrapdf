@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 struct TocEditorArgs {
@@ -11,5 +11,5 @@ struct TocEditorArgs {
 };
 
 void StartTocEditor(TocEditorArgs*);
-void StartTocEditorForWindowInfo(WindowInfo* win);
-bool IsTocEditorEnabledForWindowInfo(WindowInfo* win);
+void StartTocEditorForWindowInfo(WindowInfo*);
+bool IsTocEditorEnabledForWindowInfo(TabInfo*);

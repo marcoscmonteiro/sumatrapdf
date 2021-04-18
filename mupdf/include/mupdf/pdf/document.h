@@ -243,9 +243,15 @@ void pdf_set_layer_config_as_default(fz_context *ctx, pdf_document *doc);
 */
 int pdf_has_unsaved_changes(fz_context *ctx, pdf_document *doc);
 
-/* Unsaved signature fields */
+/*
+	Determine if this PDF has been repaired since opening.
+*/
+int pdf_was_repaired(fz_context *ctx, pdf_document *doc);
+
+/* Object that can perform the cryptographic operation necessary for document signing */
 typedef struct pdf_pkcs7_signer pdf_pkcs7_signer;
 
+/* Unsaved signature fields */
 typedef struct pdf_unsaved_sig
 {
 	pdf_obj *field;
@@ -276,16 +282,6 @@ typedef struct
 	int64_t offset; /* Offset of first object */
 } pdf_hint_shared;
 
-typedef struct {
-	char *key;
-	fz_xml_doc *value;
-} pdf_xfa_entry;
-
-typedef struct {
-	int count;
-	pdf_xfa_entry *entries;
-} pdf_xfa;
-
 struct pdf_document
 {
 	fz_document super;
@@ -305,6 +301,11 @@ struct pdf_document
 	int num_incremental_sections;
 	int xref_base;
 	int disallow_new_increments;
+
+	/* The local_xref is only active, if local_xref_nesting >= 0 */
+	pdf_xref *local_xref;
+	int local_xref_nesting;
+
 	pdf_xref *xref_sections;
 	pdf_xref *saved_xref_sections;
 	int *xref_index;
@@ -373,7 +374,6 @@ struct pdf_document
 	fz_font **type3_fonts;
 
 	struct {
-		fz_hash_table *images;
 		fz_hash_table *fonts;
 	} resources;
 
@@ -381,7 +381,9 @@ struct pdf_document
 	int orphans_count;
 	pdf_obj **orphans;
 
-	pdf_xfa xfa;
+	fz_xml_doc *xfa;
+
+	pdf_journal *journal;
 };
 
 pdf_document *pdf_create_document(fz_context *ctx);
@@ -429,6 +431,26 @@ void pdf_drop_graft_map(fz_context *ctx, pdf_graft_map *map);
 	that any shared children are not copied more than once.
 */
 pdf_obj *pdf_graft_mapped_object(fz_context *ctx, pdf_graft_map *map, pdf_obj *obj);
+
+/*
+	Graft a page (and its resources) from the src document to the
+	destination document of the graft. This involves a deep copy
+	of the objects in question.
+
+	map: A map targetted at the document into which the page should
+	be inserted.
+
+	page_to: The position within the destination document at which
+	the page should be inserted (pages numbered from 0, with -1
+	meaning "at the end").
+
+	src: The document from which the page should be copied.
+
+	page_from: The page number which should be copied from the src
+	document (pages numbered from 0, with -1 meaning "at the end").
+*/
+void pdf_graft_page(fz_context *ctx, pdf_document *dst, int page_to, pdf_document *src, int page_from);
+void pdf_graft_mapped_page(fz_context *ctx, pdf_graft_map *map, int page_to, pdf_document *src, int page_from);
 
 /*
 	Create a device that will record the
@@ -514,10 +536,6 @@ void pdf_delete_page(fz_context *ctx, pdf_document *doc, int number);
 */
 void pdf_delete_page_range(fz_context *ctx, pdf_document *doc, int start, int end);
 
-void pdf_finish_edit(fz_context *ctx, pdf_document *doc);
-
-int pdf_recognize(fz_context *doc, const char *magic);
-
 fz_text_language pdf_document_language(fz_context *ctx, pdf_document *doc);
 void pdf_set_document_language(fz_context *ctx, pdf_document *doc, fz_text_language lang);
 
@@ -541,6 +559,7 @@ typedef struct
 	int do_sanitize; /* Sanitize content streams. */
 	int do_appearance; /* (Re)create appearance streams. */
 	int do_encrypt; /* Encryption method to use: keep, none, rc4-40, etc. */
+	int dont_regenerate_id; /* Don't regenerate ID if set (used for clean) */
 	int permissions; /* Document encryption permissions. */
 	char opwd_utf8[128]; /* Owner password. */
 	char upwd_utf8[128]; /* User password. */

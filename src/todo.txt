@@ -1,20 +1,82 @@
-
 Annotations:
- - EditAnnotationsWindow and TabInfo must self-reference
- - implement EnginePdf::GetAnnotations
- - display rect info in EditAnnotationsWindow
+ - cannot move ink attachments (repro file from 1716)
+ - save attachment
+ - add attachment
+ - fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1557 (see pdf_load_attachments)
+ - fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1336
+ - test wdl (see https://github.com/justinfrankel/snapease/blob/master/snapease/main_wnd.cpp#L1155, https://github.com/justinfrankel/snapease/blob/master/snapease/main_wnd.cpp#L1155 etc. etc.)
+ - has_redact
+ - fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1720 (Show scrollbars option aren't saving the preference)
+ - fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1737 (Crash report from forum user)
+ - add a toggle for thin lines (example PDFs in https://github.com/sumatrapdfreader/sumatrapdf/issues/1732)
+ - https://github.com/sumatrapdfreader/sumatrapdf/issues/1741 ESC to exit change
+ - https://github.com/sumatrapdfreader/sumatrapdf/issues/1752 small scroll after refresh
+ - https://github.com/sumatrapdfreader/sumatrapdf/issues/1593 djvu bad rotation
+ - https://github.com/sumatrapdfreader/sumatrapdf/issues/1764 debug crash
+ - https://github.com/sumatrapdfreader/sumatrapdf/pull/1757 translation / search of selected text
+ - Ctrl doesn't always work, probably need to hook keyboard on a lower level
+ - maybe; show colors in a drop-down
+ - maybe: text language drop-down
+ - maybe: add -dump-annots cmd-line arg that prints out all annotation info from PDF file or dump the info to log / text control
+ - maybe: add label for showing notification that saved or failed to save. Notification should self-dismiss
+   after few seconds
+ - maybe: display flags
+ - color drop-down should allow entering arbitrary colors (text box or add color selection dialog)
+ - change text selection to use fz_snap_selection and fz_highlight_selection
+ - allow drawing of ink annotations
+ - allow drawing of line
+ - allow drawing of polygon
+ - allow drawing of polyline
+ - no need to redraw when changing contents of most annotations (hard to pull off in current code)
+ - add "Create Highlight annotation" menu item to context menu on selection, after "Copy Selection".
+   Maybe add sub-menu with list of colors
+ - maybe: allow setting custom color of annotation. Add "Custom" drop-down colors entry which would show
+   a dialog box for setting a color. Remember the custom colors in settings for future use.
 
 ------
 
+A system to trigger re-layout when e.g. a button text changes.
+Add a way to register function to be called for a given hwnd.
+WindowBaseLayout() registers for its hwnd and calls Relayout().
+Add TriggerRelayout(HWND) which searches for registered function
+for hwnd and its parents.
+
+------
+
+Installer: maybe when running installer as admin user, install to
+ProgramFiles directory (maybe would fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1502)
+
+------
+
+Fixes:
+- fix Vec bug (same as Str) where we're not using buf
+- fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1466 (-new-window preserves window state from history)
+- fix memleaks on reading .vbkm file
+- tweak PositionCloseTo() to run after creation and use actual window position
+
+------
+
+small refactorings:
+- change FileState::filePath to char*
+- use win->tabsCtrl->IsVisible() instead of win->tabsVisible
+- TabPainter:selectedTabIdx should not be necessary
+- make DisplayModel::CvtFromScreen() update pageNo to simplify callers
+- change ProgressUpdateUI to a callback (e.g. in PrintThreadData)
+- use DirIter instead of FindFirstFile in Installer.cpp
+- use DirIter instead of FindFirstFile in FileThumbnails.cpp
+------
+
 possible refactorings:
-- [X] convert Rect in Layout.h to be like Rect
-- [X] replace Rect with Rect typedef
-- [X] rename Rect, Point, Size => Rect, Point, Size
-- [X] simplify WinDynCalls.h
-- [x] remove class ClientRect and class WindowRect, those can be functions returning Rect
-- replace as much use of RECT, SIZE, POINT with Rect, Size, Point
+- change DocumentTextCache::GetTextForPage to return PageText
+- extract tab code from Tabs.cpp into a tab control
+- rename PointF, RectF, SizeF -> PointF etc.
+- rename GetFzPageInfo => LoadPage(), GetFzPageInfoFast() => GetFzPageInfo()
+- split LoadPage() into LoadPage() and LoadPagePartial()
+returning Rect
+ - maybe: use https://devblogs.microsoft.com/oldnewthing/20200515-00/?p=103755 for storing callbacks
+ - UI ideas: https://getcleanshot.com/
 - change how properties are retrieved (in bulk, instead of one-by-one)
-- remove DirectDraw test and don't link with d2d
+- add arm build (based on https://github.com/ntw-au/sumatrapdf)
 - convert Add Bookmark dialog to new widget / layout system
 - convert hwndTocBox to Window
 - move WindowInfo::tocLoaded into TabInfo
@@ -24,15 +86,11 @@ possible refactorings:
 - use char* instead of WCHAR* for files in Engines
 - turn LinkSaverUI class into a callback function
 - make SaveFileAsPDF non-virtual ([https://codeeval.dev/gist/23710422979e7a7235db96254afd0681](https://codeeval.dev/gist/23710422979e7a7235db96254afd0681))
-- tga::SerializeBitmap : change to return std::string_view
 - rethink how bitmaps are storied. Preferable store them in sth. similar to fz_pixmap() and just blit when painting, like mupdf viewer. Or make a virtual Blit()
 - ChmDoc -> ChmFile
-- ChmDoc::Load() WCHAR => std::string_view
+- ChmDoc::Load() WCHAR* => std::string_view
 - test icons at different sizes (for toolbar they look bad at some sizes; see if it's toolbar or mupdf)
-- [x] change VBox::childrenCount() to int
-- Engine* => Document* rename
-- rewrite file function a sniffer as a single function
-- extract tab code from Tabs.cpp into a tab control
+- see if can do sth. like https://github.com/apenwarr/fixconsole/blob/master/fixconsole_windows.go
 
 ------
 
@@ -80,16 +138,6 @@ Somewhat big items:
 
 ------
 
-Notes / references:
-- https://github.com/andlabs/libui : steal ideas for UI windows wrappers
-- https://github.com/johnfactotum/foliate : gnome epub reader using epub.js. Written in JavaScript / Gtk
-- https://gitlab.com/timofonic/libmobi
-- https://en.bandisoft.com/honeyview/ : steal good UI ideas
-- https://github.com/yue/yue/tree/master/nativeui : has UI code, including full-featured web view
-- https://github.com/neutralinojs/neutralinojs/blob/master/core-windows/src/webview.h : web view code
-
-------
-
 icons:
 - file open
   - https://github.com/tabler/tabler-icons/blob/master/icons/folder.svg
@@ -125,3 +173,18 @@ icons:
 
 - convert to .ico with https://www.icoconverter.com/
 - online icon editor: https://redketchup.io/icon-editor could be used to improve the low-resolution icons.
+
+- https://docs.microsoft.com/en-us/windows/package-manager/ : info about windows package manager
+- https://devblogs.microsoft.com/commandline/windows-package-manager-preview/
+
+------
+
+Notes / references:
+- https://github.com/andlabs/libui : steal ideas for UI windows wrappers
+- https://github.com/johnfactotum/foliate : gnome epub reader using epub.js. Written in JavaScript / Gtk
+- https://gitlab.com/timofonic/libmobi
+- https://en.bandisoft.com/honeyview/ : steal good UI ideas
+- https://github.com/yue/yue/tree/master/nativeui : has UI code, including full-featured web view
+- https://github.com/neutralinojs/neutralinojs/blob/master/core-windows/src/webview.h : web view code
+- https://docs.microsoft.com/en-us/windows/win32/uxguide/vis-layout?redirectedfrom=MSDN#sizingandspacing
+  info about spacing beween UI elements on windows

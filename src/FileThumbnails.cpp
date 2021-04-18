@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -12,6 +12,7 @@
 
 #include "Annotation.h"
 #include "EngineBase.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "FileHistory.h"
 
@@ -26,7 +27,7 @@ static WCHAR* GetThumbnailPath(const WCHAR* filePath) {
     // I'd have liked to also include the file's last modification time
     // in the fingerprint (much quicker than hashing the entire file's
     // content), but that's too expensive for files on slow drives
-    unsigned char digest[16];
+    u8 digest[16];
     // TODO: why is this happening? Seen in crash reports e.g. 35043
     if (!filePath) {
         return nullptr;
@@ -38,7 +39,7 @@ static WCHAR* GetThumbnailPath(const WCHAR* filePath) {
     if (path::HasVariableDriveLetter(filePath)) {
         pathU.Get()[0] = '?'; // ignore the drive letter, if it might change
     }
-    CalcMD5Digest((unsigned char*)pathU.Get(), str::Len(pathU.Get()), digest);
+    CalcMD5Digest((u8*)pathU.Get(), str::Len(pathU.Get()), digest);
     AutoFree fingerPrint(_MemToHex(&digest));
 
     AutoFreeWstr thumbsPath(AppGenDataFilename(THUMBNAILS_DIR_NAME));
@@ -53,19 +54,22 @@ static WCHAR* GetThumbnailPath(const WCHAR* filePath) {
 // removes thumbnails that don't belong to any frequently used item in file history
 void CleanUpThumbnailCache(const FileHistory& fileHistory) {
     AutoFreeWstr thumbsPath(AppGenDataFilename(THUMBNAILS_DIR_NAME));
-    if (!thumbsPath)
+    if (!thumbsPath) {
         return;
+    }
     AutoFreeWstr pattern(path::Join(thumbsPath, L"*.png"));
 
     WStrVec files;
     WIN32_FIND_DATA fdata;
 
     HANDLE hfind = FindFirstFile(pattern, &fdata);
-    if (INVALID_HANDLE_VALUE == hfind)
+    if (INVALID_HANDLE_VALUE == hfind) {
         return;
+    }
     do {
-        if (!(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        if (!(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
             files.Append(str::Dup(fdata.cFileName));
+        }
     } while (FindNextFile(hfind, &fdata));
     FindClose(hfind);
 
@@ -73,8 +77,9 @@ void CleanUpThumbnailCache(const FileHistory& fileHistory) {
     fileHistory.GetFrequencyOrder(list);
     for (size_t i = 0; i < list.size() && i < FILE_HISTORY_MAX_FREQUENT * 2; i++) {
         AutoFreeWstr bmpPath(GetThumbnailPath(list.at(i)->filePath));
-        if (!bmpPath)
+        if (!bmpPath) {
             continue;
+        }
         int idx = files.Find(path::GetBaseNameNoFree(bmpPath));
         if (idx != -1) {
             CrashIf(idx < 0 || files.size() <= (size_t)idx);
@@ -119,16 +124,12 @@ using Gdiplus::StringFormatFlagsDirectionRightToLeft;
 using Gdiplus::TextRenderingHintClearTypeGridFit;
 using Gdiplus::UnitPixel;
 
-using Gdiplus::PointF;
-using Gdiplus::RectF;
-using Gdiplus::SizeF;
-
 static RenderedBitmap* LoadRenderedBitmap(const WCHAR* filePath) {
     AutoFree data(file::ReadFile(filePath));
     if (!data.data) {
         return nullptr;
     }
-    Gdiplus::Bitmap* bmp = BitmapFromData(data.data, data.size());
+    Gdiplus::Bitmap* bmp = BitmapFromData(data.AsSpan());
     if (!bmp) {
         return nullptr;
     }

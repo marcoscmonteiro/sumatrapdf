@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // CURR_VERSION can be over-written externally
@@ -45,7 +45,7 @@
 #endif
 #define CURR_VERSION_STR TEXT(CURR_VERSION_STRA)
 
-#define COPYRIGHT_STR      "Copyright 2006-2020 all authors (GPLv3)"
+#define COPYRIGHT_STR      "Copyright 2006-2021 all authors (GPLv3)"
 #if defined(RAMICRO)
 #define PUBLISHER_STR      "RA-MICRO"
 #else

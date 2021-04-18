@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 struct PageRange {
@@ -7,8 +7,7 @@ struct PageRange {
     int end = INT_MAX;
 };
 
-class Flags {
-  public:
+struct Flags {
     WStrVec fileNames;
     // pathsToBenchmark contain 2 strings per each file to benchmark:
     // - name of the file to benchmark
@@ -28,7 +27,7 @@ class Flags {
     bool restrictedUse = false;
     bool enterPresentation = false;
     bool enterFullScreen = false;
-    DisplayMode startView = DM_AUTOMATIC;
+    DisplayMode startView{DisplayMode::Automatic};
     float startZoom = INVALID_ZOOM;
     Point startScroll{-1, -1};
     bool showConsole = false;

@@ -1,9 +1,10 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
 #include "utils/ScopedWin.h"
 #include "utils/WinUtil.h"
+#include "DisplayMode.h"
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
 #include "Flags.h"
@@ -12,7 +13,7 @@
 
 #include "Annotation.h"
 #include "EngineBase.h"
-#include "EngineManager.h"
+#include "EngineCreate.h"
 
 // TODO(port)
 // extern "C" void fz_redirect_dll_io_to_console();
@@ -39,7 +40,7 @@ void TestRenderPage(const Flags& i) {
     for (auto fileName : files) {
         AutoFree fileNameUtf(strconv::WstrToUtf8(fileName));
         printf("rendering page %d for '%s', zoom: %.2f\n", i.pageNumber, fileNameUtf.Get(), zoom);
-        auto engine = EngineManager::CreateEngine(fileName);
+        auto engine = CreateEngine(fileName);
         if (engine == nullptr) {
             printf("failed to create engine\n");
             continue;
@@ -55,9 +56,11 @@ void TestRenderPage(const Flags& i) {
 }
 
 static void extractPageText(EngineBase* engine, int pageNo) {
-    Rect* coordsOut; // not using the result, only to trigger the code path
-    WCHAR* uni = engine->ExtractPageText(pageNo, &coordsOut);
-    str::Replace(uni, L"\n", L"_");
+    PageText pageText = engine->ExtractPageText(pageNo);
+    if (!pageText.text) {
+        return;
+    }
+    AutoFreeWstr uni = str::Replace(pageText.text, L"\n", L"_");
     AutoFree utf = strconv::WstrToUtf8(uni);
     printf("text on page %d: '", pageNo);
     // print characters as hex because I don't know what kind of locale-specific mangling
@@ -65,11 +68,10 @@ static void extractPageText(EngineBase* engine, int pageNo) {
     int idx = 0;
     while (utf.Get()[idx] != 0) {
         char c = utf.Get()[idx++];
-        printf("%02x ", (unsigned char)c);
+        printf("%02x ", (u8)c);
     }
     printf("'\n");
-    free(uni);
-    free(coordsOut);
+    FreePageText(&pageText);
 }
 
 void TestExtractPage(const Flags& ci) {
@@ -87,7 +89,7 @@ void TestExtractPage(const Flags& ci) {
     }
     for (auto fileName : files) {
         AutoFree fileNameUtf(strconv::WstrToUtf8(fileName));
-        auto engine = EngineManager::CreateEngine(fileName);
+        auto engine = CreateEngine(fileName);
         if (engine == nullptr) {
             printf("failed to create engine for file '%s'\n", fileNameUtf.Get());
             continue;

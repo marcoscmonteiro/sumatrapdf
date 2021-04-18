@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD */
 
 #include "utils/BaseUtil.h"
@@ -17,6 +17,7 @@
 #include "utils/LogDbg.h"
 #include "utils/Log.h"
 
+#include "DisplayMode.h"
 #include "SumatraPDF.h"
 #include "AppTools.h"
 #include "CrashHandler.h"
@@ -49,8 +50,7 @@ static bool gDisableSymbolsDownload = false;
 
 // Get url for file with symbols. Caller needs to free().
 static WCHAR* BuildSymbolsUrl() {
-    WCHAR* urlBase = nullptr;
-    WCHAR* ver = nullptr;
+    const WCHAR* urlBase = nullptr;
     if (gIsDailyBuild) {
         // daily is also pre-release, just stored under a different url
         urlBase = DLURLBASE "daily/SumatraPDF-prerel-" TEXT(QM(PRE_RELEASE_VER));
@@ -62,7 +62,7 @@ static WCHAR* BuildSymbolsUrl() {
             urlBase = DLURLBASE "rel/SumatraPDF-" TEXT(QM(CURR_VERSION));
         }
     }
-    WCHAR* is64 = IsProcess64() ? L"-64" : L"";
+    const WCHAR* is64 = IsProcess64() ? L"-64" : L"";
     return str::Format(L"%s%s.pdb.lzsa", urlBase, is64);
 }
 
@@ -101,7 +101,7 @@ WCHAR* gCrashFilePath = nullptr;
 static MINIDUMP_EXCEPTION_INFORMATION gMei = {0};
 static LPTOP_LEVEL_EXCEPTION_FILTER gPrevExceptionFilter = nullptr;
 
-static char* BuildCrashInfoText(size_t* sizeOut) {
+static std::span<u8> BuildCrashInfoText() {
     str::Str s(16 * 1024, gCrashHandlerAllocator);
     if (gSystemInfo) {
         s.Append(gSystemInfo);
@@ -123,20 +123,19 @@ static char* BuildCrashInfoText(size_t* sizeOut) {
         s.Append(gSettingsFile);
     }
 
-    *sizeOut = s.size();
-    return s.StealData();
+    return s.StealAsSpan();
 }
 
-static void SaveCrashInfo(char* s, size_t size) {
+static void SaveCrashInfo(std::span<u8> d) {
     if (!gCrashFilePath) {
         return;
     }
-    file::WriteFile(gCrashFilePath, {s, size});
+    file::WriteFile(gCrashFilePath, d);
 }
 
-static void SendCrashInfo(char* s, size_t size) {
+static void SendCrashInfo(std::span<u8> d) {
     dbglog("SendCrashInfo()\n");
-    if (str::IsEmpty(s)) {
+    if (d.empty()) {
         return;
     }
 
@@ -144,7 +143,7 @@ static void SendCrashInfo(char* s, size_t size) {
     headers.AppendFmt("Content-Type: text/plain");
 
     str::Str data(16 * 1024, gCrashHandlerAllocator);
-    data.Append(s, size);
+    data.AppendSpan(d);
 
     HttpPost(CRASH_SUBMIT_SERVER, CRASH_SUBMIT_PORT, CRASH_SUBMIT_URL, &headers, &data);
 }
@@ -162,7 +161,7 @@ static void DeleteSymbolsIfExist() {
     dbglogf(L"DeleteSymbolsIfExist: deleted '%s' (%d)\n", gSumatraPdfDllPdbPath, (int)ok);
 }
 
-static bool ExtractSymbols(const char* archiveData, size_t dataSize, char* dstDir, Allocator* allocator) {
+static bool ExtractSymbols(const u8* archiveData, size_t dataSize, char* dstDir, Allocator* allocator) {
     dbglogf("ExtractSymbols: dir '%s', size: %d\n", dstDir, (int)dataSize);
     lzma::SimpleArchive archive;
     bool ok = ParseSimpleArchive(archiveData, dataSize, &archive);
@@ -175,7 +174,7 @@ static bool ExtractSymbols(const char* archiveData, size_t dataSize, char* dstDi
         lzma::FileInfo* fi = &(archive.files[i]);
         const char* name = fi->name;
         dbglogf("ExtractSymbols: file %d is '%s'\n", i, name);
-        char* uncompressed = GetFileDataByIdx(&archive, i, allocator);
+        u8* uncompressed = GetFileDataByIdx(&archive, i, allocator);
         if (!uncompressed) {
             return false;
         }
@@ -183,7 +182,7 @@ static bool ExtractSymbols(const char* archiveData, size_t dataSize, char* dstDi
         if (!filePath) {
             return false;
         }
-        std::string_view d = {uncompressed, fi->uncompressedSize};
+        std::span<u8> d = {uncompressed, fi->uncompressedSize};
         ok = file::WriteFile(filePath, d);
 
         Allocator::Free(allocator, filePath);
@@ -203,6 +202,12 @@ static bool ExtractSymbols(const char* archiveData, size_t dataSize, char* dstDi
 // note: to simplify callers, it could choose pdbZipPath by itself (in a temporary
 // directory) as the file is deleted on exit anyway
 static bool DownloadAndUnzipSymbols(const WCHAR* symDir) {
+    if (gDisableSymbolsDownload) {
+        // don't care about debug builds because we don't release them
+        dbglog("DownloadAndUnzipSymbols: DEBUG build so not doing anything\n");
+        return false;
+    }
+
     dbglogf(L"DownloadAndUnzipSymbols: symDir: '%s', url: '%s'\n", symDir, gSymbolsUrl);
     if (!symDir || !dir::Exists(symDir)) {
         dbglog("DownloadAndUnzipSymbols: exiting because symDir doesn't exist\n");
@@ -210,12 +215,6 @@ static bool DownloadAndUnzipSymbols(const WCHAR* symDir) {
     }
 
     DeleteSymbolsIfExist();
-
-    if (gDisableSymbolsDownload) {
-        // don't care about debug builds because we don't release them
-        dbglog("DownloadAndUnzipSymbols: DEBUG build so not doing anything\n");
-        return false;
-    }
 
     HttpRsp rsp;
     if (!HttpGet(gSymbolsUrl, &rsp)) {
@@ -229,7 +228,7 @@ static bool DownloadAndUnzipSymbols(const WCHAR* symDir) {
     char symDirUtf[512];
 
     strconv::WcharToUtf8Buf(symDir, symDirUtf, sizeof(symDirUtf));
-    bool ok = ExtractSymbols(rsp.data.Get(), rsp.data.size(), symDirUtf, gCrashHandlerAllocator);
+    bool ok = ExtractSymbols((const u8*)rsp.data.Get(), rsp.data.size(), symDirUtf, gCrashHandlerAllocator);
     if (!ok) {
         dbglog("DownloadAndUnzipSymbols: ExtractSymbols() failed\n");
     }
@@ -285,22 +284,22 @@ void SubmitCrashInfo() {
     dbglogf(L"SubmitCrashInfo: gSymbolPathW: '%s'\n", gSymbolPathW);
 
     bool ok = CrashHandlerDownloadSymbols();
+    if (!ok) {
+        dbglog("SubmitCrashInfo(): CrashHandlerDownloadSymbols() failed\n");
+    }
 
-    char* s = nullptr;
-    size_t size = 0;
-    s = BuildCrashInfoText(&size);
-    if (!s) {
+    std::span<u8> d = BuildCrashInfoText();
+    if (d.empty()) {
         dbglog("SubmitCrashInfo(): skipping because !BuildCrashInfoText()\n");
         return;
     }
-    SaveCrashInfo(s, size);
-    SendCrashInfo(s, size);
-    gCrashHandlerAllocator->Free(s);
+    SaveCrashInfo(d);
+    SendCrashInfo(d);
+    gCrashHandlerAllocator->Free((const void*)d.data());
     dbglog("SubmitCrashInfo() finished\n");
 }
 
-static DWORD WINAPI CrashDumpThread(LPVOID data) {
-    UNUSED(data);
+static DWORD WINAPI CrashDumpThread([[maybe_unused]] LPVOID data) {
     WaitForSingleObject(gDumpEvent, INFINITE);
     if (!gCrashed) {
         return 0;
@@ -390,7 +389,7 @@ static void GetOsVersion(str::Str& s) {
     // see: https://msdn.microsoft.com/en-us/library/windows/desktop/dn424972(v=vs.85).aspx
     // starting with Windows 8.1, GetVersionEx will report a wrong version number
     // unless the OS's GUID has been explicitly added to the compatibility manifest
-    BOOL ok = GetVersionEx((OSVERSIONINFO*)&ver);
+    BOOL ok = GetVersionExW((OSVERSIONINFO*)&ver); // NOLINT
 #pragma warning(pop)
     if (!ok) {
         return;
@@ -624,8 +623,7 @@ bool SetSymbolsDir(const WCHAR* symDir) {
     return true;
 }
 
-void __cdecl onSignalAbort(int code) {
-    UNUSED(code);
+void __cdecl onSignalAbort([[maybe_unused]] int code) {
     // put the signal back because can be called many times
     // (from multiple threads) and raise() resets the handler
     signal(SIGABRT, onSignalAbort);

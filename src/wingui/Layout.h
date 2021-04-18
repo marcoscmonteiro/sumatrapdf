@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // port of https://gitlab.com/stone.code/goey
@@ -7,9 +7,9 @@ const int Inf = std::numeric_limits<int>::max();
 
 RECT RectToRECT(const Rect);
 
-int clamp(int v, int vmin, int vmax);
-int scale(int v, i64 num, i64 den);
-int guardInf(int a, int b);
+int Clamp(int v, int vmin, int vmax);
+int Scale(int v, i64 num, i64 den);
+int GuardInf(int a, int b);
 
 struct Constraints {
     Size min{};
@@ -46,39 +46,45 @@ Constraints TightHeight(int height);
 
 typedef std::function<void()> NeedLayout;
 
-struct LayoutManager {
-    bool needLayout = false;
-
-    LayoutManager() = default;
-    virtual ~LayoutManager() = 0;
-
-    virtual void NeedLayout();
+// works like css visibility property
+enum class Visibility {
+    Visible,
+    // not visible but takes up space for purpose of layout
+    Hidden,
+    // not visible and doesn't take up space
+    Collapse,
 };
 
 struct ILayout {
+    virtual ~ILayout(){};
+    virtual Kind GetKind() = 0;
+    virtual void SetVisibility(Visibility) = 0;
+    virtual Visibility GetVisibility() = 0;
+    virtual int MinIntrinsicHeight(int width) = 0;
+    virtual int MinIntrinsicWidth(int height) = 0;
+    virtual Size Layout(const Constraints bc) = 0;
+    virtual void SetBounds(Rect) = 0;
+};
+
+bool IsCollapsed(ILayout*);
+
+struct LayoutBase : public ILayout {
     Kind kind = nullptr;
-    LayoutManager* layoutManager = nullptr;
     // allows easy way to hide / show elements
     // without rebuilding the whole layout
-    bool isVisible = true;
+    Visibility visibility = Visibility::Visible;
     // for easy debugging, remember last bounds
     Rect lastBounds{};
 
-    ILayout() = default;
-    ILayout(Kind k);
-    virtual ~ILayout(){};
-    virtual Size Layout(const Constraints bc) = 0;
-    virtual int MinIntrinsicHeight(int width) = 0;
-    virtual int MinIntrinsicWidth(int height) = 0;
-    virtual void SetBounds(Rect) = 0;
+    LayoutBase() = default;
+    LayoutBase(Kind);
 
-    void SetIsVisible(bool);
+    Kind GetKind() override;
+    void SetVisibility(Visibility) override;
+    Visibility GetVisibility() override;
 };
 
 bool IsLayoutOfKind(ILayout*, Kind);
-
-int calculateVGap(ILayout* previous, ILayout* current);
-int calculateHGap(ILayout* previous, ILayout* current);
 
 // padding.go
 
@@ -89,20 +95,15 @@ struct Insets {
     int left = 0;
 };
 
-inline Insets DefaultInsets() {
-    const int padding = 8;
-    return Insets{padding, padding, padding, padding};
-}
+Insets DefaultInsets();
+Insets DpiScaledInsets(HWND, int top, int right = -1, int bottom = -1, int left = -1);
 
-inline Insets UniformInsets(int l) {
-    return Insets{l, l, l, l};
-}
-
-struct Padding : public ILayout {
-    Insets insets{};
+struct Padding : LayoutBase {
     ILayout* child = nullptr;
+    Insets insets{};
     Size childSize{};
 
+    Padding(ILayout*, const Insets&);
     ~Padding() override;
     Size Layout(const Constraints bc) override;
     int MinIntrinsicHeight(int width) override;
@@ -112,26 +113,6 @@ struct Padding : public ILayout {
 
 bool IsPadding(Kind);
 bool IsPadding(ILayout*);
-
-// expand.go
-
-struct Expand : public ILayout {
-    ILayout* child = nullptr;
-    int factor = 0;
-
-    // ILayout
-    Expand(ILayout* c, int f);
-    ~Expand() override;
-    Size Layout(const Constraints bc) override;
-    int MinIntrinsicHeight(int width) override;
-    int MinIntrinsicWidth(int height) override;
-    void SetBounds(Rect) override;
-};
-
-Expand* CreateExpand(ILayout*, int);
-
-bool IsExpand(Kind);
-bool IsExpand(ILayout*);
 
 // vbox.go
 
@@ -169,16 +150,14 @@ struct boxElementInfo {
     int flex = 0;
 };
 
-bool IsVBox(Kind);
-bool IsVBox(ILayout*);
-
-struct VBox : public ILayout {
+struct VBox : LayoutBase {
     Vec<boxElementInfo> children;
     MainAxisAlign alignMain = MainAxisAlign::MainStart;
     CrossAxisAlign alignCross = CrossAxisAlign::CrossStart;
     int totalHeight = 0;
     int totalFlex = 0;
 
+    VBox();
     ~VBox() override;
     Size Layout(const Constraints bc) override;
     int MinIntrinsicHeight(int width) override;
@@ -189,15 +168,13 @@ struct VBox : public ILayout {
 
     boxElementInfo& AddChild(ILayout* child);
     boxElementInfo& AddChild(ILayout* child, int flex);
-    int ChildrenCount(); // only visible children
+    int ChildrenCount();
+    int NonCollapsedChildrenCount();
 };
 
 // hbox.go
 
-bool IsHBox(Kind);
-bool IsHBox(ILayout*);
-
-struct HBox : public ILayout {
+struct HBox : LayoutBase {
     Vec<boxElementInfo> children;
     MainAxisAlign alignMain = MainAxisAlign::MainStart;
     CrossAxisAlign alignCross = CrossAxisAlign::CrossStart;
@@ -214,6 +191,7 @@ struct HBox : public ILayout {
     boxElementInfo& AddChild(ILayout* child);
     boxElementInfo& AddChild(ILayout* child, int flex);
     int ChildrenCount();
+    int NonCollapsedChildrenCount();
 };
 
 // align.go
@@ -225,7 +203,7 @@ constexpr Alignment AlignStart = -32768;
 constexpr Alignment AlignCenter = 0;
 constexpr Alignment AlignEnd = 0x7fff;
 
-struct Align : public ILayout {
+struct Align : LayoutBase {
     Alignment HAlign = AlignStart; // Horizontal alignment of child widget.
     Alignment VAlign = AlignStart; // Vertical alignment of child widget.
     float WidthFactor = 0;         // If greater than zero, ratio of container width to child width.
@@ -241,25 +219,22 @@ struct Align : public ILayout {
     void SetBounds(Rect) override;
 };
 
-bool IsAlign(Kind);
-bool IsAlign(ILayout*);
+// spacer is to be used to take space
+// can be used for flexible
+struct Spacer : LayoutBase {
+    int dx = 0;
+    int dy = 0;
 
-// declaring here because used in Layout.cpp
-// lives in ButtonCtrl.cpp
-bool IsButton(Kind);
-bool IsButton(ILayout*);
-
-// declaring here because used in Layout.cpp
-// lives in ButtonCtrl.cpp
-bool IsCheckbox(Kind);
-bool IsCheckbox(ILayout*);
-
-bool IsExpand(Kind);
-bool IsExpand(ILayout*);
-
-bool IsLabeL(Kind);
-bool IsLabel(ILayout*);
-
-extern Kind kindLabel;
+    Spacer(int, int);
+    ~Spacer() override;
+    Size Layout(const Constraints bc) override;
+    int MinIntrinsicHeight(int width) override;
+    int MinIntrinsicWidth(int height) override;
+    void SetBounds(Rect) override;
+};
 
 void LayoutAndSizeToContent(ILayout* layout, int minDx, int minDy, HWND hwnd);
+Size LayoutToSize(ILayout* layout, const Size size);
+
+void dbglayoutf(const char* fmt, ...);
+void LogConstraints(Constraints c, const char* suffix);

@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -37,15 +37,16 @@ bool HtmlElement::NameIsNS(const char* name, const char* ns) const {
     if (!nameStart) {
         return NameIs(name);
     }
-    nameStart = nameStart ? nameStart + 1 : this->name;
+    ++nameStart;
     return str::EqI(nameStart, name);
 }
 
 HtmlElement* HtmlElement::GetChildByTag(HtmlTag tag, int idx) const {
     for (HtmlElement* el = down; el; el = el->next) {
         if (tag == el->tag) {
-            if (0 == idx)
+            if (0 == idx) {
                 return el;
+            }
             idx--;
         }
     }
@@ -53,13 +54,14 @@ HtmlElement* HtmlElement::GetChildByTag(HtmlTag tag, int idx) const {
 }
 
 static WCHAR IntToChar(int codepoint) {
-    if (codepoint <= 0 || codepoint >= (1 << (8 * sizeof(WCHAR))))
+    if (codepoint <= 0 || codepoint >= (1 << (8 * sizeof(WCHAR)))) {
         return '?';
+    }
     return (WCHAR)codepoint;
 }
 
 // caller needs to free() the result
-WCHAR* DecodeHtmlEntitites(const char* string, UINT codepage) {
+WCHAR* DecodeHtmlEntitites(const char* string, uint codepage) {
     WCHAR* fixed = strconv::FromCodePage(string, codepage);
     WCHAR* dst = fixed;
     const WCHAR* src = fixed;
@@ -92,8 +94,9 @@ WCHAR* DecodeHtmlEntitites(const char* string, UINT codepage) {
         if (-1 != rune) {
             *dst++ = IntToChar(rune);
             src = entityEnd;
-            if (*src == ';')
+            if (*src == ';') {
                 ++src;
+            }
         } else {
             *dst++ = '&';
         }
@@ -104,15 +107,8 @@ WCHAR* DecodeHtmlEntitites(const char* string, UINT codepage) {
 }
 
 HtmlParser::HtmlParser()
-    : html(nullptr),
-      freeHtml(false),
-      rootElement(nullptr),
-      currElement(nullptr),
-      elementsCount(0),
-      attributesCount(0),
-      codepage(CP_ACP),
-      error(ErrParsingNoError),
-      errorContext(nullptr) {
+
+{
 }
 
 HtmlParser::~HtmlParser() {
@@ -146,8 +142,9 @@ HtmlAttr* HtmlParser::AllocAttr(char* name, HtmlAttr* next) {
 // caller needs to free() the result
 WCHAR* HtmlElement::GetAttribute(const char* name) const {
     for (HtmlAttr* attr = firstAttr; attr; attr = attr->next) {
-        if (str::EqI(attr->name, name))
+        if (str::EqI(attr->name, name)) {
             return DecodeHtmlEntitites(attr->val, codepage);
+        }
     }
     return nullptr;
 }
@@ -169,8 +166,9 @@ HtmlElement* HtmlParser::FindParent(HtmlToken* tok) {
     if (Tag_Li == tok->tag) {
         // make a list item the child of the closest list
         for (HtmlElement* el = currElement; el; el = el->up) {
-            if (Tag_Ul == el->tag || Tag_Ol == el->tag)
+            if (Tag_Ul == el->tag || Tag_Ol == el->tag) {
                 return el;
+            }
         }
     }
 
@@ -187,8 +185,9 @@ void HtmlParser::StartTag(HtmlToken* tok) {
 
     HtmlElement* parent = FindParent(tok);
     currElement = AllocElement(tok->tag, tagName, parent);
-    if (nullptr == rootElement)
+    if (nullptr == rootElement) {
         rootElement = currElement;
+    }
 
     if (!parent) {
         // if this isn't the root tag, this tag
@@ -230,15 +229,24 @@ void HtmlParser::AppendAttr(char* name, char* value) {
     currElement->firstAttr->val = value;
 }
 
+size_t HtmlParser::ElementsCount() const {
+    return elementsCount;
+}
+
+size_t HtmlParser::TotalAttrCount() const {
+    return attributesCount;
+}
+
 // Parse s in place i.e. we assume we can modify it. Must be 0-terminated.
 // The caller owns the memory for s.
-HtmlElement* HtmlParser::ParseInPlace(char* s, UINT codepage) {
-    if (this->html)
+HtmlElement* HtmlParser::ParseInPlace(std::span<u8> d, uint codepage) {
+    if (this->html) {
         Reset();
-    this->html = s;
+    }
+    this->html = (char*)d.data();
     this->codepage = codepage;
 
-    HtmlPullParser parser(s, strlen(s));
+    HtmlPullParser parser(this->html, d.size());
     HtmlToken* tok;
 
     while ((tok = parser.Next()) != nullptr) {
@@ -255,7 +263,7 @@ HtmlElement* HtmlParser::ParseInPlace(char* s, UINT codepage) {
         }
         if (!tok->IsTag()) {
             // ignore text content
-            AssertCrash(tok->IsText());
+            CrashIf(!tok->IsText());
             continue;
         }
         if (!tok->IsEndTag()) {
@@ -282,8 +290,9 @@ HtmlElement* HtmlParser::ParseInPlace(char* s, UINT codepage) {
     return rootElement;
 }
 
-HtmlElement* HtmlParser::Parse(const char* s, UINT codepage) {
-    HtmlElement* root = ParseInPlace(str::Dup(s), codepage);
+HtmlElement* HtmlParser::Parse(std::span<u8> d, uint codepage) {
+    char* s = str::DupN(d);
+    HtmlElement* root = ParseInPlace(str::ToSpan(s), codepage);
     freeHtml = true;
     return root;
 }
@@ -299,13 +308,16 @@ HtmlElement* HtmlParser::FindElementByName(const char* name, HtmlElement* from) 
 
 HtmlElement* HtmlParser::FindElementByNameNS(const char* name, const char* ns, HtmlElement* from) {
     HtmlElement* el = from ? from : rootElement;
-    if (from)
+    if (from) {
         goto FindNext;
-    if (!el)
+    }
+    if (!el) {
         return nullptr;
+    }
 CheckNext:
-    if (el->NameIs(name) || ns && el->NameIsNS(name, ns))
+    if (el->NameIs(name) || ns && el->NameIsNS(name, ns)) {
         return el;
+    }
 FindNext:
     if (el->down) {
         el = el->down;

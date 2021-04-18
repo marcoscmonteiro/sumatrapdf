@@ -1,5 +1,5 @@
-/* Copyright 2020 Krzysztof Kowalczyk.
-   License: BSD */
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
+   License: Simplified BSD (see COPYING.BSD) */
 
 namespace trans {
 
@@ -20,7 +20,9 @@ void Destroy();
 } // namespace trans
 
 // _TR() marks strings that need to be translated
-#define _TR(x) trans::GetTranslation(x)
+const WCHAR* _TR(const char* s);
+#define _TR_TODO(quote) L##quote
+#define _TR_TODON(quote) quote
 
 // _TRN() marks strings that need to be translated but are used in a context
 // that doesn't allow calling Trans::GetTranslation() (e.g. when used as part

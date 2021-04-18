@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -6,11 +6,12 @@
 
 static bool VisitTreeItemRec(TreeItem* ti, const TreeItemVisitor& visitor) {
     bool cont;
-    if (ti != nullptr) {
-        cont = visitor(ti);
-        if (!cont) {
-            return false;
-        }
+    if (!ti) {
+        return true;
+    }
+    cont = visitor(ti);
+    if (!cont) {
+        return false;
     }
     int n = ti->ChildCount();
     for (int i = 0; i < n; i++) {

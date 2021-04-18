@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -73,7 +73,7 @@ static void PaintHDC(LabelWithCloseWnd* w, HDC hdc, const PAINTSTRUCT& ps) {
 
     int x = DpiScale(w->hwnd, w->padX);
     int y = DpiScale(w->hwnd, w->padY);
-    UINT opts = ETO_OPAQUE;
+    uint opts = ETO_OPAQUE;
     if (IsRtl(w->hwnd)) {
         opts = opts | ETO_RTLREADING;
     }
@@ -86,7 +86,7 @@ static void PaintHDC(LabelWithCloseWnd* w, HDC hdc, const PAINTSTRUCT& ps) {
     SetBkColor(hdc, w->bgCol);
 
     WCHAR* s = win::GetText(w->hwnd);
-    ExtTextOut(hdc, x, y, opts, nullptr, s, (UINT)str::Len(s), nullptr);
+    ExtTextOut(hdc, x, y, opts, nullptr, s, (uint)str::Len(s), nullptr);
     free(s);
 
     // Text might be too long and invade close button area. We just re-paint
@@ -95,7 +95,7 @@ static void PaintHDC(LabelWithCloseWnd* w, HDC hdc, const PAINTSTRUCT& ps) {
     // size (within reason)
     x = w->closeBtnPos.x - DpiScale(w->hwnd, LABEL_BUTTON_SPACE_DX);
     Rect ri(x, 0, cr.dx - x, cr.dy);
-    RECT r = ri.ToRECT();
+    RECT r = ToRECT(ri);
     FillRect(hdc, &r, br);
 
     DrawCloseButton(hdc, w);
@@ -181,7 +181,7 @@ static LRESULT CALLBACK WndProcLabelWithClose(HWND hwnd, UINT msg, WPARAM wp, LP
     if (WM_LBUTTONUP == msg) {
         if (IsMouseOverClose(w)) {
             HWND parent = GetParent(w->hwnd);
-            SendMessage(parent, WM_COMMAND, w->cmd, 0);
+            HwndSendCommand(parent, w->cmd);
         }
         return 0;
     }
@@ -290,7 +290,7 @@ void LabelWithCloseCtrl::SetPaddingXY(int x, int y) {
 }
 
 Size LabelWithCloseCtrl::GetIdealSize() {
-    AutoFreeWstr s = strconv::Utf8ToWstr(text.as_view());
+    AutoFreeWstr s = strconv::Utf8ToWstr(text.AsView());
     Size size = TextSizeInHwnd(hwnd, s);
     int btnDx = DpiScale(hwnd, CLOSE_BTN_DX);
     int btnDy = DpiScale(hwnd, CLOSE_BTN_DY);

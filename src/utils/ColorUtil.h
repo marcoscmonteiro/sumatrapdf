@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // a "unset" state for COLORREF value. technically all colors are valid
@@ -13,12 +13,6 @@ COLORREF MkGray(u8 x);
 COLORREF MkRgba(u8 r, u8 g, u8 b, u8 a);
 void UnpackRgb(COLORREF, u8& r, u8& g, u8& b);
 void UnpackRgba(COLORREF, u8& r, u8& g, u8& b, u8& a);
-
-// float is in range 0...1
-COLORREF FromPdfColorRgba(float col[4]);
-COLORREF FromPdfColorRgb(float col[3]);
-void ToPdfRgb(COLORREF c, float col[3]);
-void ToPdfRgba(COLORREF c, float col[4]);
 
 COLORREF ColorSetRed(COLORREF c, u8 red);
 COLORREF ColorSetGreen(COLORREF c, u8 green);
@@ -44,9 +38,10 @@ Gdiplus::Color GdiRgbaFromCOLORREF(COLORREF c);
 /* In debug mode, VS 2010 instrumentations complains about GetRValue() etc.
 This adds equivalent functions that don't have this problem and ugly
 substitutions to make sure we don't use Get*Value() in the future */
-BYTE GetRValueSafe(COLORREF rgb);
-BYTE GetGValueSafe(COLORREF rgb);
-BYTE GetBValueSafe(COLORREF rgb);
+u8 GetRed(COLORREF rgb);
+u8 GetGreen(COLORREF rgb);
+u8 GetBlue(COLORREF rgb);
+u8 GetAlpha(COLORREF rgb);
 
 // disabled because not compatible with wdl / lice
 #if 0

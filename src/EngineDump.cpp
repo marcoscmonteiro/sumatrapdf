@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
@@ -15,13 +15,12 @@
 #include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineDjVu.h"
-#include "EngineManager.h"
-#include "FileModifications.h"
+#include "EngineCreate.h"
 #include "PdfCreator.h"
 
 #define Out(msg, ...) printf(msg, __VA_ARGS__)
 
-static void Out1(char* msg) {
+static void Out1(const char* msg) {
     printf("%s", msg);
 }
 
@@ -159,11 +158,12 @@ char* DestRectToStr(EngineBase* engine, PageDestination* dest) {
     }
     // as handled by LinkHandler::ScrollTo in WindowInfo.cpp
     int pageNo = dest->GetPageNo();
-    if (pageNo <= 0 || pageNo > engine->PageCount())
+    if (pageNo <= 0 || pageNo > engine->PageCount()) {
         return nullptr;
-    RectD rect = dest->GetRect();
+    }
+    RectF rect = dest->GetRect();
     if (rect.IsEmpty()) {
-        PointD pt = engine->Transform(rect.TL(), pageNo, 1.0, 0);
+        PointF pt = engine->Transform(rect.TL(), pageNo, 1.0, 0);
         return str::Format("Point=\"%.0f %.0f\"", pt.x, pt.y);
     }
     if (rect.dx != DEST_USE_DEFAULT && rect.dy != DEST_USE_DEFAULT) {
@@ -171,7 +171,7 @@ char* DestRectToStr(EngineBase* engine, PageDestination* dest) {
         return str::Format("Rect=\"%d %d %d %d\"", rc.x, rc.y, rc.dx, rc.dy);
     }
     if (rect.y != DEST_USE_DEFAULT) {
-        PointD pt = engine->Transform(rect.TL(), pageNo, 1.0, 0);
+        PointF pt = engine->Transform(rect.TL(), pageNo, 1.0, 0);
         return str::Format("Point=\"x %.0f\"", pt.y);
     }
     return nullptr;
@@ -236,11 +236,12 @@ void DumpToc(EngineBase* engine) {
     }
 }
 
-const char* ElementTypeToStr(PageElement* el) {
-    if (!el->kind) {
-        return "unknown";
+const char* ElementTypeToStr(IPageElement* el) {
+    Kind kind = el->GetKind();
+    if (kind) {
+        return kind;
     }
-    return el->kind;
+    return "unknown";
 }
 
 const char* PageDestToStr(Kind kind) {
@@ -268,17 +269,21 @@ void DumpPageContent(EngineBase* engine, int pageNo, bool fullDump) {
     Out1("\t>\n");
 
     if (fullDump) {
-        AutoFree text(Escape(engine->ExtractPageText(pageNo)));
-        if (text.Get()) {
-            Out("\t\t<TextContent>\n%s\t\t</TextContent>\n", text.Get());
+        PageText pageText = engine->ExtractPageText(pageNo);
+        if (pageText.text != nullptr) {
+            AutoFree text(Escape(pageText.text));
+            if (text.Get()) {
+                Out("\t\t<TextContent>\n%s\t\t</TextContent>\n", text.Get());
+            }
         }
+        FreePageText(&pageText);
     }
 
-    Vec<PageElement*>* els = engine->GetElements(pageNo);
+    Vec<IPageElement*>* els = engine->GetElements(pageNo);
     if (els && els->size() > 0) {
         Out1("\t\t<PageElements>\n");
         for (size_t i = 0; i < els->size(); i++) {
-            RectD rect = els->at(i)->GetRect();
+            RectF rect = els->at(i)->GetRect();
             Out("\t\t\t<Element Type=\"%s\"\n\t\t\t\tRect=\"%.0f %.0f %.0f %.0f\"\n", ElementTypeToStr(els->at(i)),
                 rect.x, rect.y, rect.dx, rect.dy);
             PageDestination* dest = els->at(i)->AsLink();
@@ -313,15 +318,15 @@ void DumpPageContent(EngineBase* engine, int pageNo, bool fullDump) {
 }
 
 void DumpThumbnail(EngineBase* engine) {
-    RectD rect = engine->Transform(engine->PageMediabox(1), 1, 1.0, 0);
+    RectF rect = engine->Transform(engine->PageMediabox(1), 1, 1.0, 0);
     if (rect.IsEmpty()) {
         Out1("\t<Thumbnail />\n");
         return;
     }
 
     float zoom = std::min(128 / (float)rect.dx, 128 / (float)rect.dy) - 0.001f;
-    Rect thumb = RectD(0, 0, rect.dx * zoom, rect.dy * zoom).Round();
-    rect = engine->Transform(thumb.Convert<double>(), 1, zoom, 0, true);
+    Rect thumb = RectF(0, 0, rect.dx * zoom, rect.dy * zoom).Round();
+    rect = engine->Transform(ToRectFl(thumb), 1, zoom, 0, true);
     RenderPageArgs args(1, zoom, 0, &rect);
     RenderedBitmap* bmp = engine->RenderPage(args);
     if (!bmp) {
@@ -329,15 +334,16 @@ void DumpThumbnail(EngineBase* engine) {
         return;
     }
 
-    size_t len;
-    ScopedMem<unsigned char> data(tga::SerializeBitmap(bmp->GetBitmap(), &len));
+    std::span<u8> imgData = tga::SerializeBitmap(bmp->GetBitmap());
+    size_t len = imgData.size();
+    u8* data = imgData.data();
     AutoFree hexData(data ? str::MemToHex(data, len) : nullptr);
     if (hexData) {
         Out("\t<Thumbnail>\n\t\t%s\n\t</Thumbnail>\n", hexData.Get());
     } else {
         Out1("\t<Thumbnail />\n");
     }
-
+    str::Free(data);
     delete bmp;
 }
 
@@ -388,15 +394,20 @@ bool RenderDocument(EngineBase* engine, const WCHAR* renderPath, float zoom = 1.
     if (str::EndsWithI(renderPath, L".txt")) {
         str::WStr text(1024);
         for (int pageNo = 1; pageNo <= engine->PageCount(); pageNo++) {
-            text.AppendAndFree(engine->ExtractPageText(pageNo, nullptr));
+            PageText pageText = engine->ExtractPageText(pageNo);
+            if (pageText.text != nullptr) {
+                text.Append(pageText.text);
+            }
+            FreePageText(&pageText);
         }
         text.Replace(L"\n", L"\r\n");
-        if (silent)
+        if (silent) {
             return true;
+        }
         AutoFreeWstr txtFilePath(str::Format(renderPath, 0));
         AutoFree textUTF8 = strconv::WstrToUtf8(text.Get());
         AutoFree textUTF8BOM(str::Join(UTF8_BOM, textUTF8.Get()));
-        return file::WriteFile(txtFilePath, textUTF8BOM.as_view());
+        return file::WriteFile(txtFilePath, textUTF8BOM.AsSpan());
     }
 
     if (str::EndsWithI(renderPath, L".pdf")) {
@@ -416,8 +427,9 @@ bool RenderDocument(EngineBase* engine, const WCHAR* renderPath, float zoom = 1.
         RenderPageArgs args(pageNo, zoom, 0);
         RenderedBitmap* bmp = engine->RenderPage(args);
         success &= bmp != nullptr;
-        if (!bmp && !silent)
+        if (!bmp && !silent) {
             ErrOut("Error: Failed to render page %d for %s!", pageNo, engine->FileName());
+        }
         if (!bmp || silent) {
             delete bmp;
             continue;
@@ -428,16 +440,16 @@ bool RenderDocument(EngineBase* engine, const WCHAR* renderPath, float zoom = 1.
             CLSID pngEncId = GetEncoderClsid(L"image/png");
             gbmp.Save(pageBmpPath, &pngEncId);
         } else if (str::EndsWithI(pageBmpPath, L".bmp")) {
-            size_t bmpDataLen;
-            AutoFree bmpData((char*)SerializeBitmap(bmp->GetBitmap(), &bmpDataLen));
-            if (!bmpData.empty()) {
-                file::WriteFile(pageBmpPath, bmpData.as_view());
+            std::span<u8> imgData = SerializeBitmap(bmp->GetBitmap());
+            if (!imgData.empty()) {
+                file::WriteFile(pageBmpPath, imgData);
+                str::Free(imgData.data());
             }
         } else { // render as TGA for all other file extensions
-            size_t tgaDataLen;
-            AutoFree tgaData(tga::SerializeBitmap(bmp->GetBitmap(), &tgaDataLen));
-            if (!tgaData.empty()) {
-                file::WriteFile(pageBmpPath, {tgaData, tgaDataLen});
+            std::span<u8> imgData = tga::SerializeBitmap(bmp->GetBitmap());
+            if (!imgData.empty()) {
+                file::WriteFile(pageBmpPath, imgData);
+                str::Free(imgData.data());
             }
         }
         delete bmp;
@@ -452,19 +464,13 @@ class PasswordHolder : public PasswordUI {
   public:
     explicit PasswordHolder(const WCHAR* password) : password(password) {
     }
-    virtual WCHAR* GetPassword(const WCHAR* fileName, unsigned char* fileDigest, unsigned char decryptionKeyOut[32],
-                               bool* saveKey) {
-        UNUSED(fileName);
-        UNUSED(fileDigest);
-        UNUSED(decryptionKeyOut);
-        UNUSED(saveKey);
+    WCHAR* GetPassword([[maybe_unused]] const WCHAR* fileName, [[maybe_unused]] u8* fileDigest,
+                       [[maybe_unused]] u8 decryptionKeyOut[32], [[maybe_unused]] bool* saveKey) override {
         return str::Dup(password);
     }
 };
 
-int main(int argc, char** argv) {
-    UNUSED(argc);
-    UNUSED(argv);
+int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     setlocale(LC_ALL, "C");
     DisableDataExecution();
 
@@ -483,16 +489,14 @@ int main(int argc, char** argv) {
     WCHAR* renderPath = nullptr;
     float renderZoom = 1.f;
     bool loadOnly = false, silent = false;
-#ifdef DEBUG
     int breakAlloc = 0;
-#endif
 
     for (size_t i = 1; i < argList.size(); i++) {
-        if (str::Eq(argList.at(i), L"-pwd") && i + 1 < argList.size() && !password)
+        if (str::Eq(argList.at(i), L"-pwd") && i + 1 < argList.size() && !password) {
             password = argList.at(++i);
-        else if (str::Eq(argList.at(i), L"-quick"))
+        } else if (str::Eq(argList.at(i), L"-quick")) {
             fullDump = false;
-        else if (str::Eq(argList.at(i), L"-render") && i + 1 < argList.size() && !renderPath) {
+        } else if (str::Eq(argList.at(i), L"-render") && i + 1 < argList.size() && !renderPath) {
             // optional zoom argument (e.g. -render 50% file.pdf)
             float zoom;
             if (i + 2 < argList.size() && str::Parse(argList.at(i + 1), L"%f%%%$", &zoom) && zoom > 0.f) {
@@ -500,35 +504,34 @@ int main(int argc, char** argv) {
                 i++;
             }
             renderPath = argList.at(++i);
-        }
-        // -loadonly and -silent are only meant for profiling
-        else if (str::Eq(argList.at(i), L"-loadonly"))
+        } else if (str::Eq(argList.at(i), L"-loadonly")) {
+            // -loadonly and -silent are only meant for profiling
             loadOnly = true;
-        else if (str::Eq(argList.at(i), L"-silent"))
+        } else if (str::Eq(argList.at(i), L"-silent")) {
             silent = true;
-        // -full is for backward compatibility
-        else if (str::Eq(argList.at(i), L"-full"))
+        } else if (str::Eq(argList.at(i), L"-full")) {
+            // -full is for backward compatibility
             fullDump = true;
-#ifdef DEBUG
-        else if (str::Eq(argList.at(i), L"-breakalloc") && i + 1 < argList.size())
+        } else if (str::Eq(argList.at(i), L"-breakalloc") && i + 1 < argList.size()) {
             breakAlloc = _wtoi(argList.at(++i));
-#endif
-        else if (!filePath)
+        } else if (!filePath) {
             filePath.SetCopy(argList.at(i));
-        else
+        } else {
             goto Usage;
+        }
     }
-    if (!filePath)
+    if (!filePath) {
         goto Usage;
+    }
 
-#ifdef DEBUG
     if (breakAlloc) {
+#ifdef DEBUG
         _CrtSetBreakAlloc(breakAlloc);
         if (!IsDebuggerPresent())
             MessageBox(nullptr, L"Keep your debugger ready for the allocation breakpoint...", L"EngineDump",
                        MB_ICONINFORMATION);
-    }
 #endif
+    }
     if (silent) {
         FILE* nul;
         freopen_s(&nul, "NUL", "w", stdout);
@@ -549,8 +552,8 @@ int main(int argc, char** argv) {
     }
 
     PasswordHolder pwdUI(password);
-    EngineBase* engine = EngineManager::CreateEngine(filePath, &pwdUI);
-#ifdef DEBUG
+    EngineBase* engine = CreateEngine(filePath, &pwdUI);
+#if 0
     bool isEngineDjVu = IsOfKind(engine, kindEngineDjVu);
     bool couldLeak = isEngineDjVu || IsDjVuEngineSupportedFile(filePath) || IsDjVuEngineSupportedFile(filePath, true);
     if (!couldLeak) {
@@ -564,8 +567,6 @@ int main(int argc, char** argv) {
         ErrOut("Error: Couldn't create an engine for %s!", path::GetBaseNameNoFree(filePath));
         return 1;
     }
-    Vec<Annotation*>* annots = LoadFileModifications(engine->FileName());
-    engine->SetUserAnnotations(annots);
     if (!loadOnly) {
         DumpData(engine, fullDump);
     }
@@ -573,7 +574,6 @@ int main(int argc, char** argv) {
         RenderDocument(engine, renderPath, renderZoom, silent);
     }
     delete engine;
-    DeleteVecAnnotations(annots);
 
     return 0;
 }

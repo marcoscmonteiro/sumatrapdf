@@ -7,7 +7,7 @@ AC_PREREQ(2.60)
 #
 # Set the package name and version
 #
-AC_INIT(lcms2mt,2.9)
+AC_INIT(lcms2mt,2.11)
 
 # Specify directory where m4 macros may be found.
 AC_CONFIG_MACRO_DIR([m4])
@@ -34,7 +34,7 @@ AC_CONFIG_MACRO_DIR([m4])
 #     then set age to 0.
 #
 LIBRARY_CURRENT=2
-LIBRARY_REVISION=8
+LIBRARY_REVISION=10
 LIBRARY_AGE=0
 
 AC_SUBST(LIBRARY_CURRENT)dnl
@@ -44,7 +44,7 @@ AC_SUBST(LIBRARY_AGE)dnl
 # Obtain system type by running config.guess
 AC_CANONICAL_HOST
 
-AM_INIT_AUTOMAKE([foreign 1.7.2 no-define dist-zip subdir-objects])
+AM_INIT_AUTOMAKE([foreign 1.9 tar-ustar no-define dist-zip subdir-objects])
 
 
 # Check for programs
@@ -218,7 +218,7 @@ then
     passed=0;
     AC_CHECK_HEADER(jconfig.h,passed=`expr $passed + 1`,failed=`expr $failed + 1`)
     AC_CHECK_HEADER(jerror.h,passed=`expr $passed + 1`,failed=`expr $failed + 1`)
-    AC_CHECK_HEADER(jmorecfg.h,passed=`expr $passed + 1`,failed=`expr $failed + 1`)
+    AC_CHECK_HEADER(jmorecfg.h,passed=`expr $passed + 1`,failed=`expr $failed + 1`,[#include <jconfig.h>])
     AC_CHECK_HEADER(jpeglib.h,passed=`expr $passed + 1`,failed=`expr $failed + 1`)
     AC_CHECK_LIB(jpeg,jpeg_read_header,passed=`expr $passed + 1`,failed=`expr $failed + 1`,)
 
@@ -273,8 +273,8 @@ AC_SUBST(LIB_JPEG)
 # Check for ZLIB
 #
 have_zlib='no'
-dnl PNG requires zlib so enable zlib check if PNG is requested
-if test ! "$with_zlib" = 'no' || test ! "$with_png" = 'no'
+dnl TIFF may require zlib so enable zlib check if TIFF is requested
+if test ! "$with_zlib" = 'no' || test ! "$with_tiff" = 'no'
 then
   LIB_ZLIB=''
   AC_MSG_CHECKING(for ZLIB support )
@@ -350,9 +350,9 @@ AC_SUBST(LIB_TIFF)
 
 
 # Libraries that the LCMS2MT library depends on
-LCMS2MT_LIB_DEPLIBS="$LIB_MATH $LIB_THREAD"
-LCMS2MT_LIB_DEPLIBS=`echo $LCMS2MT_LIB_DEPLIBS | sed -e 's/  */ /g'`
-AC_SUBST(LCMS2MT_LIB_DEPLIBS)
+LCMS_LIB_DEPLIBS="$LIB_MATH $LIB_THREAD"
+LCMS_LIB_DEPLIBS=`echo $LCMS_LIB_DEPLIBS | sed -e 's/  */ /g'`
+AC_SUBST(LCMS_LIB_DEPLIBS)
 
 # Libraries that the jpegicc program depends on
 JPEGICC_DEPLIBS="$LIB_JPEG $LIB_MATH $LIB_THREAD"

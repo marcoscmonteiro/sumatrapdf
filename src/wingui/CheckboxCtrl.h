@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 enum class CheckState {
@@ -10,13 +10,11 @@ enum class CheckState {
 typedef std::function<void(CheckState)> OnCheckStateChanged;
 
 struct CheckboxCtrl : WindowBase {
-    OnCheckStateChanged OnCheckStateChanged = nullptr;
+    OnCheckStateChanged onCheckStateChanged = nullptr;
 
     CheckboxCtrl(HWND parent);
     ~CheckboxCtrl();
     bool Create() override;
-
-    void HandleWM_COMMAND(WndEvent*);
 
     Size GetIdealSize() override;
 
@@ -26,8 +24,3 @@ struct CheckboxCtrl : WindowBase {
     void SetIsChecked(bool isChecked);
     bool IsChecked() const;
 };
-
-ILayout* NewCheckboxLayout(CheckboxCtrl* b);
-
-bool IsCheckbox(Kind);
-bool IsCheckbox(ILayout*);

@@ -12,10 +12,12 @@ function makelzsa_files()
   files_in_dir("src/utils", {
     "BaseUtil.*",
     "ByteOrderDecoder.*",
+    "ByteWriter.*",
     "ColorUtil.*",
     "CmdLineParser.*",
     "Dpi.*",
     "FileUtil.*",
+    "GeomUtil.*",
     "LzmaSimpleArchive.*",
     "StrconvUtil.*",
     "StringViewUtil.*",
@@ -278,7 +280,7 @@ function libjpeg_turbo_files()
     })
     files {"ext/libjpeg-turbo/simd/jsimd_i386.c"}
 
-  filter {'platforms:x64 or x64_ramicro'}
+  filter {'platforms:x64 or x64_asan or x64_ramicro'}
     files_in_dir("ext/libjpeg-turbo/simd", {
       "jfsseflt-64.asm", "jccolss2-64.asm", "jdcolss2-64.asm", "jcgrass2-64.asm",
     	"jcsamss2-64.asm", "jdsamss2-64.asm", "jdmerss2-64.asm", "jcqnts2i-64.asm",
@@ -393,6 +395,7 @@ files {
 
 function sumatrapdf_files()
   files_in_dir("src", {
+    "Accelerators.*",
     "Actions.*",
     "AppColors.*",
     "AppPrefs.*",
@@ -400,9 +403,12 @@ function sumatrapdf_files()
     "AppUtil.*",
     "Caption.*",
     "Canvas.*",
+    "CanvasAboutUI.*",
     "ChmModel.*",
+    "Commands.*",
     "CrashHandler.*",
     "DisplayModel.*",
+    "DisplayMode.*",
     "Doc.*",
     "EbookController.*",
     "EbookControls.*",
@@ -418,6 +424,7 @@ function sumatrapdf_files()
     "Installer.cpp",
     "InstUninstCommon.cpp",
     "Uninstaller.cpp",
+    "MemLeakDetect.*",
     "Menu.*",
     "MuiEbookPageDef.*",
     "Notifications.*",
@@ -438,7 +445,6 @@ function sumatrapdf_files()
     "SumatraStartup.cpp",
     "SumatraConfig.cpp",
     "SumatraAbout.*",
-    "SumatraAbout2.*",
     "SumatraDialogs.*",
     "SumatraProperties.*",
     "StressTesting.*",
@@ -460,7 +466,7 @@ function sumatrapdf_files()
 
     "Tests.cpp",
     "regress/Regress.*",
-    "todo.txt",
+    "*.txt",
   })
   test_app_files()
 end
@@ -484,6 +490,7 @@ function utils_files()
     "BitReader.*",
     "BuildConfig.h",
     "ByteOrderDecoder.*",
+    "ByteReader.*",
     "ByteWriter.*",
     "CmdLineParser.*",
     "ColorUtil.*",
@@ -493,7 +500,8 @@ function utils_files()
     "Dict.*",
     "DirIter.*",
     "Dpi.*",
-    "FileTypeSniff.*",
+    "GeomUtil.*",
+    "GuessFileType.*",
     "FileUtil.*",
     "FileWatcher.*",
     "FzImgReader.*",
@@ -507,6 +515,7 @@ function utils_files()
     "Log.*",
     "LogDbg.*",
     "LzmaSimpleArchive.*",
+    "MinHook.*",
     "PEB.h",
     "RegistryPaths.*",
     "Scoped.h",
@@ -566,7 +575,6 @@ function engines_files()
     "ChmDoc.*",
     "EbookDoc.*",
     "EbookFormatter.*",
-    "FileModifications.*",
     "HtmlFormatter.*",
     "MobiDoc.*",
     "ParseBKM.*",
@@ -584,7 +592,7 @@ function mupdf_files()
 
   files { "ext/mupdf_load_system_font.c" }
 
-  filter {"platforms:x64 or x64_ramicro"}
+  filter {"platforms:x64 or x64_asan or x64_ramicro"}
     files {
       "mupdf/fonts_64.asm",
     }
@@ -655,6 +663,7 @@ function mupdf_files()
     "geometry.c",
     "getopt.c",
     "glyph.c",
+    "glyphbox.c",
     "halftone.c",
     "harfbuzz.c",
     "hash.c",
@@ -680,6 +689,7 @@ function mupdf_files()
     "output-cbz.c",
     "output-pcl.c",
     "output-pclm.c",
+    "output-pdfocr.c",
     "output-png.c",
     "output-pnm.c",
     "output-ps.c",
@@ -750,6 +760,7 @@ function mupdf_files()
     "pdf-interpret.c",
     "pdf-js.c",
     "pdf-layer.c",
+    "pdf-layout.c",
     "pdf-lex.c",
     "pdf-link.c",
     "pdf-metrics.c",
@@ -798,6 +809,12 @@ function mupdf_files()
     "xps-util.c",
     "xps-zip.c",
   })
+  files {
+    "mupdf/include/mupdf/fitz/*.h",
+    "mupdf/include/mupdf/helpers/*.h",
+    "mupdf/include/mupdf/pdf/*.h",
+    "mupdf/include/mupdf/*.h"
+  }
 end
 
 function mudoc_files()
@@ -903,6 +920,7 @@ function test_util_files()
     --"AppTools.*",
     --"StressTesting.*",
     "AppUtil.*",
+    "DisplayMode.*",
     "Flags.*",
     "SumatraConfig.*",
     "SettingsStructs.*",
@@ -915,6 +933,7 @@ end
 function engine_dump_files()
   files_in_dir("src", {
     "EngineDump.cpp",
+    "SumatraConfig.*",
     "mui/MiniMui.*",
     "mui/TextRender.*"
   })
@@ -923,35 +942,32 @@ end
 function pdf_preview_files()
   files_in_dir("src/previewer", {
     "PdfPreview.*",
+    "PdfPreviewBase.h",
     "PdfPreviewDll.cpp",
   })
-  files {
-    "src/utils/LogDbg.*",
-    "src/MUPDF_Exports.cpp",
-    "src/Annotation.*",
-    "src/EngineBase.*",
-    "src/EngineFzUtil.*",
-    "src/EnginePdf.*",
-    "src/EngineXps.*"
-  }
 
-  filter {"configurations:Debug"}
-    files_in_dir("src", {
-      "utils/PalmDbReader.*",
-      "mui/MiniMui.*",
-      "mui/TextRender.*",
-      "ChmDoc.*",
-      "EbookDoc.*",
-      "EngineEbook.*",
-      "EngineDjVu.*",
-      "EngineImages.*",
-      "EbookFormatter.*",
-      "HtmlFormatter.*",
-      "MobiDoc.*",
-      "PdfCreator.*",
-      "SumatraConfig.*",
-    })
-  filter {}
+  files_in_dir("src", {
+    "utils/LogDbg.*",
+    "utils/PalmDbReader.*",
+    "mui/MiniMui.*",
+    "mui/TextRender.*",
+    "MUPDF_Exports.cpp",
+    "Annotation.*",
+    "EngineBase.*",
+    "EngineFzUtil.*",
+    "EnginePdf.*",
+    "EngineXps.*",
+    "ChmDoc.*",
+    "EbookDoc.*",
+    "EngineEbook.*",
+    "EngineDjVu.*",
+    "EngineImages.*",
+    "EbookFormatter.*",
+    "HtmlFormatter.*",
+    "MobiDoc.*",
+    "PdfCreator.*",
+    "SumatraConfig.*",
+  })
 end
 
 function pdf_filter_files()
@@ -961,15 +977,16 @@ function pdf_filter_files()
     "CPdfFilter.*",
     "FilterBase.h",
   })
-  files {
-    "src/utils/LogDbg.*",
-    "src/MUPDF_Exports.cpp",
-    "src/Annotation.*",
-    "src/EngineBase.*",
-    "src/EngineFzUtil.*",
-    "src/EnginePdf.*",
-    "src/EngineXps.*"
-  }
+  files_in_dir("src", {
+    "utils/LogDbg.*",
+    "utils/PalmDbReader.*",
+    "MUPDF_Exports.cpp",
+    "Annotation.*",
+    "EngineBase.*",
+    "EngineFzUtil.*",
+    "EnginePdf.*",
+    "EngineXps.*"
+  })
 
   filter {"configurations:Debug"}
     files_in_dir("src/ifilter", {
@@ -988,7 +1005,6 @@ function test_app_files()
   files_in_dir("src/testcode", {
     "test-app.h",
     "TestApp.cpp",
-    "TestDirectDraw.cpp",
     "TestTab.cpp",
     "TestLayout.cpp",
     "TestLice.cpp",
@@ -1048,5 +1064,15 @@ function wdl_files()
     "virtwnd-skin.h",
     "virtwnd-slider.cpp",
     "wndsize.*",
+  })
+end
+
+function gumbo_files()
+  files_in_dir("ext/gumbo-parser/src", {
+    "*.c",
+    "*.h",
+  })
+  files_in_dir("ext/gumbo-parser/include", {
+    "*.h",
   })
 end

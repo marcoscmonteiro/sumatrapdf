@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #define SMOOTHSCROLL_TIMER_ID 2
@@ -7,10 +7,10 @@
 
 /* Represents selected area on given page */
 struct SelectionOnPage {
-    explicit SelectionOnPage(int pageNo = 0, RectD* rect = nullptr);
+    explicit SelectionOnPage(int pageNo = 0, RectF* rect = nullptr);
 
     int pageNo; // page this selection is on
-    RectD rect; // position of selection rectangle on page (in page coordinates)
+    RectF rect; // position of selection rectangle on page (in page coordinates)
 
     // position of selection rectangle in the view port
     Rect GetRect(DisplayModel* dm);
@@ -20,7 +20,7 @@ struct SelectionOnPage {
 };
 
 void DeleteOldSelectionInfo(WindowInfo* win, bool alsoTextSel = false);
-void PaintTransparentRectangles(HDC hdc, Rect screenRc, Vec<Rect>& rects, COLORREF selectionColor, BYTE alpha = 0x5f,
+void PaintTransparentRectangles(HDC hdc, Rect screenRc, Vec<Rect>& rects, COLORREF selectionColor, u8 alpha = 0x5f,
                                 int margin = 1);
 void PaintSelection(WindowInfo* win, HDC hdc);
 void UpdateTextSelection(WindowInfo* win, bool select = true);
@@ -31,3 +31,4 @@ bool NeedsSelectionEdgeAutoscroll(WindowInfo* win, int x, int y);
 void OnSelectionEdgeAutoscroll(WindowInfo* win, int x, int y);
 void OnSelectionStart(WindowInfo* win, int x, int y, WPARAM key);
 void OnSelectionStop(WindowInfo* win, int x, int y, bool aborted);
+WCHAR* GetSelectedText(WindowInfo* win, const WCHAR* lineSep, bool& isTextOnlySelectionOut);

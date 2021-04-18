@@ -171,7 +171,7 @@ template_affine_alpha_g2rgb_lerp(byte * FZ_RESTRICT dp, int da, const byte * FZ_
 					gp[0] = ya + fz_mul255(gp[0], t);
 			}
 		}
-		dp += 4;
+		dp += 3+da;
 		if (hp)
 			hp++;
 		if (gp)
@@ -3676,7 +3676,7 @@ static paintfn_t *
 fz_paint_affine_color_near_spots(int da, int sa, int fa, int fb, int dn, int sn, int alpha, const fz_overprint * FZ_RESTRICT eop)
 {
 	if (fz_overprint_required(eop))
-		return paint_affine_color_near_N_op;
+		return da ? paint_affine_color_near_da_N_op : paint_affine_color_near_N_op;
 	return da ? paint_affine_color_near_da_N : paint_affine_color_near_N;
 }
 #endif /* FZ_ENABLE_SPOT_RENDERING */
@@ -3940,15 +3940,17 @@ fz_paint_image_imp(fz_context *ctx,
 		w = shape->x + shape->w;
 	if (group_alpha && group_alpha->x + group_alpha->w < w)
 		w = group_alpha->x + group_alpha->w;
+	if (w <= x)
+		return;
 	w -= x;
 	h = bbox.y1;
 	if (shape && shape->y + shape->h < h)
 		h = shape->y + shape->h;
 	if (group_alpha && group_alpha->y + group_alpha->h < h)
 		h = group_alpha->y + group_alpha->h;
-	h -= y;
-	if (w <= 0 || h <= 0)
+	if (h <= y)
 		return;
+	h -= y;
 
 	/* map from screen space (x,y) to image space (u,v) */
 	ctm = fz_pre_scale(ctm, 1.0f / img->w, 1.0f / img->h);
@@ -3967,7 +3969,7 @@ fz_paint_image_imp(fz_context *ctx,
 	u = (int)((ctm.a * x) + (ctm.c * y) + ctm.e + ((ctm.a + ctm.c) * .5f));
 	v = (int)((ctm.b * x) + (ctm.d * y) + ctm.f + ((ctm.b + ctm.d) * .5f));
 
-	dp = dst->samples + (unsigned int)((y - dst->y) * dst->stride + (x - dst->x) * dst->n);
+	dp = dst->samples + (y - dst->y) * (size_t)dst->stride + (x - dst->x) * (size_t)dst->n;
 	da = dst->alpha;
 	dn = dst->n - da;
 	sp = img->samples;
@@ -3979,7 +3981,7 @@ fz_paint_image_imp(fz_context *ctx,
 	if (shape)
 	{
 		hs = shape->stride;
-		hp = shape->samples + (unsigned int)((y - shape->y) * shape->stride + x - shape->x);
+		hp = shape->samples + (y - shape->y) * (size_t)shape->stride + x - shape->x;
 	}
 	else
 	{
@@ -3989,7 +3991,7 @@ fz_paint_image_imp(fz_context *ctx,
 	if (group_alpha)
 	{
 		gs = group_alpha->stride;
-		gp = group_alpha->samples + (unsigned int)((y - group_alpha->y) * group_alpha->stride + x - group_alpha->x);
+		gp = group_alpha->samples + (y - group_alpha->y) * (size_t)group_alpha->stride + x - group_alpha->x;
 	}
 	else
 	{

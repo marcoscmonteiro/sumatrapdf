@@ -1,4 +1,4 @@
-Project         Version    Date      
+Project         Version    Date
 ----------------------------------
 bzip2           1.0.8      2019-07-21
   http://bzip.org/downloads.html
@@ -6,21 +6,21 @@ bzip2           1.0.8      2019-07-21
 CHMLib          0.40a      2009-07-02
   https://github.com/jedwing/CHMLib
 
-freetype        2.10.0     2019-05-31
+freetype        2.10.4     2020-10-20
   https://www.freetype.org/
-  http://git.ghostscript.com/?p=thirdparty-freetype2.git;a=shortlog;h=refs/heads/VER-2-10-0-mupdf-2-branch
+  http://git.ghostscript.com/?p=thirdparty-freetype2.git;a=shortlog;h=refs/tags/VER-2-10-4
 
-jbig2dec        0.18git    2020-02-11
-  http://git.ghostscript.com/?p=jbig2dec.git;a=commit;h=7e45faa81deadc4a3b4419a9e76a17782e8034f4
+jbig2dec        0.18       2020-02-11
+  http://git.ghostscript.com/?p=jbig2dec.git;a=commit;h=429b6ab2e29b346f34da9156f423c98117fa5ae4
 
 libjpeg-turbo   1.3.1      2014-04-20
   http://sourceforge.net/projects/libjpeg-turbo/files/
 
-libdjvu         master     2020-01-04
+libdjvu         master     2020-12-06
   http://djvu.sourceforge.net/
   https://github.com/barak/djvulibre
 
-libwebp         1.0.3git   2019-10-23
+libwebp         1.2.0   2021-01-29
   https://github.com/webmproject/libwebp/commit/78881b769c55ae8edb945338a26cd4bf50b5ab8b
 
 lzma            9.22b      2011-04-19
@@ -39,9 +39,8 @@ zlib            1.2.11     2017-01-15
   http://www.zlib.net/
   http://git.ghostscript.com/?p=thirdparty-zlib.git;a=commit;h=dea93d29387877a582fb57139378af312acd5400)
 
-lcms2           git        2019-01-02
-  http://git.ghostscript.com/?p=thirdparty-lcms2.git;a=shortlog;h=refs/heads/lcms2mt
-  http://git.ghostscript.com/?p=thirdparty-lcms2.git;a=commit;h=05db680de2d7178be21450bc0cc909460c7d4aeb
+lcms2           git        2019-05-22
+  http://git.ghostscript.com/?p=thirdparty-lcms2.git;a=commit;h=a8e6365459383c25453c57025ca593cc93f8b51a
 
 harfbuzz        2.6.4      2019-10-29
   https://harfbuzz.org
@@ -54,5 +53,11 @@ mujs            1.0.6      Apr 4, 2019
 ../mupdf        trunk
   https://github.com/ArtifexSoftware/mupdf/commit/c27c17d7bb7bb0ea768724d6dbf9133764c02dd2
 
-UnRAR           5.8.4
+UnRAR           5.9.3
   https://www.rarlab.com/rar_add.htm
+
+gumbo           0.10.1
+  https://github.com/google/gumbo-parser
+
+MinHook         master     20201-01-1
+  https://github.com/TsudaKageyu/minhook

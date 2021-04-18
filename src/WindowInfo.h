@@ -1,25 +1,25 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-class DoubleBuffer;
-class LinkHandler;
-class Notifications;
-class StressTest;
+struct DoubleBuffer;
+struct LinkHandler;
+struct Notifications;
+struct StressTest;
 class SumatraUIAutomationProvider;
-class FrameRateWnd;
+struct FrameRateWnd;
 struct LabelWithCloseWnd;
-class SplitterWnd;
 struct SplitterCtrl;
 struct CaptionInfo;
+struct TabsCtrl2;
 
-class PageElement;
-class PageDestination;
+struct IPageElement;
+struct PageDestination;
 struct TocItem;
-class Controller;
-class ControllerCallback;
-class ChmModel;
-class DisplayModel;
-class EbookController;
+struct Controller;
+struct ControllerCallback;
+struct ChmModel;
+struct DisplayModel;
+struct EbookController;
 struct TabInfo;
 
 struct TreeCtrl;
@@ -31,7 +31,6 @@ struct DropDownCtrl;
 enum class MouseAction {
     Idle = 0,
     Dragging,
-    DraggingRight,
     Selecting,
     Scrolling,
     SelectingText
@@ -40,13 +39,6 @@ enum class MouseAction {
 
 extern NotificationGroupId NG_CURSOR_POS_HELPER;
 extern NotificationGroupId NG_RESPONSE_TO_ACTION;
-
-enum NotificationOptions {
-    NOS_DEFAULT = 0, // timeout after 3 seconds, no highlight
-    NOS_PERSIST = (1 << 0),
-    NOS_HIGHLIGHT = (1 << 1),
-    NOS_WARNING = NOS_PERSIST | NOS_HIGHLIGHT,
-};
 
 // clang-format off
 enum PresentationMode {
@@ -59,17 +51,17 @@ enum PresentationMode {
 
 // WM_GESTURE handling
 struct TouchState {
-    bool panStarted = false;
+    bool panStarted{false};
     POINTS panPos{};
-    int panScrollOrigX = 0;
-    double startArg = 0;
+    int panScrollOrigX{0};
+    double startArg{0};
 };
 
 /* Describes position, the target (URL or file path) and infotip of a "hyperlink" */
 struct StaticLinkInfo {
-    Rect rect{};
-    const WCHAR* target = nullptr;
-    const WCHAR* infotip = nullptr;
+    Rect rect;
+    const WCHAR* target{nullptr};
+    const WCHAR* infotip{nullptr};
 
     StaticLinkInfo() = default;
     explicit StaticLinkInfo(Rect rect, const WCHAR* target, const WCHAR* infotip = nullptr)
@@ -79,9 +71,10 @@ struct StaticLinkInfo {
 
 /* Describes information related to one window with (optional) a document
    on the screen */
-class WindowInfo {
-  public:
+struct WindowInfo {
     explicit WindowInfo(HWND hwnd);
+    WindowInfo(const WindowInfo&) = delete;
+    WindowInfo& operator=(const WindowInfo&) = delete;
     ~WindowInfo();
 
     // TODO: error windows currently have
@@ -95,70 +88,71 @@ class WindowInfo {
     EbookController* AsEbook() const;
 
     // TODO: use currentTab->ctrl instead
-    Controller* ctrl = nullptr; // owned by currentTab
+    Controller* ctrl{nullptr}; // owned by currentTab
 
     Vec<TabInfo*> tabs;
-    TabInfo* currentTab = nullptr; // points into tabs
+    TabInfo* currentTab{nullptr}; // points into tabs
 
-    HWND hwndFrame = nullptr;
-    HWND hwndCanvas = nullptr;
-    HWND hwndToolbar = nullptr;
-    HWND hwndReBar = nullptr;
-    HWND hwndFindText = nullptr;
-    HWND hwndFindBox = nullptr;
-    HWND hwndFindBg = nullptr;
-    HWND hwndPageText = nullptr;
-    HWND hwndPageBox = nullptr;
-    HWND hwndPageBg = nullptr;
-    HWND hwndPageTotal = nullptr;
+    HWND hwndFrame{nullptr};
+    HWND hwndCanvas{nullptr};
+    HWND hwndToolbar{nullptr};
+    HWND hwndReBar{nullptr};
+    HWND hwndFindText{nullptr};
+    HWND hwndFindBox{nullptr};
+    HWND hwndFindBg{nullptr};
+    HWND hwndPageText{nullptr};
+    HWND hwndPageBox{nullptr};
+    HWND hwndPageBg{nullptr};
+    HWND hwndPageTotal{nullptr};
 
     // state related to table of contents (PDF bookmarks etc.)
-    HWND hwndTocBox = nullptr;
-    DropDownCtrl* altBookmarks = nullptr;
+    HWND hwndTocBox{nullptr};
+    DropDownCtrl* altBookmarks{nullptr};
 
-    LabelWithCloseWnd* tocLabelWithClose = nullptr;
-    TreeCtrl* tocTreeCtrl = nullptr;
-    UINT_PTR tocBoxSubclassId = 0;
+    LabelWithCloseWnd* tocLabelWithClose{nullptr};
+    TreeCtrl* tocTreeCtrl{nullptr};
+    UINT_PTR tocBoxSubclassId{0};
 
     // whether the current tab's ToC has been loaded into the tree
-    bool tocLoaded = false;
+    bool tocLoaded{false};
     // whether the ToC sidebar is currently visible
-    bool tocVisible = false;
+    bool tocVisible{false};
     // set to temporarily disable UpdateTocSelection
-    bool tocKeepSelection = false;
+    bool tocKeepSelection{false};
 
     // state related to favorites
-    HWND hwndFavBox = nullptr;
-    LabelWithCloseWnd* favLabelWithClose = nullptr;
-    TreeCtrl* favTreeCtrl = nullptr;
+    HWND hwndFavBox{nullptr};
+    LabelWithCloseWnd* favLabelWithClose{nullptr};
+    TreeCtrl* favTreeCtrl{nullptr};
     Vec<DisplayState*> expandedFavorites;
 
     // vertical splitter for resizing left side panel
-    SplitterCtrl* sidebarSplitter = nullptr;
+    SplitterCtrl* sidebarSplitter{nullptr};
 
     // horizontal splitter for resizing favorites and bookmars parts
-    SplitterCtrl* favSplitter = nullptr;
+    SplitterCtrl* favSplitter{nullptr};
 
-    HWND hwndTabBar = nullptr;
-    bool tabsVisible = false;
-    bool tabsInTitlebar = false;
+    TabsCtrl2* tabsCtrl{nullptr};
+    bool tabsVisible{false};
+    bool tabsInTitlebar{false};
     // keeps the sequence of tab selection. This is needed for restoration
     // of the previous tab when the current one is closed. (Points into tabs.)
-    Vec<TabInfo*>* tabSelectionHistory = nullptr;
+    Vec<TabInfo*>* tabSelectionHistory{nullptr};
 
-    HWND hwndCaption = nullptr;
-    CaptionInfo* caption = nullptr;
-    int extendedFrameHeight = 0;
+    HWND hwndCaption{nullptr};
+    CaptionInfo* caption{nullptr};
+    int extendedFrameHeight{0};
 
-    TooltipCtrl* infotip = nullptr;
+    TooltipCtrl* infotip{nullptr};
 
-    HMENU menu = nullptr;
-    bool isMenuHidden = false; // not persisted at shutdown
+    HMENU menu{nullptr};
+    bool isMenuHidden{false}; // not persisted at shutdown
 
-    DoubleBuffer* buffer = nullptr;
+    DoubleBuffer* buffer{nullptr};
 
     MouseAction mouseAction = MouseAction::Idle;
-    bool dragStartPending = false;
+    bool dragRightClick{false}; // if true, drag was initiated with right mouse click
+    bool dragStartPending{false};
 
     /* when dragging the document around, this is previous position of the
        cursor. A delta between previous and current is by how much we
@@ -170,68 +164,73 @@ class WindowInfo {
     /* when moving the document by smooth scrolling, this keeps track of
        the speed at which we should scroll, which depends on the distance
        of the mouse from the point where the user middle clicked. */
-    int xScrollSpeed = 0;
-    int yScrollSpeed = 0;
+    int xScrollSpeed{0};
+    int yScrollSpeed{0};
 
     // true while selecting and when currentTab->selectionOnPage != nullptr
-    bool showSelection = false;
+    bool showSelection{false};
     // selection rectangle in screen coordinates (only needed while selecting)
     Rect selectionRect;
     // size of the current rectangular selection in document units
-    SizeD selectionMeasure;
+    SizeF selectionMeasure;
 
     // a list of static links (mainly used for About and Frequently Read pages)
     Vec<StaticLinkInfo> staticLinks;
 
-    bool isFullScreen = false;
-    PresentationMode presentation = PM_DISABLED;
-    int windowStateBeforePresentation = 0;
+    bool isFullScreen{false};
+    PresentationMode presentation{PM_DISABLED};
+    int windowStateBeforePresentation{0};
 
-    long nonFullScreenWindowStyle = 0;
-    Rect nonFullScreenFrameRect{};
+    long nonFullScreenWindowStyle{0};
+    Rect nonFullScreenFrameRect;
 
-    Rect canvasRc{};    // size of the canvas (excluding any scroll bars)
-    int currPageNo = 0; // cached value, needed to determine when to auto-update the ToC selection
+    Rect canvasRc;     // size of the canvas (excluding any scroll bars)
+    int currPageNo{0}; // cached value, needed to determine when to auto-update the ToC selection
 
-    int wheelAccumDelta = 0;
-    UINT_PTR delayedRepaintTimer = 0;
+    int wheelAccumDelta{0};
+    UINT_PTR delayedRepaintTimer{0};
 
-    Notifications* notifications = nullptr; // only access from UI thread
+    Notifications* notifications{nullptr}; // only access from UI thread
 
-    HANDLE printThread = nullptr;
-    bool printCanceled = false;
+    HANDLE printThread{nullptr};
+    bool printCanceled{false};
 
-    HANDLE findThread = nullptr;
-    bool findCanceled = false;
+    HANDLE findThread{nullptr};
+    bool findCanceled{false};
 
-    LinkHandler* linkHandler = nullptr;
-    PageElement* linkOnLastButtonDown = nullptr;
-    const WCHAR* url = nullptr;
+    LinkHandler* linkHandler{nullptr};
+    IPageElement* linkOnLastButtonDown{nullptr};
+    const WCHAR* urlOnLastButtonDown{nullptr};
+    Annotation* annotationOnLastButtonDown{nullptr};
+    Size annotationBeingMovedSize;
+    Point annotationBeingMovedOffset;
+    HBITMAP bmpMovePattern{nullptr};
+    HBRUSH brMovePattern{nullptr};
 
-    ControllerCallback* cbHandler = nullptr;
+    ControllerCallback* cbHandler{nullptr};
 
     /* when doing a forward search, the result location is highlighted with
      * rectangular marks in the document. These variables indicate the position of the markers
      * and whether they should be shown. */
     struct {
-        bool show;       // are the markers visible?
-        Vec<Rect> rects; // location of the markers in user coordinates
-        int page;
-        int hideStep; // value used to gradually hide the markers
+        bool show{false}; // are the markers visible?
+        Vec<Rect> rects;  // location of the markers in user coordinates
+        int page{0};
+        int hideStep{0}; // value used to gradually hide the markers
     } fwdSearchMark;
 
-    StressTest* stressTest = nullptr;
+    StressTest* stressTest{nullptr};
 
     TouchState touchState;
 
-    FrameRateWnd* frameRateWnd = nullptr;
+    FrameRateWnd* frameRateWnd{nullptr};
 
-    SumatraUIAutomationProvider* uia_provider = nullptr;
+    SumatraUIAutomationProvider* uiaProvider{nullptr};
 
     void UpdateCanvasSize();
     Size GetViewPortSize();
     void RedrawAll(bool update = false);
-    void RepaintAsync(UINT delay = 0);
+    void RedrawAllIncludingNonClient(bool update = false);
 
     void ChangePresentationMode(PresentationMode mode);
 
@@ -240,29 +239,32 @@ class WindowInfo {
     void ToggleZoom();
     void MoveDocBy(int dx, int dy);
 
-    void ShowInfoTip(const WCHAR* text, Rect& rc, bool multiline = false);
-    void HideInfoTip();
-    void ShowNotification(const WCHAR* message, int options = NOS_DEFAULT,
-                          NotificationGroupId groupId = NG_RESPONSE_TO_ACTION);
+    void ShowToolTip(const WCHAR* text, Rect& rc, bool multiline = false);
+    void HideToolTip();
+    NotificationWnd* ShowNotification(const WCHAR* msg, int options = NOS_WITH_TIMEOUT,
+                                      NotificationGroupId groupId = NG_RESPONSE_TO_ACTION);
 
     bool CreateUIAProvider();
 };
 
-class LinkHandler {
-    WindowInfo* owner;
+struct LinkHandler {
+    WindowInfo* owner{nullptr};
 
     void ScrollTo(PageDestination* dest);
     void LaunchFile(const WCHAR* path, PageDestination* link);
     PageDestination* FindTocItem(TocItem* item, const WCHAR* name, bool partially = false);
 
-  public:
-    explicit LinkHandler(WindowInfo* win) : owner(win) {
+    explicit LinkHandler(WindowInfo* win) {
+        owner = win;
     }
 
-    void GotoLink(PageDestination* link);
+    void GotoLink(PageDestination* dest);
     void GotoNamedDest(const WCHAR* name);
 };
 
-// TODO: this belongs in SumatraPDF.h but introduces a dependency on SettingsStructs.h
-void SwitchToDisplayMode(WindowInfo* win, DisplayMode displayMode, bool keepContinuous = false);
-void UpdateTreeCtrlColors(WindowInfo* win);
+void UpdateTreeCtrlColors(WindowInfo*);
+void RepaintAsync(WindowInfo*, int delay);
+void ClearFindBox(WindowInfo*);
+void CreateMovePatternLazy(WindowInfo*);
+void ClearMouseState(WindowInfo*);
+bool IsRightDragging(WindowInfo*);

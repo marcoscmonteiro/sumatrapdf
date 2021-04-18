@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // class for decoding of byte buffer as a sequence of numbers
@@ -16,19 +16,19 @@ class ByteOrderDecoder {
         return (char)UInt8();
     }
 
-    uint16_t UInt16();
-    int16_t Int16() {
-        return (int16_t)UInt16();
+    u16 UInt16();
+    i16 Int16() {
+        return (i16)UInt16();
     }
 
-    uint32_t UInt32();
-    int32_t Int32() {
-        return (int32_t)UInt32();
+    u32 UInt32();
+    i32 Int32() {
+        return (i32)UInt32();
     }
 
-    uint64_t UInt64();
-    int64_t Int64() {
-        return (int64_t)UInt64();
+    u64 UInt64();
+    i64 Int64() {
+        return (i64)UInt64();
     }
 
     void Skip(size_t len);
@@ -45,14 +45,14 @@ class ByteOrderDecoder {
   protected:
     bool ok;
     ByteOrder byteOrder;
-    const uint8_t* data;
+    const u8* data;
 
-    const uint8_t* curr;
+    const u8* curr;
     size_t left;
 };
 
 // decode a given piece of memory
-uint16_t UInt16BE(const u8* d);
-uint16_t UInt16LE(const u8* d);
-uint32_t UInt32BE(const u8* d);
-uint32_t UInt32LE(const u8* d);
+u16 UInt16BE(const u8* d);
+u16 UInt16LE(const u8* d);
+u32 UInt32BE(const u8* d);
+u32 UInt32LE(const u8* d);

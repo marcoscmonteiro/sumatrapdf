@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,23 +37,6 @@ func getPreReleaseVer() string {
 func isNum(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil
-}
-
-// https://goobar.io/2019/12/07/manually-trigger-a-github-actions-workflow/
-// send a webhook POST request to trigger a build
-func triggerPreRelBuild() {
-	ghtoken := os.Getenv("GITHUB_TOKEN")
-	panicIf(ghtoken == "", "need GITHUB_TOKEN env variable")
-	data := `{"event_type": "build-pre-rel"}`
-	uri := "https://api.github.com/repos/sumatrapdfreader/sumatrapdf/dispatches"
-	req, err := http.NewRequest(http.MethodPost, uri, strings.NewReader(data))
-	u.Must(err)
-	req.Header.Set("Accept", "application/vnd.github.everest-preview+json")
-	val := fmt.Sprintf("token %s", ghtoken)
-	req.Header.Set("Authorization", val)
-	rsp, err := http.DefaultClient.Do(req)
-	u.Must(err)
-	u.PanicIf(rsp.StatusCode >= 400)
 }
 
 // Version must be in format x.y.z
@@ -147,8 +129,43 @@ func detectVersions() {
 	logf("sumatraVersion: '%s'\n", sumatraVersion)
 }
 
+// remove all files and directories under out/ except settings files
 func clean() {
-	os.RemoveAll("out")
+	entries, err := os.ReadDir("out")
+	if err != nil {
+		// assuming 'out' doesn't exist, which is fine
+		return
+	}
+	nSkipped := 0
+	nDirsDeleted := 0
+	nFilesDeleted := 0
+	for _, e := range entries {
+		path := filepath.Join("out", e.Name())
+		if !e.IsDir() {
+			os.Remove(path)
+			continue
+		}
+		entries2, err := os.ReadDir(path)
+		must(err)
+		for _, e2 := range entries2 {
+			name := e2.Name()
+			path2 := filepath.Join(path, name)
+			// delete everything except those files
+			excluded := (name == "sumatrapdfcache") || (name == "SumatraPDF-settings.txt")
+			if excluded {
+				nSkipped++
+				continue
+			}
+			if e2.IsDir() {
+				os.RemoveAll(path2)
+				nDirsDeleted++
+			} else {
+				os.Remove(path2)
+				nFilesDeleted++
+			}
+		}
+	}
+	fmt.Printf("clean: skipped %d files, deleted %d dirs and %d files\n", nSkipped, nDirsDeleted, nFilesDeleted)
 }
 
 func runTestUtilMust(dir string) {
@@ -213,7 +230,7 @@ func setBuildConfigDaily() {
 	panicIf(preRelVer == "")
 	s += fmt.Sprintf("#define PRE_RELEASE_VER %s\n", preRelVer)
 	s += "#define IS_DAILY_BUILD 1\n"
-	err := ioutil.WriteFile(buildConfigPath(), []byte(s), 644)
+	err := ioutil.WriteFile(buildConfigPath(), []byte(s), 0644)
 	panicIfErr(err)
 }
 
@@ -221,14 +238,14 @@ func setBuildConfigPreRelease() {
 	s := getBuildConfigCommon()
 	preRelVer := getPreReleaseVer()
 	s += fmt.Sprintf("#define PRE_RELEASE_VER %s\n", preRelVer)
-	err := ioutil.WriteFile(buildConfigPath(), []byte(s), 644)
+	err := ioutil.WriteFile(buildConfigPath(), []byte(s), 0644)
 	panicIfErr(err)
 }
 
 func setBuildConfigRelease() {
 	s := getBuildConfigCommon()
 	s += "#define SUMATRA_UPDATE_INFO_URL L\"https://www.sumatrapdfreader.org/update-check-rel.txt\"\n"
-	err := ioutil.WriteFile(buildConfigPath(), []byte(s), 644)
+	err := ioutil.WriteFile(buildConfigPath(), []byte(s), 0644)
 	panicIfErr(err)
 }
 

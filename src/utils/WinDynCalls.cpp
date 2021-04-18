@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
 License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -23,7 +23,7 @@ DBGHELP_API_LIST(API_DECLARATION)
 static HMODULE SafeLoadLibrary(const char* dllNameA) {
     AutoFreeWstr dllName = strconv::Utf8ToWstr(dllNameA);
     WCHAR dllPath[MAX_PATH];
-    UINT res = GetSystemDirectoryW(dllPath, dimof(dllPath));
+    uint res = GetSystemDirectoryW(dllPath, dimof(dllPath));
     if (!res || res >= dimof(dllPath)) {
         return nullptr;
     }
@@ -175,11 +175,11 @@ HRESULT ExtendFrameIntoClientArea(HWND hwnd, const MARGINS* pMarInset) {
     return DynDwmExtendFrameIntoClientArea(hwnd, pMarInset);
 }
 
-BOOL DefWindowProc_(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* plResult) {
+BOOL DefWindowProc_(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT* plResult) {
     if (!DynDwmDefWindowProc) {
         return FALSE;
     }
-    return DynDwmDefWindowProc(hwnd, msg, wParam, lParam, plResult);
+    return DynDwmDefWindowProc(hwnd, msg, wp, lp, plResult);
 }
 
 HRESULT GetWindowAttribute(HWND hwnd, DWORD dwAttribute, void* pvAttribute, DWORD cbAttribute) {
@@ -202,29 +202,6 @@ void NoDllHijacking() {
         dll = seqstrings::SkipStr(dll);
     }
 }
-
-// As of the Windows 10.0.17134.0 SDK, this struct and ProcessImageLoadPolicy are defined in winnt.h.
-#if !defined(NTDDI_WIN10_RS4)
-#pragma warning(push)
-//  C4201: nonstandard extension used: nameless struct/union
-#pragma warning(disable : 4201)
-// https://msdn.microsoft.com/en-us/library/windows/desktop/mt706245(v=vs.85).aspx
-typedef struct _PROCESS_MITIGATION_IMAGE_LOAD_POLICY {
-    union {
-        DWORD Flags;
-        struct {
-            DWORD NoRemoteImages : 1;
-            DWORD NoLowMandatoryLabelImages : 1;
-            DWORD PreferSystem32Images : 1;
-            DWORD ReservedFlags : 29;
-        };
-    };
-} PROCESS_MITIGATION_IMAGE_LOAD_POLICY, *PPROCESS_MITIGATION_IMAGE_LOAD_POLICY;
-#pragma warning(pop)
-
-// https://msdn.microsoft.com/en-us/library/windows/desktop/hh871470(v=vs.85).aspx
-constexpr int ProcessImageLoadPolicy = 10;
-#endif
 
 // https://github.com/videolan/vlc/blob/8663561d3f71595ebf116f17279a495b67cac713/bin/winvlc.c#L84
 // https://msdn.microsoft.com/en-us/library/windows/desktop/hh769088(v=vs.85).aspx

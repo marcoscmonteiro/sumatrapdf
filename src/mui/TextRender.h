@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 enum TextRenderMethod {
@@ -23,8 +23,8 @@ class ITextRender {
 
     virtual float GetCurrFontLineSpacing() = 0;
 
-    virtual Gdiplus::RectF Measure(const char* s, size_t sLen) = 0;
-    virtual Gdiplus::RectF Measure(const WCHAR* s, size_t sLen) = 0;
+    virtual RectF Measure(const char* s, size_t sLen) = 0;
+    virtual RectF Measure(const WCHAR* s, size_t sLen) = 0;
 
     // GDI+ calls cannot be done if we called Graphics::GetHDC(). However, getting/releasing
     // hdc is very expensive and kills performance if we do it for every Draw(). So we add
@@ -33,8 +33,8 @@ class ITextRender {
     virtual void Lock() = 0;
     virtual void Unlock() = 0;
 
-    virtual void Draw(const char* s, size_t sLen, RectF& bb, bool isRtl) = 0;
-    virtual void Draw(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) = 0;
+    virtual void Draw(const char* s, size_t sLen, const RectF bb, bool isRtl) = 0;
+    virtual void Draw(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl) = 0;
 
     virtual ~ITextRender(){};
 
@@ -79,58 +79,54 @@ class TextRenderGdi : public ITextRender {
 
     float GetCurrFontLineSpacing() override;
 
-    Gdiplus::RectF Measure(const char* s, size_t sLen) override;
-    Gdiplus::RectF Measure(const WCHAR* s, size_t sLen) override;
+    RectF Measure(const char* s, size_t sLen) override;
+    RectF Measure(const WCHAR* s, size_t sLen) override;
 
     void Lock() override;
     void Unlock() override;
 
-    void Draw(const char* s, size_t sLen, RectF& bb, bool isRtl) override;
-    void Draw(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) override;
+    void Draw(const char* s, size_t sLen, const RectF bb, bool isRtl) override;
+    void Draw(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl) override;
 
-    void DrawTransparent(const char* s, size_t sLen, RectF& bb, bool isRtl);
-    void DrawTransparent(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl);
+    void DrawTransparent(const char* s, size_t sLen, const RectF bb, bool isRtl);
+    void DrawTransparent(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl);
 
     ~TextRenderGdi() override;
 };
 
 class TextRenderGdiplus : public ITextRender {
   private:
-    Gdiplus::RectF (*measureAlgo)(Gdiplus::Graphics* g, Gdiplus::Font* f, const WCHAR* s, int len);
+    TextMeasureAlgorithm measureAlgo;
 
     // We don't own gfx and currFont
-    Gdiplus::Graphics* gfx;
-    CachedFont* currFont;
-    Gdiplus::Color textColor;
-    Gdiplus::Brush* textColorBrush;
-    WCHAR txtConvBuf[512];
+    Gdiplus::Graphics* gfx = nullptr;
+    CachedFont* currFont = nullptr;
+    Gdiplus::Color textColor{};
+    Gdiplus::Brush* textColorBrush = nullptr;
+    WCHAR txtConvBuf[512]{};
 
-    TextRenderGdiplus() : gfx(nullptr), currFont(nullptr), textColorBrush(nullptr), textColor(0, 0, 0, 0) {
-    }
+    TextRenderGdiplus() = default;
 
   public:
-    static TextRenderGdiplus* Create(Gdiplus::Graphics* gfx,
-                                     Gdiplus::RectF (*measureAlgo)(Gdiplus::Graphics* g, Gdiplus::Font* f,
-                                                                   const WCHAR* s, int len) = nullptr);
+    static TextRenderGdiplus* Create(Gdiplus::Graphics* gfx, TextMeasureAlgorithm measureAlgo = nullptr);
 
     void SetFont(CachedFont* font) override;
     void SetTextColor(Gdiplus::Color col) override;
-    void SetTextBgColor(Gdiplus::Color col) override {
-        UNUSED(col);
+    void SetTextBgColor([[maybe_unused]] Gdiplus::Color col) override {
     }
 
     float GetCurrFontLineSpacing() override;
 
-    Gdiplus::RectF Measure(const char* s, size_t sLen) override;
-    Gdiplus::RectF Measure(const WCHAR* s, size_t sLen) override;
+    RectF Measure(const char* s, size_t sLen) override;
+    RectF Measure(const WCHAR* s, size_t sLen) override;
 
     void Lock() override {
     }
     void Unlock() override {
     }
 
-    void Draw(const char* s, size_t sLen, RectF& bb, bool isRtl) override;
-    void Draw(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) override;
+    void Draw(const char* s, size_t sLen, const RectF bb, bool isRtl) override;
+    void Draw(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl) override;
 
     ~TextRenderGdiplus() override;
 };
@@ -138,28 +134,20 @@ class TextRenderGdiplus : public ITextRender {
 // Note: this is not meant to be used, just exists so that I can see
 // perf compared to other TextRender* implementations
 class TextRenderHdc : public ITextRender {
-    BITMAPINFO bmi;
+    BITMAPINFO bmi{};
 
-    HDC hdc;
-    HBITMAP bmp;
-    void* bmpData;
+    HDC hdc = nullptr;
+    HBITMAP bmp = nullptr;
+    void* bmpData = nullptr;
 
     // We don't own gfx and currFont
-    Gdiplus::Graphics* gfx;
-    CachedFont* currFont;
-    Gdiplus::Color textColor;
-    Gdiplus::Color textBgColor;
-    WCHAR txtConvBuf[512];
+    Gdiplus::Graphics* gfx = nullptr;
+    CachedFont* currFont = nullptr;
+    Gdiplus::Color textColor{};
+    Gdiplus::Color textBgColor{};
+    WCHAR txtConvBuf[512]{};
 
-    TextRenderHdc()
-        : hdc(nullptr),
-          bmp(nullptr),
-          bmpData(nullptr),
-          currFont(nullptr),
-          textColor(0, 0, 0, 0),
-          textBgColor(0, 0, 0, 0) {
-        ZeroMemory(&bmi, sizeof(bmi));
-    }
+    TextRenderHdc() = default;
 
   public:
     static TextRenderHdc* Create(Gdiplus::Graphics* gfx, int dx, int dy);
@@ -170,14 +158,14 @@ class TextRenderHdc : public ITextRender {
 
     float GetCurrFontLineSpacing() override;
 
-    Gdiplus::RectF Measure(const char* s, size_t sLen) override;
-    Gdiplus::RectF Measure(const WCHAR* s, size_t sLen) override;
+    RectF Measure(const char* s, size_t sLen) override;
+    RectF Measure(const WCHAR* s, size_t sLen) override;
 
     void Lock() override;
     void Unlock() override;
 
-    void Draw(const char* s, size_t sLen, RectF& bb, bool isRtl) override;
-    void Draw(const WCHAR* s, size_t sLen, RectF& bb, bool isRtl) override;
+    void Draw(const char* s, size_t sLen, const RectF bb, bool isRtl) override;
+    void Draw(const WCHAR* s, size_t sLen, const RectF bb, bool isRtl) override;
 
     ~TextRenderHdc() override;
 };

@@ -1,9 +1,10 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
 #include "utils/VecSegmented.h"
 #include "utils/HtmlParserLookup.h"
+#include "utils/GdiPlusUtil.h"
 #include "Mui.h"
 
 // using namespace Gdiplus;
@@ -49,10 +50,6 @@ using Gdiplus::StringFormatFlagsDirectionRightToLeft;
 using Gdiplus::TextRenderingHintClearTypeGridFit;
 using Gdiplus::UnitPixel;
 using Gdiplus::Win32Error;
-
-using Gdiplus::PointF;
-using Gdiplus::RectF;
-using Gdiplus::SizeF;
 
 /*
 A css-like way to style controls/windows.
@@ -143,7 +140,7 @@ void Initialize() {
     gStyleDefault->SetBorderColor(MKRGB(0x99, 0x99, 0x99));
     gStyleDefault->Set(Prop::AllocColorSolid(PropBorderBottomColor, "#888"));
     gStyleDefault->Set(Prop::AllocPadding(0, 0, 0, 0));
-    gStyleDefault->Set(Prop::AllocTextAlign(Align_Left));
+    gStyleDefault->Set(Prop::AllocTextAlign(AlignAttr::Left));
     gStyleDefault->Set(Prop::AllocAlign(PropVertAlign, ElAlign::Center));
     gStyleDefault->Set(Prop::AllocAlign(PropHorizAlign, ElAlign::Center));
     gStyleDefault->Set(Prop::AllocColorSolid(PropFill, "white"));
@@ -236,11 +233,13 @@ ARGB ParseCssColor(const char* color) {
 
     // a bit too relaxed, but by skipping 0x and #
     // we'll easily parse all variations of hex-encoded values
-    if (color[0] == '0' && color[1] == 'x')
+    if (color[0] == '0' && color[1] == 'x') {
         color += 2;
+    }
 
-    if (*color == '#')
+    if (*color == '#') {
         ++color;
+    }
 
     // parse: #rgb, 0xrgb, rgb (which is a shortcut for #rrggbb)
     if (str::Parse(color, "%1x%1x%1x%$", &r, &g, &b)) {
@@ -274,11 +273,13 @@ ARGB ParseCssColor(const char* color) {
 }
 
 bool ColorData::operator==(const ColorData& other) const {
-    if (type != other.type)
+    if (type != other.type) {
         return false;
+    }
 
-    if (ColorSolid == type)
+    if (ColorSolid == type) {
         return solid.color == other.solid.color;
+    }
 
     if (ColorGradientLinear == type) {
         return (gradientLinear.mode == other.gradientLinear.mode) &&
@@ -310,21 +311,21 @@ int ElAlignData::CalcOffset(int elSize, int containerSize) const {
 }
 
 void Prop::Free() {
-    if (PropFontName == type)
+    if (PropFontName == type) {
         free(fontName);
-    else if (PropStyleName == type)
+    } else if (PropStyleName == type) {
         free(styleName);
-    else if (IsColorProp(type) && (ColorSolid == color.type))
+    } else if (IsColorProp(type) && (ColorSolid == color.type)) {
         ::delete color.solid.cachedBrush;
-    else if (IsColorProp(type) && (ColorGradientLinear == color.type)) {
+    } else if (IsColorProp(type) && (ColorGradientLinear == color.type)) {
         ::delete color.gradientLinear.cachedBrush;
-        ::delete color.gradientLinear.rect;
     }
 }
 
 bool Prop::Eq(const Prop* other) const {
-    if (type != other->type)
+    if (type != other->type) {
         return false;
+    }
 
     switch (type) {
         case PropStyleName:
@@ -341,14 +342,17 @@ bool Prop::Eq(const Prop* other) const {
             return textAlign == other->textAlign;
     }
 
-    if (IsColorProp(type))
+    if (IsColorProp(type)) {
         return color == other->color;
+    }
 
-    if (IsWidthProp(type))
+    if (IsWidthProp(type)) {
         return width == other->width;
+    }
 
-    if (IsAlignProp(type))
+    if (IsAlignProp(type)) {
         return elAlign == other->elAlign;
+    }
 
     CrashIf(true);
     return false;
@@ -356,8 +360,9 @@ bool Prop::Eq(const Prop* other) const {
 
 static Prop* FindExistingProp(Prop* prop) {
     for (Prop* p : *gAllProps) {
-        if (p->Eq(prop))
+        if (p->Eq(prop)) {
             return p;
+        }
     }
     return nullptr;
 }
@@ -438,8 +443,9 @@ Prop* Prop::AllocColorSolid(PropType type, ARGB color) {
     Prop* res = UniqifyProp(p);
     CrashIf(res->color.type != ColorSolid);
     CrashIf(res->color.solid.color != color);
-    if (!res->color.solid.cachedBrush)
+    if (!res->color.solid.cachedBrush) {
         res->color.solid.cachedBrush = ::new SolidBrush(color);
+    }
     return res;
 }
 
@@ -458,7 +464,7 @@ Prop* Prop::AllocColorLinearGradient(PropType type, LinearGradientMode mode, ARG
     p.color.gradientLinear.startColor = startColor;
     p.color.gradientLinear.endColor = endColor;
 
-    p.color.gradientLinear.rect = ::new RectF();
+    p.color.gradientLinear.rect = {};
     p.color.gradientLinear.cachedBrush = nullptr;
     return UniqifyProp(p);
 }
@@ -497,8 +503,9 @@ void Style::Set(Prop* prop) {
     CrashIf(!prop);
     Prop*& p = props.FindEl([&](Prop* p2) { return p2->type == prop->type; });
     if (p) {
-        if (!prop->Eq(p))
+        if (!prop->Eq(p)) {
             ++gen;
+        }
         p = prop;
         return;
     }
@@ -538,8 +545,9 @@ void Style::SetBorderColor(ARGB color) {
 
 static bool FoundAllProps(Prop** props) {
     for (size_t i = 0; i < (size_t)PropsCount; i++) {
-        if (!props[i])
+        if (!props[i]) {
             return false;
+        }
     }
     return true;
 }
@@ -555,8 +563,9 @@ static bool GetAllProps(Style* style, Prop** props) {
     while (style) {
         for (Prop* p : style->props) {
             // PropStyleName is not inheritable
-            if ((PropStyleName == p->type) && inherited)
+            if ((PropStyleName == p->type) && inherited) {
                 continue;
+            }
             int propIdx = (int)p->type;
             CrashIf(propIdx >= (int)PropsCount);
             bool didSet = false;
@@ -564,8 +573,9 @@ static bool GetAllProps(Style* style, Prop** props) {
                 props[propIdx] = p;
                 didSet = true;
             }
-            if (didSet && FoundAllProps(props))
+            if (didSet && FoundAllProps(props)) {
                 return true;
+            }
         }
         style = style->GetInheritsFrom();
         inherited = true;
@@ -574,8 +584,9 @@ static bool GetAllProps(Style* style, Prop** props) {
 }
 
 static size_t GetStyleId(Style* style) {
-    if (!style)
+    if (!style) {
         return 0;
+    }
     return style->GetIdentity();
 }
 
@@ -587,8 +598,9 @@ static size_t GetStyleId(Style* style) {
 // If it exists and didn't change, we return cached entry.
 CachedStyle* CacheStyle(Style* style, bool* changedOut) {
     bool changedTmp;
-    if (!changedOut)
+    if (!changedOut) {
         changedOut = &changedTmp;
+    }
     *changedOut = false;
 
     ScopedMuiCritSec muiCs;
@@ -606,8 +618,9 @@ CachedStyle* CacheStyle(Style* style, bool* changedOut) {
 
     *changedOut = true;
     Prop* props[PropsCount] = {0};
-    if (!GetAllProps(style, props))
+    if (!GetAllProps(style, props)) {
         GetAllProps(gStyleDefault, props);
+    }
     for (size_t i = 0; i < dimof(props); i++) {
         CrashIf(!props[i]);
     }
@@ -651,8 +664,9 @@ CachedStyle* CachedStyleByName(const char* name) {
         return nullptr;
     }
     for (StyleCacheEntry* e : *gStyleCache) {
-        if (str::Eq(e->cachedStyle.styleName, name))
+        if (str::Eq(e->cachedStyle.styleName, name)) {
             return &e->cachedStyle;
+        }
     }
     return nullptr;
 }
@@ -669,7 +683,7 @@ Style* StyleByName(const char* name) {
     return nullptr;
 }
 
-Brush* BrushFromColorData(ColorData* color, const RectF& r) {
+Brush* BrushFromColorData(ColorData* color, const RectF r) {
     if (ColorSolid == color->type) {
         return color->solid.cachedBrush;
     }
@@ -677,10 +691,11 @@ Brush* BrushFromColorData(ColorData* color, const RectF& r) {
     if (ColorGradientLinear == color->type) {
         ColorDataGradientLinear* d = &color->gradientLinear;
         LinearGradientBrush* br = d->cachedBrush;
-        if (!br || !r.Equals(*d->rect)) {
+        if (!br || r != d->rect) {
             ::delete br;
-            br = ::new LinearGradientBrush(r, d->startColor, d->endColor, d->mode);
-            *d->rect = r;
+            Gdiplus::RectF rf = ToGdipRectF(r);
+            br = ::new LinearGradientBrush(rf, d->startColor, d->endColor, d->mode);
+            d->rect = r;
             d->cachedBrush = br;
         }
         return br;
@@ -690,10 +705,6 @@ Brush* BrushFromColorData(ColorData* color, const RectF& r) {
     return ::new SolidBrush(0);
 }
 
-Brush* BrushFromColorData(ColorData* color, const Gdiplus::Rect& r) {
-    return BrushFromColorData(color, RectF((float)r.X, (float)r.Y, (float)r.Width, (float)r.Height));
-}
-
 static void AddBorders(int& dx, int& dy, CachedStyle* s) {
     const BorderWidth& bw = s->borderWidth;
     // note: width is a float, not sure how I should round them
@@ -701,12 +712,12 @@ static void AddBorders(int& dx, int& dy, CachedStyle* s) {
     dy += (int)(bw.top + bw.bottom);
 }
 
-Gdiplus::Size GetBorderAndPaddingSize(CachedStyle* s) {
+Size GetBorderAndPaddingSize(CachedStyle* s) {
     Padding pad = s->padding;
     int dx = pad.left + pad.right;
     int dy = pad.top + pad.bottom;
     AddBorders(dx, dy, s);
-    return Gdiplus::Size(dx, dy);
+    return Size(dx, dy);
 }
 
 Style* GetStyleDefault() {

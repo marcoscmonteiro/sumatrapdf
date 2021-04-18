@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 typedef std::function<void()> ClickedHandler;
@@ -11,14 +11,7 @@ struct ButtonCtrl : WindowBase {
     ~ButtonCtrl() override;
     bool Create() override;
 
-    void HandleWM_COMMAND(WndEvent*);
-
     Size GetIdealSize() override;
 };
 
-ILayout* NewButtonLayout(ButtonCtrl* b);
-
-bool IsButton(Kind);
-bool IsButton(ILayout*);
-
-std::tuple<ILayout*, ButtonCtrl*> CreateButtonLayout(HWND parent, std::string_view s, const ClickedHandler& onClicked);
+ButtonCtrl* CreateButton(HWND parent, std::string_view s, const ClickedHandler& onClicked);

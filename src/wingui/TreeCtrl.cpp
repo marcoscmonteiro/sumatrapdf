@@ -1,4 +1,4 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -30,27 +30,122 @@ https://stackoverflow.com/questions/34161879/how-to-remove-checkboxes-on-specifi
 
 Kind kindTree = "treeView";
 
-bool IsTree(Kind kind) {
-    return kind == kindTree;
+bool IsTreeKind(Kind k) {
+    return k == kindTree;
 }
 
-bool IsTree(ILayout* l) {
-    return IsLayoutOfKind(l, kindTree);
+static void DragMove(TreeCtrl* w, int xCur, int yCur) {
+    // logf("dragMove(): x: %d, y: %d\n", xCur, yCur);
+    // drag the item to the current position of the mouse pointer
+    // first convert the dialog coordinates to control coordinates
+    POINT pt{xCur, yCur};
+    MapWindowPoints(w->parent, w->hwnd, &pt, 1);
+    ImageList_DragMove(pt.x, pt.y);
+
+    // turn off the dragged image so the background can be refreshed.
+    ImageList_DragShowNolock(FALSE);
+
+    // find out if the pointer is on the item. If it is,
+    // highlight the item as a drop target.
+    TVHITTESTINFO tvht{};
+    tvht.pt.x = pt.x;
+    tvht.pt.y = pt.y;
+    HTREEITEM htiTarget = TreeView_HitTest(w->hwnd, &tvht);
+
+    if (htiTarget != nullptr) {
+        // TODO: don't know which is better
+        SendMessageW(w->hwnd, TVM_SELECTITEM, TVGN_DROPHILITE, (LPARAM)htiTarget);
+        // TreeView_SelectDropTarget(hwnd, htiTarget);
+    }
+    ImageList_DragShowNolock(TRUE);
 }
 
-static void DispatchWM_NOTIFY(void* user, WndEvent* ev) {
-    auto w = (TreeCtrl*)user;
-    ev->w = w;
-    w->HandleWM_NOTIFY(ev);
+static void DragEnd(TreeCtrl* w) {
+    HTREEITEM htiDest = TreeView_GetDropHilight(w->hwnd);
+    if (htiDest != nullptr) {
+        w->dragTargetItem = w->GetTreeItemByHandle(htiDest);
+        // logf("finished dragging 0x%p on 0x%p\n", draggedItem, dragTargetItem);
+        TreeItemDraggeddEvent ev;
+        ev.treeCtrl = w;
+        ev.draggedItem = w->draggedItem;
+        ev.dragTargetItem = w->dragTargetItem;
+        ev.isStart = false;
+        w->onTreeItemDragStartEnd(&ev);
+    }
+    ImageList_EndDrag();
+    TreeView_SelectDropTarget(w->hwnd, nullptr);
+    ReleaseCapture();
+    SetCursorCached(IDC_ARROW);
+    // ShowCursor(TRUE);
+    w->isDragging = false;
+    w->draggedItem = nullptr;
+    w->dragTargetItem = nullptr;
+    HWND hwndParent = GetParent(w->hwnd);
+    UnregisterHandlerForMessage(hwndParent, WM_MOUSEMOVE);
+    UnregisterHandlerForMessage(hwndParent, WM_LBUTTONUP);
 }
 
 static void DispatchMouseDuringDrag(void* user, WndEvent* ev) {
     auto w = (TreeCtrl*)user;
     ev->w = w;
-    w->HandleMouseDuringDrag(ev);
+    uint msg = ev->msg;
+
+    CrashIf(!w->isDragging);
+
+    if (msg == WM_MOUSEMOVE) {
+        if (!w->isDragging) {
+            return;
+        }
+        int x = GET_X_LPARAM(ev->lp);
+        int y = GET_Y_LPARAM(ev->lp);
+        DragMove(w, x, y);
+        ev->didHandle = true;
+        return;
+    }
+
+    if (msg == WM_LBUTTONUP) {
+        if (!w->isDragging) {
+            return;
+        }
+        DragEnd(w);
+        ev->didHandle = true;
+        return;
+    }
+
+    CrashIf(true);
 }
 
-static void TreeViewExpandRecursively(HWND hTree, HTREEITEM hItem, UINT flag, bool subtree) {
+// https://docs.microsoft.com/en-us/windows/win32/controls/drag-a-tree-view-item
+static void DragStart(TreeCtrl* w, NMTREEVIEWW* nmtv) {
+    // need to intercept mouse messages in the parent window during dragging
+    HWND hwndParent = GetParent(w->hwnd);
+    void* user = w;
+    RegisterHandlerForMessage(hwndParent, WM_MOUSEMOVE, DispatchMouseDuringDrag, user);
+    RegisterHandlerForMessage(hwndParent, WM_LBUTTONUP, DispatchMouseDuringDrag, user);
+
+    HTREEITEM hitem = nmtv->itemNew.hItem;
+    w->draggedItem = w->GetTreeItemByHandle(hitem);
+    HIMAGELIST himl = TreeView_CreateDragImage(w->hwnd, hitem);
+
+    ImageList_BeginDrag(himl, 0, 0, 0);
+    BOOL ok = ImageList_DragEnter(w->hwnd, nmtv->ptDrag.x, nmtv->ptDrag.x);
+    CrashIf(!ok);
+
+    if (w->onTreeItemDragStartEnd) {
+        TreeItemDraggeddEvent ev;
+        ev.treeCtrl = w;
+        ev.draggedItem = w->draggedItem;
+        ev.isStart = true;
+        w->onTreeItemDragStartEnd(&ev);
+    }
+
+    // ShowCursor(FALSE);
+    SetCursorCached(IDC_HAND);
+    SetCapture(w->parent);
+    w->isDragging = true;
+}
+
+static void TreeViewExpandRecursively(HWND hTree, HTREEITEM hItem, uint flag, bool subtree) {
     while (hItem) {
         TreeView_Expand(hTree, hItem, flag);
         HTREEITEM child = TreeView_GetChild(hTree, hItem);
@@ -97,7 +192,7 @@ static void TreeViewToggle(TreeCtrl* tree, HTREEITEM hItem, bool recursive) {
     if (!item) {
         return;
     }
-    UINT flag = TVE_EXPAND;
+    uint flag = TVE_EXPAND;
     bool isExpanded = bitmask::IsSet(item->state, TVIS_EXPANDED);
     if (isExpanded) {
         flag = TVE_COLLAPSE;
@@ -109,59 +204,31 @@ static void TreeViewToggle(TreeCtrl* tree, HTREEITEM hItem, bool recursive) {
     }
 }
 
-static void SetTreeItemState(UINT uState, TreeItemState& state) {
+static void SetTreeItemState(uint uState, TreeItemState& state) {
     state.isExpanded = bitmask::IsSet(uState, TVIS_EXPANDED);
     state.isSelected = bitmask::IsSet(uState, TVIS_SELECTED);
-    UINT n = (uState >> 12) - 1;
+    uint n = (uState >> 12) - 1;
     state.isChecked = n != 0;
 }
 
-void TreeCtrl::HandleMouseDuringDrag(WndEvent* ev) {
-    UINT msg = ev->msg;
-
-    CrashIf(!isDragging);
-
-    if (msg == WM_MOUSEMOVE) {
-        if (!isDragging) {
-            return;
-        }
-        int x = GET_X_LPARAM(ev->lparam);
-        int y = GET_Y_LPARAM(ev->lparam);
-        DragMove(x, y);
-        ev->didHandle = true;
-        return;
-    }
-
-    if (msg == WM_LBUTTONUP) {
-        if (!isDragging) {
-            return;
-        }
-        DragEnd();
-        ev->didHandle = true;
-        return;
-    }
-
-    CrashIf(true);
-}
-
-void TreeCtrl::HandleWM_NOTIFY(WndEvent* ev) {
-    UINT msg = ev->msg;
+static void Handle_WM_NOTIFY(void* user, WndEvent* ev) {
+    uint msg = ev->msg;
 
     CrashIf(msg != WM_NOTIFY);
 
-    auto* treeCtrl = (TreeCtrl*)this;
-    LPARAM lp = ev->lparam;
+    TreeCtrl* w = (TreeCtrl*)user;
+    CrashIf(GetParent(w->hwnd) != (HWND)ev->hwnd);
 
-    CrashIf(GetParent(treeCtrl->hwnd) != (HWND)ev->hwnd);
-
+    ev->w = w;
+    LPARAM lp = ev->lp;
     NMTREEVIEWW* nmtv = (NMTREEVIEWW*)(lp);
-    if (treeCtrl->onTreeNotify) {
-        TreeNotifyEvent a{};
+
+    if (w->onNotify) {
+        WmNotifyEvent a{};
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
         a.treeView = nmtv;
 
-        treeCtrl->onTreeNotify(&a);
+        w->onNotify(&a);
         if (a.didHandle) {
             return;
         }
@@ -171,49 +238,49 @@ void TreeCtrl::HandleWM_NOTIFY(WndEvent* ev) {
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/tvn-getinfotip
     if (code == TVN_GETINFOTIP) {
-        if (!treeCtrl->onGetTooltip) {
+        if (!w->onGetTooltip) {
             return;
         }
         TreeItmGetTooltipEvent a{};
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
+        a.treeCtrl = w;
         a.info = (NMTVGETINFOTIPW*)(nmtv);
-        a.treeItem = treeCtrl->GetTreeItemByHandle(a.info->hItem);
-        treeCtrl->onGetTooltip(&a);
+        a.treeItem = w->GetTreeItemByHandle(a.info->hItem);
+        w->onGetTooltip(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/nm-customdraw-tree-view
     if (code == NM_CUSTOMDRAW) {
-        if (!treeCtrl->onTreeItemCustomDraw) {
+        if (!w->onTreeItemCustomDraw) {
             return;
         }
         TreeItemCustomDrawEvent a;
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
+        a.treeCtrl = w;
         a.nm = (NMTVCUSTOMDRAW*)lp;
         HTREEITEM hItem = (HTREEITEM)a.nm->nmcd.dwItemSpec;
         // it can be 0 in CDDS_PREPAINT state
         if (hItem) {
-            a.treeItem = treeCtrl->GetTreeItemByHandle(hItem);
+            a.treeItem = w->GetTreeItemByHandle(hItem);
             // TODO: log more info
             SubmitCrashIf(!a.treeItem);
             if (!a.treeItem) {
                 return;
             }
         }
-        treeCtrl->onTreeItemCustomDraw(&a);
+        w->onTreeItemCustomDraw(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/tvn-selchanged
     if (code == TVN_SELCHANGED) {
-        if (!treeCtrl->onTreeSelectionChanged) {
+        if (!w->onTreeSelectionChanged) {
             return;
         }
         TreeSelectionChangedEvent a;
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
+        a.treeCtrl = w;
         a.nmtv = nmtv;
         auto action = a.nmtv->action;
         if (action == TVC_BYKEYBOARD) {
@@ -221,34 +288,34 @@ void TreeCtrl::HandleWM_NOTIFY(WndEvent* ev) {
         } else if (action == TVC_BYMOUSE) {
             a.byMouse = true;
         }
-        a.prevSelectedItem = treeCtrl->GetTreeItemByHandle(nmtv->itemOld.hItem);
-        a.selectedItem = treeCtrl->GetTreeItemByHandle(nmtv->itemNew.hItem);
-        onTreeSelectionChanged(&a);
+        a.prevSelectedItem = w->GetTreeItemByHandle(nmtv->itemOld.hItem);
+        a.selectedItem = w->GetTreeItemByHandle(nmtv->itemNew.hItem);
+        w->onTreeSelectionChanged(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/tvn-itemchanged
     if (code == TVN_ITEMCHANGED) {
-        if (!treeCtrl->onTreeItemChanged) {
+        if (!w->onTreeItemChanged) {
             return;
         }
         TreeItemChangedEvent a;
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
+        a.treeCtrl = w;
         a.nmic = (NMTVITEMCHANGE*)lp;
-        a.treeItem = treeCtrl->GetTreeItemByHandle(a.nmic->hItem);
+        a.treeItem = w->GetTreeItemByHandle(a.nmic->hItem);
         SetTreeItemState(a.nmic->uStateOld, a.prevState);
         SetTreeItemState(a.nmic->uStateNew, a.newState);
         a.expandedChanged = (a.prevState.isExpanded != a.newState.isExpanded);
         a.checkedChanged = (a.prevState.isChecked != a.newState.isChecked);
         a.selectedChanged = (a.prevState.isSelected != a.newState.isSelected);
-        onTreeItemChanged(&a);
+        w->onTreeItemChanged(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/tvn-itemexpanded
     if (code == TVN_ITEMEXPANDED) {
-        if (!treeCtrl->onTreeItemExpanded) {
+        if (!w->onTreeItemExpanded) {
             return;
         }
         bool doNotify = false;
@@ -265,21 +332,22 @@ void TreeCtrl::HandleWM_NOTIFY(WndEvent* ev) {
         }
         TreeItemExpandedEvent a{};
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
-        a.treeItem = treeCtrl->GetTreeItemByHandle(nmtv->itemNew.hItem);
-        onTreeItemExpanded(&a);
+        a.treeCtrl = w;
+        a.treeItem = w->GetTreeItemByHandle(nmtv->itemNew.hItem);
+        a.isExpanded = isExpanded;
+        w->onTreeItemExpanded(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/nm-click-tree-view
     if (code == NM_CLICK || code == NM_DBLCLK) {
-        if (!treeCtrl->onTreeClick) {
+        if (!w->onTreeClick) {
             return;
         }
         NMHDR* nmhdr = (NMHDR*)lp;
         TreeClickEvent a{};
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
+        a.treeCtrl = w;
         a.isDblClick = (code == NM_DBLCLK);
 
         DWORD pos = GetMessagePos();
@@ -298,133 +366,52 @@ void TreeCtrl::HandleWM_NOTIFY(WndEvent* ev) {
         ht.pt.y = a.mouseWindow.y;
         TreeView_HitTest(nmhdr->hwndFrom, &ht);
         if ((ht.flags & TVHT_ONITEM)) {
-            a.treeItem = treeCtrl->GetTreeItemByHandle(ht.hItem);
+            a.treeItem = w->GetTreeItemByHandle(ht.hItem);
         }
-        treeCtrl->onTreeClick(&a);
+        w->onTreeClick(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/tvn-keydown
     if (code == TVN_KEYDOWN) {
-        if (!treeCtrl->onTreeKeyDown) {
+        if (!w->onTreeKeyDown) {
             return;
         }
         NMTVKEYDOWN* nmkd = (NMTVKEYDOWN*)nmtv;
         TreeKeyDownEvent a{};
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
+        a.treeCtrl = w;
         a.nmkd = nmkd;
         a.keyCode = nmkd->wVKey;
         a.flags = nmkd->flags;
-        treeCtrl->onTreeKeyDown(&a);
+        w->onTreeKeyDown(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/tvn-getdispinfo
     if (code == TVN_GETDISPINFO) {
-        if (!treeCtrl->onTreeGetDispInfo) {
+        if (!w->onTreeGetDispInfo) {
             return;
         }
         TreeGetDispInfoEvent a{};
         CopyWndEvent cp(&a, ev);
-        a.treeCtrl = treeCtrl;
+        a.treeCtrl = w;
         a.dispInfo = (NMTVDISPINFOEXW*)lp;
-        a.treeItem = treeCtrl->GetTreeItemByHandle(a.dispInfo->item.hItem);
-        treeCtrl->onTreeGetDispInfo(&a);
+        a.treeItem = w->GetTreeItemByHandle(a.dispInfo->item.hItem);
+        w->onTreeGetDispInfo(&a);
         return;
     }
 
     // https://docs.microsoft.com/en-us/windows/win32/controls/drag-a-tree-view-item
     if (code == TVN_BEGINDRAG) {
         // we don't do dragging if not asked for drag end notification
-        if (!treeCtrl->onTreeItemDragStartEnd) {
+        if (!w->onTreeItemDragStartEnd) {
             return;
         }
-        DragStart((NMTREEVIEWW*)lp);
+        DragStart(w, (NMTREEVIEWW*)lp);
         ev->didHandle = true;
         return;
     }
-}
-
-// https://docs.microsoft.com/en-us/windows/win32/controls/drag-a-tree-view-item
-void TreeCtrl::DragStart(NMTREEVIEWW* nmtv) {
-    // need to intercept mouse messages in the parent window during dragging
-    HWND hwndParent = GetParent(hwnd);
-    void* user = this;
-    RegisterHandlerForMessage(hwndParent, WM_MOUSEMOVE, DispatchMouseDuringDrag, user);
-    RegisterHandlerForMessage(hwndParent, WM_LBUTTONUP, DispatchMouseDuringDrag, user);
-
-    HTREEITEM hitem = nmtv->itemNew.hItem;
-    draggedItem = GetTreeItemByHandle(hitem);
-    HIMAGELIST himl = TreeView_CreateDragImage(hwnd, hitem);
-
-    ImageList_BeginDrag(himl, 0, 0, 0);
-    BOOL ok = ImageList_DragEnter(hwnd, nmtv->ptDrag.x, nmtv->ptDrag.x);
-    CrashIf(!ok);
-
-    if (onTreeItemDragStartEnd) {
-        TreeItemDraggeddEvent ev;
-        ev.treeCtrl = this;
-        ev.draggedItem = draggedItem;
-        ev.isStart = true;
-        onTreeItemDragStartEnd(&ev);
-    }
-
-    // ShowCursor(FALSE);
-    SetCursor(IDC_HAND);
-    SetCapture(parent);
-    isDragging = true;
-}
-
-void TreeCtrl::DragMove(int xCur, int yCur) {
-    // logf("dragMove(): x: %d, y: %d\n", xCur, yCur);
-    // drag the item to the current position of the mouse pointer
-    // first convert the dialog coordinates to control coordinates
-    POINT pt{xCur, yCur};
-    MapWindowPoints(parent, hwnd, &pt, 1);
-    ImageList_DragMove(pt.x, pt.y);
-
-    // turn off the dragged image so the background can be refreshed.
-    ImageList_DragShowNolock(FALSE);
-
-    // find out if the pointer is on the item. If it is,
-    // highlight the item as a drop target.
-    TVHITTESTINFO tvht{};
-    tvht.pt.x = pt.x;
-    tvht.pt.y = pt.y;
-    HTREEITEM htiTarget = TreeView_HitTest(hwnd, &tvht);
-
-    if (htiTarget != nullptr) {
-        // TODO: don't know which is better
-        SendMessage(hwnd, TVM_SELECTITEM, TVGN_DROPHILITE, (LPARAM)htiTarget);
-        // TreeView_SelectDropTarget(hwnd, htiTarget);
-    }
-    ImageList_DragShowNolock(TRUE);
-}
-
-void TreeCtrl::DragEnd() {
-    HTREEITEM htiDest = TreeView_GetDropHilight(hwnd);
-    if (htiDest != nullptr) {
-        dragTargetItem = GetTreeItemByHandle(htiDest);
-        // logf("finished dragging 0x%p on 0x%p\n", draggedItem, dragTargetItem);
-        TreeItemDraggeddEvent ev;
-        ev.treeCtrl = this;
-        ev.draggedItem = draggedItem;
-        ev.dragTargetItem = dragTargetItem;
-        ev.isStart = false;
-        onTreeItemDragStartEnd(&ev);
-    }
-    ImageList_EndDrag();
-    TreeView_SelectDropTarget(hwnd, nullptr);
-    ReleaseCapture();
-    SetCursor(IDC_ARROW);
-    // ShowCursor(TRUE);
-    isDragging = false;
-    draggedItem = nullptr;
-    dragTargetItem = nullptr;
-    HWND hwndParent = GetParent(hwnd);
-    UnregisterHandlerForMessage(hwndParent, WM_MOUSEMOVE);
-    UnregisterHandlerForMessage(hwndParent, WM_LBUTTONUP);
 }
 
 static bool HandleKey(TreeCtrl* tree, WPARAM wp) {
@@ -439,8 +426,9 @@ static bool HandleKey(TreeCtrl* tree, WPARAM wp) {
     } else if (VK_DIVIDE == wp) {
         if (IsShiftPressed()) {
             HTREEITEM root = TreeView_GetRoot(hwnd);
-            if (!TreeView_GetNextSibling(hwnd, root))
+            if (!TreeView_GetNextSibling(hwnd, root)) {
                 root = TreeView_GetChild(hwnd, root);
+            }
             TreeViewExpandRecursively(hwnd, root, TVE_COLLAPSE, false);
         } else {
             TreeViewExpandRecursively(hwnd, TreeView_GetSelection(hwnd), TVE_COLLAPSE, true);
@@ -459,10 +447,10 @@ static bool HandleKey(TreeCtrl* tree, WPARAM wp) {
 void TreeCtrl::WndProc(WndEvent* ev) {
     HWND hwnd = ev->hwnd;
     UINT msg = ev->msg;
-    WPARAM wp = ev->wparam;
-    LPARAM lp = ev->lparam;
+    WPARAM wp = ev->wp;
+    LPARAM lp = ev->lp;
 
-    // dbgLogMsg("tree:", hwnd, msg, wp, ev->lparam);
+    // DbgLogMsg("tree:", hwnd, msg, wp, ev->lp);
 
     TreeCtrl* w = this;
     CrashIf(w->hwnd != (HWND)hwnd);
@@ -473,7 +461,8 @@ void TreeCtrl::WndProc(WndEvent* ev) {
     }
 
     if (WM_CONTEXTMENU == msg && onContextMenu) {
-        HandleWM_CONTEXTMENU(ev);
+        WindowBase* wb = (WindowBase*)this;
+        Handle_WM_CONTEXTMENU(wb, ev);
         return;
     }
 
@@ -498,7 +487,7 @@ void TreeCtrl::WndProc(WndEvent* ev) {
     }
 }
 
-TreeCtrl::TreeCtrl(HWND p) {
+TreeCtrl::TreeCtrl(HWND p) : WindowBase(p) {
     kind = kindTree;
     dwStyle = WS_CHILD | WS_VISIBLE | WS_TABSTOP;
     dwStyle |= TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS;
@@ -509,13 +498,9 @@ TreeCtrl::TreeCtrl(HWND p) {
     initialSize = {48, 120};
 }
 
-bool TreeCtrl::Create(const WCHAR* title) {
+bool TreeCtrl::Create() {
     if (!supportDragDrop) {
         dwStyle |= TVS_DISABLEDRAGDROP;
-    }
-
-    if (!title) {
-        title = L"";
     }
 
     bool ok = WindowBase::Create();
@@ -545,13 +530,15 @@ bool TreeCtrl::Create(const WCHAR* title) {
         SetWindowStyle(hwnd, TVS_CHECKBOXES, true);
     }
 
+    SetToolTipsDelayTime(TTDT_AUTOPOP, 32767);
+
     // must be done at the end. Doing  SetWindowStyle() sends bogus (?)
     // TVN_ITEMCHANGED notification. As an alternative we could ignore TVN_ITEMCHANGED
     // if hItem doesn't point to an TreeItem
     Subclass();
 
     void* user = this;
-    RegisterHandlerForMessage(hwnd, WM_NOTIFY, DispatchWM_NOTIFY, user);
+    RegisterHandlerForMessage(hwnd, WM_NOTIFY, Handle_WM_NOTIFY, user);
 
     return true;
 }
@@ -575,7 +562,10 @@ TreeItem* TreeCtrl::GetSelection() {
 }
 
 bool TreeCtrl::SelectItem(TreeItem* ti) {
-    auto hi = GetHandleByTreeItem(ti);
+    HTREEITEM hi{nullptr};
+    if (ti != nullptr) {
+        hi = GetHandleByTreeItem(ti);
+    }
     BOOL ok = TreeView_SelectItem(hwnd, hi);
     return ok == TRUE;
 }
@@ -609,10 +599,10 @@ void TreeCtrl::Clear() {
     insertedItems.Reset();
 
     HWND hwnd = this->hwnd;
-    ::SendMessage(hwnd, WM_SETREDRAW, FALSE, 0);
+    ::SendMessageW(hwnd, WM_SETREDRAW, FALSE, 0);
     TreeView_DeleteAllItems(hwnd);
-    SendMessage(hwnd, WM_SETREDRAW, TRUE, 0);
-    UINT flags = RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN;
+    SendMessageW(hwnd, WM_SETREDRAW, TRUE, 0);
+    uint flags = RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN;
     ::RedrawWindow(hwnd, nullptr, nullptr, flags);
 }
 
@@ -672,11 +662,11 @@ TreeItem* TreeCtrl::GetTreeItemByHandle(HTREEITEM item) {
 }
 
 void FillTVITEM(TVITEMEXW* tvitem, TreeItem* ti, bool withCheckboxes) {
-    UINT mask = TVIF_TEXT | TVIF_PARAM | TVIF_STATE;
+    uint mask = TVIF_TEXT | TVIF_PARAM | TVIF_STATE;
     tvitem->mask = mask;
 
-    UINT stateMask = TVIS_EXPANDED;
-    UINT state = 0;
+    uint stateMask = TVIS_EXPANDED;
+    uint state = 0;
     if (ti->IsExpanded()) {
         state = TVIS_EXPANDED;
     }
@@ -684,8 +674,8 @@ void FillTVITEM(TVITEMEXW* tvitem, TreeItem* ti, bool withCheckboxes) {
     if (withCheckboxes) {
         stateMask |= TVIS_STATEIMAGEMASK;
         bool isChecked = ti->IsChecked();
-        UINT imgIdx = isChecked ? 2 : 1;
-        UINT imgState = INDEXTOSTATEIMAGEMASK(imgIdx);
+        uint imgIdx = isChecked ? 2 : 1;
+        uint imgState = INDEXTOSTATEIMAGEMASK(imgIdx);
         state |= imgState;
     }
 
@@ -765,7 +755,7 @@ void TreeCtrl::SetTreeModel(TreeModel* tm) {
     PopulateTree(this, tm);
     ResumeRedraw();
 
-    UINT flags = RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN;
+    uint flags = RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN;
     RedrawWindow(hwnd, nullptr, nullptr, flags);
 }
 
@@ -783,22 +773,34 @@ bool TreeCtrl::GetCheckState(TreeItem* item) {
 }
 
 TreeItemState TreeCtrl::GetItemState(TreeItem* ti) {
+    TreeItemState res;
+
     TVITEMW* item = GetTVITEM(this, ti);
     CrashIf(!item);
-
-    TreeItemState res;
+    if (!item) {
+        return res;
+    }
     SetTreeItemState(item->state, res);
     res.nChildren = item->cChildren;
 
     return res;
 }
 
-Size TreeCtrl::GetIdealSize() {
-    return {idealSize.dx, idealSize.dy};
+// https://docs.microsoft.com/en-us/windows/win32/controls/tvm-gettooltips
+HWND TreeCtrl::GetToolTipsHwnd() {
+    return TreeView_GetToolTips(hwnd);
 }
 
-WindowBaseLayout* NewTreeLayout(TreeCtrl* w) {
-    return new WindowBaseLayout(w, kindTree);
+void TreeCtrl::SetToolTipsDelayTime(int type, int timeInMs) {
+    CrashIf(!IsValidDelayType(type));
+    CrashIf(timeInMs < 0);
+    CrashIf(timeInMs > 32767); // TODO: or is it 65535?
+    HWND hwndToolTips = GetToolTipsHwnd();
+    SendMessageW(hwndToolTips, TTM_SETDELAYTIME, type, (LPARAM)timeInMs);
+}
+
+Size TreeCtrl::GetIdealSize() {
+    return {idealSize.dx, idealSize.dy};
 }
 
 // if context menu invoked via keyboard, get selected item

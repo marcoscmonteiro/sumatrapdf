@@ -1,9 +1,11 @@
-/* Copyright 2020 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 struct SelectionOnPage;
 struct WatchedFile;
 struct VbkmFile;
+struct EditAnnotationsWindow;
+struct WindowInfo;
 
 enum class TocSort { None, TagSmallFirst, TagBigFirst, Color };
 
@@ -32,12 +34,13 @@ struct TabInfo {
     Vec<SelectionOnPage>* selectionOnPage = nullptr;
     // previous View settings, needed when unchecking the Fit Width/Page toolbar buttons
     float prevZoomVirtual = INVALID_ZOOM;
-    DisplayMode prevDisplayMode = DM_AUTOMATIC;
+    DisplayMode prevDisplayMode{DisplayMode::Automatic};
     Vec<VbkmFile*> altBookmarks;
     TocSort tocSort = TocSort::None;
     TocTree* currToc = nullptr; // not owned by us
     // if sortTag is != SortTag::None, this is a sorted toc tree to be displayed
     TocTree* tocSorted = nullptr;
+    EditAnnotationsWindow* editAnnotsWindow = nullptr;
 
     TabInfo(WindowInfo* win, const WCHAR* filePath = nullptr);
     ~TabInfo();
@@ -57,4 +60,4 @@ struct TabInfo {
     void ToggleZoom();
 };
 
-bool SaveDataToFile(HWND hwndParent, WCHAR* fileName, std::string_view data);
+bool SaveDataToFile(HWND hwndParent, WCHAR* fileName, std::span<u8> data);

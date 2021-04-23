@@ -741,7 +741,7 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
     }
 
 	/* Sends a message to plugin host window telling Context Menu is opening - MCM 24-04-2016  */
-    if (PluginHostCallback(L"OPEN_CONTEXTMENU(%d, %d)", x, y)==1) return;
+    if (PluginHostCallback(L"[ContextMenuOpened(%d, %d)]", x, y)==1) return;
 
     TabInfo* tab = win->currentTab;
     IPageElement* pageEl = dm->GetElementAtPos({x, y});

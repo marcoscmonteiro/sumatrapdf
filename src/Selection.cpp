@@ -30,6 +30,7 @@
 #include "Toolbar.h"
 #include "Translations.h"
 #include "uia/Provider.h"
+#include <Menu.h>
 
 SelectionOnPage::SelectionOnPage(int pageNo, RectF* rect) {
     this->pageNo = pageNo;
@@ -247,6 +248,10 @@ void ZoomToSelection(WindowInfo* win, float factor, bool scrollToFit, bool relat
     }
 
     win->ctrl->SetZoomVirtual(factor * (relative ? win->ctrl->GetZoomVirtual(true) : 1), zoomToPt ? &pt : nullptr);
+
+    /* Sends a message to plugin host window telling Zoom changed - MCM 24-04-2016 */
+    PluginHostCallback(L"[ZoomChanged(%f)]", win->ctrl->GetZoomVirtual(true));
+
     UpdateToolbarState(win);
 }
 

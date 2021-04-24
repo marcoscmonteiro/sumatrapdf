@@ -895,7 +895,9 @@ void ControllerCallbackHandler::PageNoChanged(Controller* ctrl, int pageNo) {
     UpdateTocSelection(win, pageNo);
     win->currPageNo = pageNo;
 
+    /* Sends a message to plugin host window telling page changed - MCM 24-04-2016 */
     PluginHostCallback(L"[PageChanged(%d)]", pageNo);
+
     NotificationWnd* wnd = win->notifications->GetForGroup(NG_PAGE_INFO_HELPER);
     if (wnd) {
         CrashIf(!win->AsFixed());
@@ -3967,7 +3969,7 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
         key = (WPARAM)SingleCharLowerW((WCHAR)key);
     }
 
-    // MCM em 24/04/2021 - before process key pressed send key to plugin mode host app
+    /* Sends a message to plugin host window telling key pressed - MCM 24-04-2016 */
     if (PluginHostCallback(L"[KeyPressed(%i)]", key) == 1) return;
 
     switch (key) {

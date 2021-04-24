@@ -1053,6 +1053,10 @@ static LRESULT CanvasOnMouseWheel(WindowInfo* win, UINT msg, WPARAM wp, LPARAM l
 
         float zoom = win->ctrl->GetNextZoomStep(delta < 0 ? ZOOM_MIN : ZOOM_MAX);
         win->ctrl->SetZoomVirtual(zoom, &pt);
+
+        /* Sends a message to plugin host window telling Zoom changed by Mouse Weel - MCM 24-04-2016 */
+        PluginHostCallback(L"[ZoomChangedMouseWeel(%f)]", zoom);
+
         UpdateToolbarState(win);
 
         // don't show the context menu when zooming with the right mouse-button down

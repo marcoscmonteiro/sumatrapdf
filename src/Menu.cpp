@@ -704,30 +704,32 @@ static bool ShouldShowCreateAnnotationMenu(TabInfo* tab, int x, int y) {
     return true;
 }
 
-/* Auxiliary function to callback Plugin Host Window with a generic message - MCM 24-04-2016 */
+/* Auxiliary function to callback Plugin Host Window with a generic message
+*  Based on SumatraLaunchBrowser function on SumatraPDF.cpp file
+*  MCM 24-04-2016
+*/
 LRESULT PluginHostCallback(const WCHAR* msg, ...) {
     if (gPluginMode) {
-        CrashIf(gWindows.IsEmpty());
-        if (gWindows.IsEmpty())
-            return 0;
+        CrashIf(gWindows.empty());
+        if (gWindows.empty())
+            return false;
         HWND plugin = gWindows.at(0)->hwndFrame;
-        HWND Parent = GetAncestor(plugin, GA_PARENT);
-        if (!Parent)
-            return 0;
+        HWND parent = GetAncestor(plugin, GA_PARENT);
+        if (!parent) return false;
 
         // Format msg string with argment list
         va_list args;
         
         va_start(args, msg);
-        ScopedMem<WCHAR> MsgStr0(str::FmtV(msg, args));
+        ScopedMem<WCHAR> MsgStr(str::FmtV(msg, args));
         va_end(args);
 
-        // Converts msg to UTF8
-        strconv::StackWstrToUtf8 MsgStr = MsgStr0.Get();
+        // Converts MsgStr0 to UTF8
+        AutoFree MsgStrUTF8(strconv::WstrToUtf8(MsgStr));        
 
         // Prepare struct and send message to plugin Host Window
-        COPYDATASTRUCT cds = {0x1 /* Message from SumatraPDF plugin */, (DWORD)str::Len(MsgStr), MsgStr.Get()};
-        return SendMessage(Parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
+        COPYDATASTRUCT cds = {0x1 /* Message from SumatraPDF plugin */, (DWORD)MsgStrUTF8.size() + 1, MsgStrUTF8.Get()};
+        return SendMessage(parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
     }
 
     return 0;

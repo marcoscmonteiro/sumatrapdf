@@ -3967,6 +3967,9 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
         key = (WPARAM)SingleCharLowerW((WCHAR)key);
     }
 
+    // MCM em 24/04/2021 - before process key pressed send key to plugin mode host app
+    if (PluginHostCallback(L"[KeyPressed(%i)]", key) == 1) return;
+
     switch (key) {
         case VK_ESCAPE:
             OnFrameKeyEsc(win);

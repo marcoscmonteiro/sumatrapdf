@@ -654,6 +654,80 @@ static const WCHAR* HandleSyncCmd(const WCHAR* cmd, DDEACK& ack) {
     return next;
 }
 
+// DDE command to begin text search:
+// [TextSearch("<pdffilepath>",<searchText>,<matchCase>[,<newwindow>, <setfocus>])]
+static const WCHAR* HandleTextSearchCmd(const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile, searchText;
+    BOOL matchCase = 0, newWindow = 0, setFocus = 0;
+    const WCHAR* next = str::Parse(cmd, L"[TextSearch(\"%S\",\"%S\",%u)]", &pdfFile, &searchText, &matchCase);
+
+    // allow to omit the pdffile path, so that editors don't have to know about
+    // multi-file projects (requires that the PDF has already been opened)
+    if (!next) {
+        pdfFile.Reset();
+        next = str::Parse(cmd, L"[TextSearch(\"%S\",\"%S\",%u,%u,%u)]", &pdfFile, &searchText, &matchCase, &newWindow, &setFocus);
+    }
+
+    if (!next) {
+        return nullptr;
+    }
+
+    WindowInfo* win = nullptr;
+    // check if the PDF is already opened
+    win = FindWindowInfoByFile(pdfFile, !newWindow);
+    // if not then open it
+    if (newWindow || !win) {
+        LoadArgs args(pdfFile, !newWindow ? win : nullptr);
+        win = LoadDocument(args);
+    } else if (!win->IsDocLoaded()) {
+        ReloadDocument(win, false);
+    }
+
+
+    if (!win) { // || !win->currentTab || win->currentTab->GetEngineType() != kindEnginePdf) {
+        return next;
+    }
+
+    DisplayModel* dm = win->AsFixed();
+
+    win::SetText(win->hwndFindBox, searchText);
+    Edit_SetModify(win->hwndFindBox, TRUE);
+
+    dm->textSearch->SetSensitive(matchCase);
+
+    FindTextOnThread(win, TextSearchDirection::Forward, true);
+    return next;
+}
+
+// DDE command to search foward
+// [TextSearch("<pdffilepath>",<Forward>])]
+static const WCHAR* HandleSearchAgainCmd(const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile;
+    BOOL direction = 0, newWindow = 0;
+    const WCHAR* next = str::Parse(cmd, L"[SearchAgain(\"%S\",%u)]", &pdfFile, &direction);
+
+    if (!next) {
+        return nullptr;
+    }
+
+    WindowInfo* win = nullptr;
+    if (pdfFile) {
+        // check if the PDF is already opened
+        win = FindWindowInfoByFile(pdfFile, !newWindow);
+        if (!win->IsDocLoaded()) {
+            ReloadDocument(win, false);
+        }
+    }
+
+    if (!win) { // || !win->currentTab || win->currentTab->GetEngineType() != kindEnginePdf) {
+        return next;
+    }
+
+    FindTextOnThread(win, direction ? TextSearchDirection::Forward : TextSearchDirection::Backward, true);
+
+    return next;
+}
+
 // Open file DDE command, format:
 // [<DDECOMMAND_OPEN>("<pdffilepath>"[,<newwindow>,<setfocus>,<forcerefresh>])]
 static const WCHAR* HandleOpenCmd(const WCHAR* cmd, DDEACK& ack) {
@@ -847,6 +921,12 @@ static void HandleDdeCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
         const WCHAR* nextCmd = HandleSyncCmd(cmd, ack);
         if (!nextCmd) {
             nextCmd = HandleOpenCmd(cmd, ack);
+        }
+        if (!nextCmd) {
+            nextCmd = HandleTextSearchCmd(cmd, ack);
+        }
+        if (!nextCmd) {
+            nextCmd = HandleSearchAgainCmd(cmd, ack);
         }
         if (!nextCmd) {
             nextCmd = HandleGotoCmd(cmd, ack);

@@ -894,9 +894,10 @@ void ControllerCallbackHandler::PageNoChanged(Controller* ctrl, int pageNo) {
 
     UpdateTocSelection(win, pageNo);
     win->currPageNo = pageNo;
-
+    
     /* Sends a message to plugin host window telling page changed - MCM 24-04-2016 */
-    PluginHostCallback(L"[PageChanged(%d)]", pageNo);
+    const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(pageNo) : L"";
+    PluginHostCopyData(L"[PageChanged(%d,\"%s\")]", pageNo, pageLabel);
 
     NotificationWnd* wnd = win->notifications->GetForGroup(NG_PAGE_INFO_HELPER);
     if (wnd) {
@@ -3970,7 +3971,7 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
     }
 
     /* Sends a message to plugin host window telling key pressed - MCM 24-04-2016 */
-    if (PluginHostCallback(L"[KeyPressed(%i)]", key) == 1) return;
+    if (PluginHostCopyData(L"[KeyPressed(%i)]", key) == 1) return;
 
     switch (key) {
         case VK_ESCAPE:

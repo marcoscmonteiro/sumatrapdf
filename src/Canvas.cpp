@@ -1055,7 +1055,7 @@ static LRESULT CanvasOnMouseWheel(WindowInfo* win, UINT msg, WPARAM wp, LPARAM l
         win->ctrl->SetZoomVirtual(zoom, &pt);
 
         /* Sends a message to plugin host window telling Zoom changed by Mouse Weel - MCM 24-04-2016 */
-        PluginHostCallback(L"[ZoomChangedMouseWeel(%f,%f)]", win->ctrl->GetZoomVirtual(true), zoom);
+        PluginHostCopyData(L"[ZoomChangedMouseWeel(%f,%f)]", win->ctrl->GetZoomVirtual(true), zoom);
 
         UpdateToolbarState(win);
 

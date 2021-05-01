@@ -654,77 +654,69 @@ static const WCHAR* HandleSyncCmd(const WCHAR* cmd, DDEACK& ack) {
     return next;
 }
 
-// DDE command to begin text search:
-// [TextSearch("<pdffilepath>",<searchText>,<matchCase>[,<newwindow>, <setfocus>])]
+// DDE command  : Do a text search in document (from current page)
+// Format       : [TextSearch("<pdffilepath>",<searchText>,<matchCase>)]
+// eg.          : [TextSearch("c:\file.pdf","Text to Search", 1)]
 static const WCHAR* HandleTextSearchCmd(const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr pdfFile, searchText;
-    BOOL matchCase = 0, newWindow = 0, setFocus = 0;
-    const WCHAR* next = str::Parse(cmd, L"[TextSearch(\"%S\",\"%S\",%u)]", &pdfFile, &searchText, &matchCase);
-
-    // allow to omit the pdffile path, so that editors don't have to know about
-    // multi-file projects (requires that the PDF has already been opened)
-    if (!next) {
-        pdfFile.Reset();
-        next = str::Parse(cmd, L"[TextSearch(\"%S\",\"%S\",%u,%u,%u)]", &pdfFile, &searchText, &matchCase, &newWindow, &setFocus);
-    }
-
+    BOOL matchCase = 0;
+    const WCHAR* next = str::Parse(cmd, L"[TextSearch(\"%S\",%? \"%S\",%u)]", &pdfFile, &searchText, &matchCase);
     if (!next) {
         return nullptr;
     }
 
-    WindowInfo* win = nullptr;
-    // check if the PDF is already opened
-    win = FindWindowInfoByFile(pdfFile, !newWindow);
-    // if not then open it
-    if (newWindow || !win) {
-        LoadArgs args(pdfFile, !newWindow ? win : nullptr);
-        win = LoadDocument(args);
-    } else if (!win->IsDocLoaded()) {
-        ReloadDocument(win, false);
-    }
-
-
-    if (!win) { // || !win->currentTab || win->currentTab->GetEngineType() != kindEnginePdf) {
+    WindowInfo* win = FindWindowInfoByFile(pdfFile, true);
+    if (!win) {
         return next;
     }
-
-    DisplayModel* dm = win->AsFixed();
-
-    win::SetText(win->hwndFindBox, searchText);
-    Edit_SetModify(win->hwndFindBox, TRUE);
-
-    dm->textSearch->SetSensitive(matchCase);
-
-    FindTextOnThread(win, TextSearchDirection::Forward, true);
-    return next;
-}
-
-// DDE command to search foward
-// [TextSearch("<pdffilepath>",<Forward>])]
-static const WCHAR* HandleSearchAgainCmd(const WCHAR* cmd, DDEACK& ack) {
-    AutoFreeWstr pdfFile;
-    BOOL direction = 0, newWindow = 0;
-    const WCHAR* next = str::Parse(cmd, L"[SearchAgain(\"%S\",%u)]", &pdfFile, &direction);
-
-    if (!next) {
-        return nullptr;
-    }
-
-    WindowInfo* win = nullptr;
-    if (pdfFile) {
-        // check if the PDF is already opened
-        win = FindWindowInfoByFile(pdfFile, !newWindow);
+    if (!win->IsDocLoaded()) {
+        ReloadDocument(win, false);
         if (!win->IsDocLoaded()) {
-            ReloadDocument(win, false);
+            return next;
         }
     }
 
-    if (!win) { // || !win->currentTab || win->currentTab->GetEngineType() != kindEnginePdf) {
+    DisplayModel* dm = win->AsFixed();
+    if (dm) {
+        ClearSearchResult(win);
+        win::SetText(win->hwndFindBox, searchText);
+        Edit_SetModify(win->hwndFindBox, TRUE);
+        dm->textSearch->SetSensitive(matchCase);
+        FindTextOnThread(win, TextSearchDirection::Forward, true);
+    }
+
+    ack.fAck = 1;
+    return next;
+}
+
+// DDE command  : Repeats same text search (Forward or Backward), including same match case.
+// Note         : Needs an initial text search command using Sumatra interface or "TextSearch" DDE command
+// Format       : [TextSearchNext("<pdffilepath>",<Forward>])]
+// Note         : Use <Forward> = 1 for Search Forward or <Forward> = 0 for Backward
+// eg.          : [TextSearchNext("c:\file.pdf",1)]
+static const WCHAR* HandleTextSearchNextCmd(const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile;
+    BOOL direction = 0;
+    const WCHAR* next = str::Parse(cmd, L"[TextSearchNext(\"%S\",%u)]", &pdfFile, &direction);
+
+    if (!next) {
+        return nullptr;
+    }
+
+    WindowInfo* win = FindWindowInfoByFile(pdfFile, true);
+    if (!win) {
         return next;
+    }
+    if (!win->IsDocLoaded()) {
+        ReloadDocument(win, false);
+        if (!win->IsDocLoaded()) {
+            return next;
+        }
     }
 
     FindTextOnThread(win, direction ? TextSearchDirection::Forward : TextSearchDirection::Backward, true);
 
+    ack.fAck = 1;
     return next;
 }
 
@@ -926,7 +918,7 @@ static void HandleDdeCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
             nextCmd = HandleTextSearchCmd(cmd, ack);
         }
         if (!nextCmd) {
-            nextCmd = HandleSearchAgainCmd(cmd, ack);
+            nextCmd = HandleTextSearchNextCmd(cmd, ack);
         }
         if (!nextCmd) {
             nextCmd = HandleGotoCmd(cmd, ack);
@@ -996,4 +988,37 @@ LRESULT OnCopyData([[maybe_unused]] HWND hwnd, WPARAM wp, LPARAM lp) {
     DDEACK ack = {0};
     HandleDdeCmds(hwnd, cmd, ack);
     return ack.fAck ? TRUE : FALSE;
+}
+
+/* Auxiliary function to callback Plugin Host Window with a OnCopyData message
+ *  Based on SumatraLaunchBrowser function on SumatraPDF.cpp file
+ *  MCM 24-04-2016
+ */
+LRESULT PluginHostCopyData(const WCHAR* msg, ...) {
+    if (gPluginMode) {
+        CrashIf(gWindows.empty());
+        if (gWindows.empty())
+            return false;
+        HWND plugin = gWindows.at(0)->hwndFrame;
+        HWND parent = GetAncestor(plugin, GA_PARENT);
+        if (!parent)
+            return false;
+
+        // Format msg string with argment list
+        va_list args;
+
+        va_start(args, msg);
+        ScopedMem<WCHAR> MsgStr(str::FmtV(msg, args));
+        va_end(args);
+
+        // Converts MsgStr0 to UTF8
+        AutoFree MsgStrUTF8(strconv::WstrToUtf8(MsgStr));
+
+        // Prepare struct and send message to plugin Host Window
+        COPYDATASTRUCT cds = {0x1, // Message from SumatraPDF plugin
+                              (DWORD)MsgStrUTF8.size() + 1, MsgStrUTF8.Get()};
+        return SendMessage(parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
+    }
+
+    return 0;
 }

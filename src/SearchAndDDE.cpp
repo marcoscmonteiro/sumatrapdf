@@ -720,6 +720,10 @@ static const WCHAR* HandleTextSearchNextCmd(const WCHAR* cmd, DDEACK& ack) {
     return next;
 }
 
+// DDE command  : Send a message to application plugin host with current page and named destination.
+// Format       : [GetCurrentPage("<pdffilepath>")]
+// eg.          : [GetCurrentPage("c:\file.pdf")]
+// Note         : The message sent to application plugin host is [CurrentPage(<currentpage>,"<nameddest>")]
 static const WCHAR* HandleGetCurrentPageCmd(const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr pdfFile;
     BOOL direction = 0;

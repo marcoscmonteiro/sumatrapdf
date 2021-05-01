@@ -720,6 +720,33 @@ static const WCHAR* HandleTextSearchNextCmd(const WCHAR* cmd, DDEACK& ack) {
     return next;
 }
 
+static const WCHAR* HandleGetCurrentPageCmd(const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile;
+    BOOL direction = 0;
+    const WCHAR* next = str::Parse(cmd, L"[GetCurrentPage(\"%S\")]", &pdfFile, &direction);
+
+    if (!next) {
+        return nullptr;
+    }
+
+    WindowInfo* win = FindWindowInfoByFile(pdfFile, true);
+    if (!win) {
+        return next;
+    }
+    if (!win->IsDocLoaded()) {
+        ReloadDocument(win, false);
+        if (!win->IsDocLoaded()) {
+            return next;
+        }
+    }
+
+    const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
+    PluginHostCopyData(L"[CurrentPage(%d,\"%s\")]", win->currPageNo, pageLabel);
+
+    ack.fAck = 1;
+    return next;
+}
+
 // Open file DDE command, format:
 // [<DDECOMMAND_OPEN>("<pdffilepath>"[,<newwindow>,<setfocus>,<forcerefresh>])]
 static const WCHAR* HandleOpenCmd(const WCHAR* cmd, DDEACK& ack) {
@@ -930,6 +957,9 @@ static void HandleDdeCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
             nextCmd = HandleSetViewCmd(cmd, ack);
         }
         if (!nextCmd) {
+            nextCmd = HandleGetCurrentPageCmd(cmd, ack);
+        }
+        if (!nextCmd) {
             AutoFreeWstr tmp;
             nextCmd = str::Parse(cmd, L"%S]", &tmp);
         }
@@ -1022,3 +1052,5 @@ LRESULT PluginHostCopyData(const WCHAR* msg, ...) {
 
     return 0;
 }
+
+

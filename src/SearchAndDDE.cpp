@@ -807,7 +807,7 @@ static const WCHAR* HandleOpenCmd(const WCHAR* cmd, DDEACK& ack) {
     if (setFocus) {
         win->Focus();
     }
-
+    PluginHostCopyData(L"[FileOpen()]");
     return next;
 }
 

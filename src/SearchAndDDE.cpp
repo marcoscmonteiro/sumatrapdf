@@ -720,14 +720,13 @@ static const WCHAR* HandleTextSearchNextCmd(const WCHAR* cmd, DDEACK& ack) {
     return next;
 }
 
-// DDE command  : Send a message to application plugin host with current page and named destination.
-// Format       : [GetCurrentPage("<pdffilepath>")]
-// eg.          : [GetCurrentPage("c:\file.pdf")]
-// Note         : The message sent to application plugin host is [CurrentPage(<currentpage>,"<nameddest>")]
-static const WCHAR* HandleGetCurrentPageCmd(const WCHAR* cmd, DDEACK& ack) {
-    AutoFreeWstr pdfFile;
-    BOOL direction = 0;
-    const WCHAR* next = str::Parse(cmd, L"[GetCurrentPage(\"%S\")]", &pdfFile, &direction);
+// DDE command  : Send a message to application plugin host with requested property(ies)
+// Format       : [GetProperty("<pdffilepath>", "<ProperyName>")]
+// eg.          : [GetProperty("c:\file.pdf","CurrentPageAndNamedDest")]
+//                The message sent to application plugin host is [CurrentPage(<currentpage>,"<nameddest>")]
+static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile, PropertyName;
+    const WCHAR* next = str::Parse(cmd, L"[GetProperty(\"%S\",%? \"%S\")]", &pdfFile, &PropertyName);
 
     if (!next) {
         return nullptr;
@@ -744,12 +743,15 @@ static const WCHAR* HandleGetCurrentPageCmd(const WCHAR* cmd, DDEACK& ack) {
         }
     }
 
-    const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
-    PluginHostCopyData(L"[CurrentPage(%d,\"%s\")]", win->currPageNo, pageLabel);
+    if (str::Eq(PropertyName, L"CurrentPage")) {
+        const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
+        PluginHostCopyData(L"[CurrentPage(%d,\"%s\")]", win->currPageNo, pageLabel);
+    }
 
     ack.fAck = 1;
     return next;
 }
+
 
 // Open file DDE command, format:
 // [<DDECOMMAND_OPEN>("<pdffilepath>"[,<newwindow>,<setfocus>,<forcerefresh>])]
@@ -961,7 +963,7 @@ static void HandleDdeCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
             nextCmd = HandleSetViewCmd(cmd, ack);
         }
         if (!nextCmd) {
-            nextCmd = HandleGetCurrentPageCmd(cmd, ack);
+            nextCmd = HandleGetPropertyCmd(cmd, ack);
         }
         if (!nextCmd) {
             AutoFreeWstr tmp;
@@ -1049,7 +1051,7 @@ LRESULT PluginHostCopyData(const WCHAR* msg, ...) {
         AutoFree MsgStrUTF8(strconv::WstrToUtf8(MsgStr));
 
         // Prepare struct and send message to plugin Host Window
-        COPYDATASTRUCT cds = {0x1, // Message from SumatraPDF plugin
+        COPYDATASTRUCT cds = {0x44646557, /* DdeW */
                               (DWORD)MsgStrUTF8.size() + 1, MsgStrUTF8.Get()};
         return SendMessage(parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
     }

@@ -722,8 +722,8 @@ static const WCHAR* HandleTextSearchNextCmd(const WCHAR* cmd, DDEACK& ack) {
 
 // DDE command  : Send a message to application plugin host with requested property(ies)
 // Format       : [GetProperty("<pdffilepath>", "<ProperyName>")]
-// eg.          : [GetProperty("c:\file.pdf","CurrentPageAndNamedDest")]
-//                The message sent to application plugin host is [CurrentPage(<currentpage>,"<nameddest>")]
+// eg.          : [GetProperty("c:\file.pdf","Page")]
+//                In thi example, the message sent to application plugin host is [Page(<currentpage>,"<currentnameddest>")]
 static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr pdfFile, PropertyName;
     const WCHAR* next = str::Parse(cmd, L"[GetProperty(\"%S\",%? \"%S\")]", &pdfFile, &PropertyName);
@@ -743,12 +743,31 @@ static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
         }
     }
 
-    if (str::Eq(PropertyName, L"CurrentPage")) {
+    ack.fAck = 1;
+    if (str::Eq(PropertyName, L"Page")) {
         const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
-        PluginHostCopyData(L"[CurrentPage(%d,\"%s\")]", win->currPageNo, pageLabel);
+        PluginHostCopyData(L"[%s(%d,\"%s\")]", PropertyName.Get(), win->currPageNo, pageLabel);
+        return next;
     }
 
-    ack.fAck = 1;
+    if (str::Eq(PropertyName, L"DisplayMode")) {
+        PluginHostCopyData(L"[%s(\"%d\")]", PropertyName.Get(), win->ctrl->GetDisplayMode());
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"Zoom")) {
+        PluginHostCopyData(L"[%s(%f,%f)]", PropertyName.Get(), win->ctrl->GetZoomVirtual(true), win->ctrl->GetZoomVirtual(false));
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
+        DisplayModel* dm = win->AsFixed();
+        ScrollState ss = dm->GetScrollState();
+        PluginHostCopyData(L"[%s(%d,%d)]", PropertyName.Get(), ss.x, ss.y);
+        return next;
+    }
+
+    ack.fAck = 0;
     return next;
 }
 

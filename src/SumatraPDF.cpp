@@ -330,7 +330,7 @@ void SwitchToDisplayMode(WindowInfo* win, DisplayMode displayMode, bool keepCont
     win->ctrl->SetDisplayMode(displayMode, keepContinuous);
     UpdateToolbarState(win);
 
-    PluginHostCopyData(L"[DisplayModeChanged(%d,%d)]", displayMode, keepContinuous);
+    PluginHostCopyData(L"[DisplayModeChanged(%d)]", displayMode);
 }
 
 static bool IsWindowInfoHwnd(WindowInfo* win, HWND hwnd, HWND parent) {

@@ -733,15 +733,70 @@ static const WCHAR* HandleSetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     if (!next) return nullptr;
 
     if (str::Eq(PropertyName, L"ToolbarVisible")) {
-        ack.fAck = 1;
-        if ((!gGlobalPrefs->showToolbar && str::Eq(PropertyValue, L"1")) || (gGlobalPrefs->showToolbar && str::Eq(PropertyValue, L"0"))) {      
+        ack.fAck = 1;        
+        if (!str::Eq(PropertyValue, L"0") != gGlobalPrefs->showToolbar) {      
             gGlobalPrefs->showToolbar = !gGlobalPrefs->showToolbar;
             for (WindowInfo* win : gWindows) {
                 ShowOrHideToolbar(win);
             }
         }
+        return next;
+    }
+
+    WindowInfo* win = FindWindowInfoByFile(pdfFile, true);
+    if (!win) {
+        return next;
+    }
+    if (!win->IsDocLoaded()) {
+        ReloadDocument(win, false);
+        if (!win->IsDocLoaded()) {
+            return next;
+        }
+    }
+
+    ack.fAck = 1;
+    if (str::Eq(PropertyName, L"TocVisible")) {
+        if (!str::Eq(PropertyValue, L"0") != win->tocVisible) {
+            win->tocVisible = !win->tocVisible;
+            SetSidebarVisibility(win, win->tocVisible, gGlobalPrefs->showFavorites);            
+        }
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"DisplayMode")) {
+        //AutoFreeStr viewModeWstr = strconv::WstrToUtf8(PropertyValue);
+        // DisplayMode mode = DisplayModeFromString(viewModeWstr.Get(), DisplayMode::Automatic);
+        DisplayMode mode = DisplayMode::Automatic;
+        str::Parse(PropertyValue.Get(), L"%u", &mode);        
+        if (mode != DisplayMode::Automatic) {
+            SwitchToDisplayMode(win, mode);
+        }
+        return next;
     }
     
+    if (str::Eq(PropertyName, L"Zoom")) {
+        float zoom = INVALID_ZOOM;
+        str::Parse(PropertyValue.Get(), L"%f", &zoom); 
+        if (zoom != INVALID_ZOOM) {
+            ZoomToSelection(win, zoom);
+        }
+        return next;
+    }
+    
+    if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
+        Point scroll(-1, -1);
+        str::Parse(PropertyValue.Get(), L"%d,%d", &scroll.x, &scroll.y); 
+        if ((scroll.x != -1 || scroll.y != -1) && win->AsFixed()) {
+            DisplayModel* dm = win->AsFixed();
+            ScrollState ss = dm->GetScrollState();
+            ss.x = scroll.x;
+            ss.y = scroll.y;
+            dm->SetScrollState(ss);
+        }
+        return next;
+    }
+
+    ack.fAck = 0;
     return next;
     
 }
@@ -776,6 +831,11 @@ static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     }
 
     ack.fAck = 1;
+    if (str::Eq(PropertyName, L"TocVisible")) {
+        PluginHostCopyData(L"[%s(%d)]", PropertyName.Get(), win->tocVisible);
+        return next;
+    }
+
     if (str::Eq(PropertyName, L"Page")) {
         const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
         PluginHostCopyData(L"[%s(%d,\"%s\")]", PropertyName.Get(), win->currPageNo, pageLabel);
@@ -783,7 +843,7 @@ static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     }
 
     if (str::Eq(PropertyName, L"DisplayMode")) {
-        PluginHostCopyData(L"[%s(\"%d\")]", PropertyName.Get(), win->ctrl->GetDisplayMode());
+        PluginHostCopyData(L"[%s(%d)]", PropertyName.Get(), win->ctrl->GetDisplayMode());
         return next;
     }
 

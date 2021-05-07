@@ -39,6 +39,7 @@
 #include "Selection.h"
 #include "SumatraDialogs.h"
 #include "Translations.h"
+#include <Toolbar.h>
 
 // open file command
 //  format: [Open("<pdffilepath>"[,<newwindow>,<setfocus>,<forcerefresh>])]
@@ -720,16 +721,47 @@ static const WCHAR* HandleTextSearchNextCmd(const WCHAR* cmd, DDEACK& ack) {
     return next;
 }
 
+// DDE command  : Set a Sumatra propery from application plugin host 
+// Format       : [SetProperty("<pdffilepath>", "<ProperyName>", "value")]
+// eg.          : [SetProperty("c:\file.pdf","ToolbarVisible","1")]
+//                In this example, the Toolbar is set to be shown
+static const WCHAR* HandleSetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile, PropertyName, PropertyValue;
+    const WCHAR* next =
+        str::Parse(cmd, L"[SetProperty(\"%S\",%? \"%S\",%? \"%S\")]", &pdfFile, &PropertyName, &PropertyValue);
+
+    if (!next) return nullptr;
+
+    if (str::Eq(PropertyName, L"ToolbarVisible")) {
+        ack.fAck = 1;
+        if ((!gGlobalPrefs->showToolbar && str::Eq(PropertyValue, L"1")) || (gGlobalPrefs->showToolbar && str::Eq(PropertyValue, L"0"))) {      
+            gGlobalPrefs->showToolbar = !gGlobalPrefs->showToolbar;
+            for (WindowInfo* win : gWindows) {
+                ShowOrHideToolbar(win);
+            }
+        }
+    }
+    
+    return next;
+    
+}
+
 // DDE command  : Send a message to application plugin host with requested property(ies)
 // Format       : [GetProperty("<pdffilepath>", "<ProperyName>")]
 // eg.          : [GetProperty("c:\file.pdf","Page")]
-//                In thi example, the message sent to application plugin host is [Page(<currentpage>,"<currentnameddest>")]
+//                In this example, the message sent to application plugin host is [Page(<currentpage>,"<currentnameddest>")]
 static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr pdfFile, PropertyName;
     const WCHAR* next = str::Parse(cmd, L"[GetProperty(\"%S\",%? \"%S\")]", &pdfFile, &PropertyName);
 
     if (!next) {
         return nullptr;
+    }
+
+    if (str::Eq(PropertyName, L"ToolbarVisible")) {
+        PluginHostCopyData(L"[%s(%d)]", PropertyName.Get(), gGlobalPrefs->showToolbar);
+        ack.fAck = 1;
+        return next;
     }
 
     WindowInfo* win = FindWindowInfoByFile(pdfFile, true);
@@ -983,6 +1015,9 @@ static void HandleDdeCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
         }
         if (!nextCmd) {
             nextCmd = HandleGetPropertyCmd(cmd, ack);
+        }
+        if (!nextCmd) {
+            nextCmd = HandleSetPropertyCmd(cmd, ack);
         }
         if (!nextCmd) {
             AutoFreeWstr tmp;

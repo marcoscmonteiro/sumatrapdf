@@ -895,7 +895,7 @@ pdf_set_annot_rect(fz_context *ctx, pdf_annot *annot, fz_rect rect)
 {
 	fz_matrix page_ctm, inv_page_ctm;
 
-	pdf_begin_operation(ctx, annot->page->doc, "Set Annotation Rectangle");
+	pdf_begin_operation(ctx, annot->page->doc, "Set rectangle");
 
 	fz_try(ctx)
 	{
@@ -2533,8 +2533,9 @@ pdf_parse_default_appearance(fz_context *ctx, const char *da, const char **font,
 		}
 		else
 		{
+			float v = fz_strtof(tok, &end);
 			if (top < 3)
-				stack[top] = fz_strtof(tok, &end);
+				stack[top] = v;
 			if (*end == 0)
 				++top;
 			else

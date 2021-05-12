@@ -732,17 +732,6 @@ static const WCHAR* HandleSetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
 
     if (!next) return nullptr;
 
-    if (str::Eq(PropertyName, L"ToolbarVisible")) {
-        ack.fAck = 1;        
-        if (!str::Eq(PropertyValue, L"0") != gGlobalPrefs->showToolbar) {      
-            gGlobalPrefs->showToolbar = !gGlobalPrefs->showToolbar;
-            for (WindowInfo* win : gWindows) {
-                ShowOrHideToolbar(win);
-            }
-        }
-        return next;
-    }
-
     WindowInfo* win = FindWindowInfoByFile(pdfFile, true);
     if (!win) {
         return next;
@@ -755,6 +744,12 @@ static const WCHAR* HandleSetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     }
 
     ack.fAck = 1;
+    if (str::Eq(PropertyName, L"ToolbarVisible")) {        
+        gGlobalPrefs->showToolbar = !str::Eq(PropertyValue, L"0");
+        ShowOrHideToolbar(win);
+        return next;
+    }
+    
     if (str::Eq(PropertyName, L"TocVisible")) {
         if (!str::Eq(PropertyValue, L"0") != win->tocVisible) {
             win->tocVisible = !win->tocVisible;
@@ -809,20 +804,11 @@ static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr pdfFile, PropertyName;
     const WCHAR* next = str::Parse(cmd, L"[GetProperty(\"%S\",%? \"%S\")]", &pdfFile, &PropertyName);
 
-    if (!next) {
-        return nullptr;
-    }
-
-    if (str::Eq(PropertyName, L"ToolbarVisible")) {
-        PluginHostCopyData(L"[%s(%d)]", PropertyName.Get(), gGlobalPrefs->showToolbar);
-        ack.fAck = 1;
-        return next;
-    }
+    if (!next) return nullptr;
 
     WindowInfo* win = FindWindowInfoByFile(pdfFile, true);
-    if (!win) {
-        return next;
-    }
+    if (!win) return next;
+  
     if (!win->IsDocLoaded()) {
         ReloadDocument(win, false);
         if (!win->IsDocLoaded()) {
@@ -831,31 +817,39 @@ static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     }
 
     ack.fAck = 1;
+
+    if (str::Eq(PropertyName, L"ToolbarVisible")) {
+        PluginHostCopyData(win->hwndFrame, L"[%s(%d)]", PropertyName.Get(),
+                           IsWindowStyleSet(win->hwndReBar, WS_VISIBLE));
+        return next;
+    }
+    
     if (str::Eq(PropertyName, L"TocVisible")) {
-        PluginHostCopyData(L"[%s(%d)]", PropertyName.Get(), win->tocVisible);
+        PluginHostCopyData(win->hwndFrame, L"[%s(%d)]", PropertyName.Get(), win->tocVisible);
         return next;
     }
 
     if (str::Eq(PropertyName, L"Page")) {
         const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
-        PluginHostCopyData(L"[%s(%d,\"%s\")]", PropertyName.Get(), win->currPageNo, pageLabel);
+        PluginHostCopyData(win->hwndFrame, L"[%s(%d,\"%s\")]", PropertyName.Get(), win->currPageNo, pageLabel);
         return next;
     }
 
     if (str::Eq(PropertyName, L"DisplayMode")) {
-        PluginHostCopyData(L"[%s(%d)]", PropertyName.Get(), win->ctrl->GetDisplayMode());
+        PluginHostCopyData(win->hwndFrame, L"[%s(%d)]", PropertyName.Get(), win->ctrl->GetDisplayMode());
         return next;
     }
 
     if (str::Eq(PropertyName, L"Zoom")) {
-        PluginHostCopyData(L"[%s(%f,%f)]", PropertyName.Get(), win->ctrl->GetZoomVirtual(true), win->ctrl->GetZoomVirtual(false));
+        PluginHostCopyData(win->hwndFrame, L"[%s(%f,%f)]", PropertyName.Get(), win->ctrl->GetZoomVirtual(true),
+                           win->ctrl->GetZoomVirtual(false));
         return next;
     }
 
     if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
         DisplayModel* dm = win->AsFixed();
         ScrollState ss = dm->GetScrollState();
-        PluginHostCopyData(L"[%s(%d,%d)]", PropertyName.Get(), ss.x, ss.y);
+        PluginHostCopyData(win->hwndFrame, L"[%s(%d,%d)]", PropertyName.Get(), ss.x, ss.y);
         return next;
     }
 
@@ -920,7 +914,7 @@ static const WCHAR* HandleOpenCmd(const WCHAR* cmd, DDEACK& ack) {
     if (setFocus) {
         win->Focus();
     }
-    PluginHostCopyData(L"[FileOpen()]");
+    PluginHostCopyData(win->hwndFrame, L"[FileOpen()]");
     return next;
 }
 
@@ -1043,6 +1037,51 @@ static const WCHAR* HandleSetViewCmd(const WCHAR* cmd, DDEACK& ack) {
     return next;
 }
 
+void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
+    CrashIf(!IsWindow(hwndParent));
+    CrashIf(!gPluginMode);
+
+    auto hwndFrame = win->hwndFrame;
+    long ws = GetWindowLong(hwndFrame, GWL_STYLE);
+    ws &= ~(WS_POPUP | WS_BORDER | WS_CAPTION | WS_THICKFRAME);
+    ws |= WS_CHILD;
+    SetWindowLong(hwndFrame, GWL_STYLE, ws);
+
+    SetParent(hwndFrame, hwndParent);
+    MoveWindow(hwndFrame, ClientRect(hwndParent));
+    ShowWindow(hwndFrame, SW_SHOW);
+    UpdateWindow(hwndFrame);
+
+    // from here on, we depend on the plugin's host to resize us
+    SetFocus(hwndFrame);
+}
+
+// Open file DDE command, format:
+// [<DDECOMMAND_OPEN>("<pdffilepath>"[,<newwindow>,<setfocus>,<forcerefresh>])]
+static const WCHAR* HandleOpenPluginWindowCmd(const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile, hwndPluginParentStr;
+    HWND hwndPluginParent;
+    const WCHAR* next = str::Parse(cmd, L"[OpenPluginWindow(\"%S\",%? \"%S\")]", &pdfFile, &hwndPluginParentStr);
+
+    if (!next)
+        return nullptr;
+
+    hwndPluginParent = (HWND)(INT_PTR)_wtol(hwndPluginParentStr.Get());
+
+    WindowInfo* win = nullptr;
+    LoadArgs args(pdfFile, win);
+    win = LoadDocument(args);
+    MakePluginWindow(win, hwndPluginParent);
+    if (!win)
+        return next;
+
+    ack.fAck = 1;
+    win->Focus();
+
+    PluginHostCopyData(win->hwndFrame, L"[FileOpenPluginWindow()]");
+    return next;
+}
+
 static void HandleDdeCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
     if (str::IsEmpty(cmd)) {
         return;
@@ -1079,6 +1118,9 @@ static void HandleDdeCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
         if (!nextCmd) {
             nextCmd = HandleSetPropertyCmd(cmd, ack);
         }
+        if (!nextCmd) {
+            nextCmd = HandleOpenPluginWindowCmd(cmd, ack);
+        }        
         if (!nextCmd) {
             AutoFreeWstr tmp;
             nextCmd = str::Parse(cmd, L"%S]", &tmp);
@@ -1144,33 +1186,34 @@ LRESULT OnCopyData([[maybe_unused]] HWND hwnd, WPARAM wp, LPARAM lp) {
  *  Based on SumatraLaunchBrowser function on SumatraPDF.cpp file
  *  MCM 24-04-2016
  */
-LRESULT PluginHostCopyData(const WCHAR* msg, ...) {
-    if (gPluginMode) {
+LRESULT PluginHostCopyData(HWND hwndFrame, const WCHAR* msg, ...) {
+    if (!gPluginMode) return false;
+
+    HWND plugin = hwndFrame;
+    if (plugin == 0) {        
         CrashIf(gWindows.empty());
-        if (gWindows.empty())
-            return false;
-        HWND plugin = gWindows.at(0)->hwndFrame;
-        HWND parent = GetAncestor(plugin, GA_PARENT);
-        if (!parent)
-            return false;
-
-        // Format msg string with argment list
-        va_list args;
-
-        va_start(args, msg);
-        ScopedMem<WCHAR> MsgStr(str::FmtV(msg, args));
-        va_end(args);
-
-        // Converts MsgStr0 to UTF8
-        AutoFree MsgStrUTF8(strconv::WstrToUtf8(MsgStr));
-
-        // Prepare struct and send message to plugin Host Window
-        COPYDATASTRUCT cds = {0x44646557, /* DdeW */
-                              (DWORD)MsgStrUTF8.size() + 1, MsgStrUTF8.Get()};
-        return SendMessage(parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
+        if (gWindows.empty()) return false;
+        plugin = gWindows.at(0)->hwndFrame;        
     }
 
-    return 0;
+    HWND parent = GetAncestor(plugin, GA_PARENT);
+
+    if (!parent) return false;
+
+    // Format msg string with argment list
+    va_list args;
+
+    va_start(args, msg);
+    ScopedMem<WCHAR> MsgStr(str::FmtV(msg, args));
+    va_end(args);
+
+    // Converts MsgStr0 to UTF8
+    AutoFree MsgStrUTF8(strconv::WstrToUtf8(MsgStr));
+
+    // Prepare struct and send message to plugin Host Window
+    COPYDATASTRUCT cds = {0x44646557, /* DdeW */
+                            (DWORD)MsgStrUTF8.size() + 1, MsgStrUTF8.Get()};
+    return SendMessage(parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
 }
 
 

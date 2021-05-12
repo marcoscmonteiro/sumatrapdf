@@ -8,7 +8,7 @@ LRESULT OnDDEInitiate(HWND hwnd, WPARAM wp, LPARAM lp);
 LRESULT OnDDExecute(HWND hwnd, WPARAM wp, LPARAM lp);
 LRESULT OnDDETerminate(HWND hwnd, WPARAM wp, LPARAM lp);
 LRESULT OnCopyData(HWND hwnd, WPARAM wp, LPARAM lp);
-LRESULT PluginHostCopyData(const WCHAR* msg, ...);
+LRESULT PluginHostCopyData(HWND hwndFrame, const WCHAR* msg, ...);
 
 #define HIDE_FWDSRCHMARK_TIMER_ID 4
 #define HIDE_FWDSRCHMARK_DELAY_IN_MS 400
@@ -31,3 +31,5 @@ void FindTextOnThread(WindowInfo* win, TextSearchDirection direction, bool showP
 
 extern bool gIsStartup;
 extern WStrVec gDdeOpenOnStartup;
+
+void MakePluginWindow(WindowInfo* win, HWND hwndParent);

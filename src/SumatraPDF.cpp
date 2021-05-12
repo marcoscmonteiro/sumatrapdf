@@ -330,7 +330,7 @@ void SwitchToDisplayMode(WindowInfo* win, DisplayMode displayMode, bool keepCont
     win->ctrl->SetDisplayMode(displayMode, keepContinuous);
     UpdateToolbarState(win);
 
-    PluginHostCopyData(L"[DisplayModeChanged(%d)]", displayMode);
+    PluginHostCopyData(win->hwndFrame, L"[DisplayModeChanged(%d)]", displayMode);
 }
 
 static bool IsWindowInfoHwnd(WindowInfo* win, HWND hwnd, HWND parent) {
@@ -899,7 +899,7 @@ void ControllerCallbackHandler::PageNoChanged(Controller* ctrl, int pageNo) {
     
     /* Sends a message to plugin host window telling page changed - MCM 24-04-2016 */
     const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(pageNo) : L"";
-    PluginHostCopyData(L"[PageChanged(%d,\"%s\")]", pageNo, pageLabel);
+    PluginHostCopyData(win->hwndFrame, L"[PageChanged(%d,\"%s\")]", pageNo, pageLabel);
 
     NotificationWnd* wnd = win->notifications->GetForGroup(NG_PAGE_INFO_HELPER);
     if (wnd) {
@@ -3977,7 +3977,8 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
     }
 
     /* Sends a message to plugin host window telling key pressed - MCM 24-04-2016 */
-    if (PluginHostCopyData(L"[KeyPressed(%i)]", key) == 1) return;
+    if (PluginHostCopyData(win->hwndFrame, L"[KeyPressed(%i)]", key) == 1)
+        return;
 
     switch (key) {
         case VK_ESCAPE:

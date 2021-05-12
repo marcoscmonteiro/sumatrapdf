@@ -149,6 +149,7 @@ void FileExistenceChecker::Run() {
     });
 }
 
+/* // Moved to SearchAndDDE.cpp
 static void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     CrashIf(!IsWindow(hwndParent));
     CrashIf(!gPluginMode);
@@ -167,6 +168,7 @@ static void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     // from here on, we depend on the plugin's host to resize us
     SetFocus(hwndFrame);
 }
+*/
 
 static bool RegisterWinClass() {
     WNDCLASSEX wcex;
@@ -1100,7 +1102,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, [[maybe_unused]] HINSTANCE hPrevInstan
     }
 
     gIsStartup = false;
-    PluginHostCopyData(L"[StartupFinished()]");
+    PluginHostCopyData(win->hwndFrame, L"[StartupFinished()]");
 
     if (i.fileNames.size() > 0 && !win) {
         // failed to create any window, even though there

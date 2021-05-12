@@ -252,7 +252,8 @@ void ZoomToSelection(WindowInfo* win, float factor, bool scrollToFit, bool relat
     win->ctrl->SetZoomVirtual(factor * (relative ? win->ctrl->GetZoomVirtual(true) : 1), zoomToPt ? &pt : nullptr);
 
     /* Sends a message to plugin host window telling Zoom changed - MCM 24-04-2016 */
-    PluginHostCopyData(L"[ZoomChanged(%f,%f)]", win->ctrl->GetZoomVirtual(true), win->ctrl->GetZoomVirtual(false));
+    PluginHostCopyData(win->hwndFrame, L"[ZoomChanged(%f,%f)]", win->ctrl->GetZoomVirtual(true),
+                       win->ctrl->GetZoomVirtual(false));
 
     UpdateToolbarState(win);
 }

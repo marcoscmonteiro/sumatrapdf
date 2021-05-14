@@ -1715,12 +1715,10 @@ WindowInfo* LoadDocument(LoadArgs& args) {
         WCHAR* msg = str::Format(_TR("Error loading %s"), fullPath.Get());
         win->ShowNotification(msg, NOS_HIGHLIGHT);
         str::Free(msg);
-        //if (args.showWin) {
-            ShowWindow(win->hwndFrame, SW_SHOW);
+        ShowWindow(win->hwndFrame, SW_SHOW);
 
-            // display the notification ASAP (prefs::Save() can introduce a notable delay)
-            win->RedrawAll(true);
-        //}
+        // display the notification ASAP (prefs::Save() can introduce a notable delay)
+        win->RedrawAll(true);
 
         if (gFileHistory.MarkFileInexistent(fullPath)) {
             // TODO: handle this better. see https://github.com/sumatrapdfreader/sumatrapdf/issues/1674

@@ -330,7 +330,7 @@ void SwitchToDisplayMode(WindowInfo* win, DisplayMode displayMode, bool keepCont
     win->ctrl->SetDisplayMode(displayMode, keepContinuous);
     UpdateToolbarState(win);
 
-    PluginHostCopyData(win->hwndFrame, L"[DisplayModeChanged(%d)]", displayMode);
+    PluginHostCopyData(win, L"[DisplayModeChanged(%d)]", displayMode);
 }
 
 static bool IsWindowInfoHwnd(WindowInfo* win, HWND hwnd, HWND parent) {
@@ -899,7 +899,7 @@ void ControllerCallbackHandler::PageNoChanged(Controller* ctrl, int pageNo) {
     
     /* Sends a message to plugin host window telling page changed - MCM 24-04-2016 */
     const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(pageNo) : L"";
-    PluginHostCopyData(win->hwndFrame, L"[PageChanged(%d,\"%s\")]", pageNo, pageLabel);
+    PluginHostCopyData(win, L"[PageChanged(%d,\"%s\")]", pageNo, pageLabel);
 
     NotificationWnd* wnd = win->notifications->GetForGroup(NG_PAGE_INFO_HELPER);
     if (wnd) {
@@ -1715,10 +1715,12 @@ WindowInfo* LoadDocument(LoadArgs& args) {
         WCHAR* msg = str::Format(_TR("Error loading %s"), fullPath.Get());
         win->ShowNotification(msg, NOS_HIGHLIGHT);
         str::Free(msg);
-        ShowWindow(win->hwndFrame, SW_SHOW);
+        //if (args.showWin) {
+            ShowWindow(win->hwndFrame, SW_SHOW);
 
-        // display the notification ASAP (prefs::Save() can introduce a notable delay)
-        win->RedrawAll(true);
+            // display the notification ASAP (prefs::Save() can introduce a notable delay)
+            win->RedrawAll(true);
+        //}
 
         if (gFileHistory.MarkFileInexistent(fullPath)) {
             // TODO: handle this better. see https://github.com/sumatrapdfreader/sumatrapdf/issues/1674
@@ -3977,7 +3979,7 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
     }
 
     /* Sends a message to plugin host window telling key pressed - MCM 24-04-2016 */
-    if (PluginHostCopyData(win->hwndFrame, L"[KeyPressed(%i)]", key) == 1)
+    if (PluginHostCopyData(win, L"[KeyPressed(%i)]", key) == 1)
         return;
 
     switch (key) {

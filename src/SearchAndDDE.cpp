@@ -819,29 +819,29 @@ static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     ack.fAck = 1;
 
     if (str::Eq(PropertyName, L"ToolbarVisible")) {
-        PluginHostCopyData(win->hwndFrame, L"[%s(%d)]", PropertyName.Get(),
+        PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(),
                            IsWindowStyleSet(win->hwndReBar, WS_VISIBLE));
         return next;
     }
     
     if (str::Eq(PropertyName, L"TocVisible")) {
-        PluginHostCopyData(win->hwndFrame, L"[%s(%d)]", PropertyName.Get(), win->tocVisible);
+        PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(), win->tocVisible);
         return next;
     }
 
     if (str::Eq(PropertyName, L"Page")) {
         const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
-        PluginHostCopyData(win->hwndFrame, L"[%s(%d,\"%s\")]", PropertyName.Get(), win->currPageNo, pageLabel);
+        PluginHostCopyData(win, L"[%s(%d,\"%s\")]", PropertyName.Get(), win->currPageNo, pageLabel);
         return next;
     }
 
     if (str::Eq(PropertyName, L"DisplayMode")) {
-        PluginHostCopyData(win->hwndFrame, L"[%s(%d)]", PropertyName.Get(), win->ctrl->GetDisplayMode());
+        PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(), win->ctrl->GetDisplayMode());
         return next;
     }
 
     if (str::Eq(PropertyName, L"Zoom")) {
-        PluginHostCopyData(win->hwndFrame, L"[%s(%f,%f)]", PropertyName.Get(), win->ctrl->GetZoomVirtual(true),
+        PluginHostCopyData(win, L"[%s(%f,%f)]", PropertyName.Get(), win->ctrl->GetZoomVirtual(true),
                            win->ctrl->GetZoomVirtual(false));
         return next;
     }
@@ -849,7 +849,7 @@ static const WCHAR* HandleGetPropertyCmd(const WCHAR* cmd, DDEACK& ack) {
     if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
         DisplayModel* dm = win->AsFixed();
         ScrollState ss = dm->GetScrollState();
-        PluginHostCopyData(win->hwndFrame, L"[%s(%d,%d)]", PropertyName.Get(), ss.x, ss.y);
+        PluginHostCopyData(win, L"[%s(%d,%d)]", PropertyName.Get(), ss.x, ss.y);
         return next;
     }
 
@@ -914,7 +914,7 @@ static const WCHAR* HandleOpenCmd(const WCHAR* cmd, DDEACK& ack) {
     if (setFocus) {
         win->Focus();
     }
-    PluginHostCopyData(win->hwndFrame, L"[FileOpen()]");
+    PluginHostCopyData(win, L"[FileOpen()]");
     return next;
 }
 
@@ -1039,7 +1039,7 @@ static const WCHAR* HandleSetViewCmd(const WCHAR* cmd, DDEACK& ack) {
 
 void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     CrashIf(!IsWindow(hwndParent));
-    CrashIf(!gPluginMode);
+    CrashIf(!gPluginMode);   
 
     auto hwndFrame = win->hwndFrame;
     long ws = GetWindowLong(hwndFrame, GWL_STYLE);
@@ -1048,7 +1048,7 @@ void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     SetWindowLong(hwndFrame, GWL_STYLE, ws);
 
     SetParent(hwndFrame, hwndParent);
-    MoveWindow(hwndFrame, ClientRect(hwndParent));
+    MoveWindow(hwndFrame, ClientRect(hwndParent));    
     ShowWindow(hwndFrame, SW_SHOW);
     UpdateWindow(hwndFrame);
 
@@ -1063,22 +1063,27 @@ static const WCHAR* HandleOpenPluginWindowCmd(const WCHAR* cmd, DDEACK& ack) {
     HWND hwndPluginParent;
     const WCHAR* next = str::Parse(cmd, L"[OpenPluginWindow(\"%S\",%? \"%S\")]", &pdfFile, &hwndPluginParentStr);
 
-    if (!next)
-        return nullptr;
+    if (!next) return nullptr;
 
     hwndPluginParent = (HWND)(INT_PTR)_wtol(hwndPluginParentStr.Get());
 
-    WindowInfo* win = nullptr;
-    LoadArgs args(pdfFile, win);
-    win = LoadDocument(args);
+    LoadArgs args(pdfFile, nullptr);
+    args.showWin = false;
+    
+    WindowInfo* win = LoadDocument(args);    
     MakePluginWindow(win, hwndPluginParent);
-    if (!win)
-        return next;
+
+    // Resize ParentWindow to same size to force adjust of SumatraPDF plugin window
+    RECT ParentRect;
+    GetWindowRect(hwndPluginParent, &ParentRect);
+    ResizeWindow(hwndPluginParent, ParentRect.right - ParentRect.left, ParentRect.top - ParentRect.bottom);
+
+    // By default show toolbar
+    gGlobalPrefs->showToolbar = true;
+    ShowOrHideToolbar(win);
 
     ack.fAck = 1;
-    win->Focus();
-
-    PluginHostCopyData(win->hwndFrame, L"[FileOpenPluginWindow()]");
+    PluginHostCopyData(win, L"[FileOpenPluginWindow()]");
     return next;
 }
 
@@ -1186,10 +1191,10 @@ LRESULT OnCopyData([[maybe_unused]] HWND hwnd, WPARAM wp, LPARAM lp) {
  *  Based on SumatraLaunchBrowser function on SumatraPDF.cpp file
  *  MCM 24-04-2016
  */
-LRESULT PluginHostCopyData(HWND hwndFrame, const WCHAR* msg, ...) {
-    if (!gPluginMode) return false;
+LRESULT PluginHostCopyData(WindowInfo* win, const WCHAR* msg, ...) {
+    if (!gPluginMode || !win) return false;
 
-    HWND plugin = hwndFrame;
+    HWND plugin = win->hwndFrame;
     if (plugin == 0) {        
         CrashIf(gWindows.empty());
         if (gWindows.empty()) return false;

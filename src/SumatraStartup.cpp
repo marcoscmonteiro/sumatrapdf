@@ -1102,7 +1102,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, [[maybe_unused]] HINSTANCE hPrevInstan
     }
 
     gIsStartup = false;
-    PluginHostCopyData(win->hwndFrame, L"[StartupFinished()]");
+    PluginHostCopyData(win, L"[StartupFinished()]");
 
     if (i.fileNames.size() > 0 && !win) {
         // failed to create any window, even though there

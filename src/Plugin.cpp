@@ -1,0 +1,317 @@
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/FileUtil.h"
+#include "utils/UITask.h"
+#include "utils/WinUtil.h"
+#include "utils/Log.h"
+#include "wingui/TreeModel.h"
+
+#include "Annotation.h"
+#include "EngineBase.h"
+#include "DisplayMode.h"
+#include "SettingsStructs.h"
+#include "Controller.h"
+#include "GlobalPrefs.h"
+#include "DisplayModel.h"
+#include "ProgressUpdateUI.h"
+#include "TextSelection.h"
+#include "TextSearch.h"
+#include "Notifications.h"
+#include "SumatraPDF.h"
+#include "WindowInfo.h"
+#include "SearchAndDDE.h"
+#include "Selection.h"
+#include "Toolbar.h"
+
+/* Auxiliary function to callback Plugin Host Window with a OnCopyData message
+ *  Based on SumatraLaunchBrowser function on SumatraPDF.cpp file
+ *  MCM 24-04-2016
+ */
+LRESULT PluginHostCopyData(WindowInfo* win, const WCHAR* msg, ...) {
+    if (!gPluginMode || !win)
+        return false;
+
+    HWND plugin = win->hwndFrame;
+    if (plugin == 0) {
+        CrashIf(gWindows.empty());
+        if (gWindows.empty())
+            return false;
+        plugin = gWindows.at(0)->hwndFrame;
+    }
+
+    HWND parent = GetAncestor(plugin, GA_PARENT);
+
+    if (!parent)
+        return false;
+
+    // Format msg string with argment list
+    va_list args;
+
+    va_start(args, msg);
+    ScopedMem<WCHAR> MsgStr(str::FmtV(msg, args));
+    va_end(args);
+
+    // Converts MsgStr0 to UTF8
+    AutoFree MsgStrUTF8(strconv::WstrToUtf8(MsgStr));
+
+    // Prepare struct and send message to plugin Host Window
+    COPYDATASTRUCT cds = {0x44646558, /* Message to/from SumatraPDF Plugin */
+                          (DWORD)MsgStrUTF8.size() + 1, MsgStrUTF8.Get()};
+    return SendMessage(parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
+}
+
+void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
+    CrashIf(!IsWindow(hwndParent));
+    CrashIf(!gPluginMode);
+
+    auto hwndFrame = win->hwndFrame;
+    long ws = GetWindowLong(hwndFrame, GWL_STYLE);
+    ws &= ~(WS_POPUP | WS_BORDER | WS_CAPTION | WS_THICKFRAME);
+    ws |= WS_CHILD;
+    SetWindowLong(hwndFrame, GWL_STYLE, ws);
+
+    SetParent(hwndFrame, hwndParent);
+    MoveWindow(hwndFrame, ClientRect(hwndParent));
+    ShowWindow(hwndFrame, SW_SHOW);
+    UpdateWindow(hwndFrame);
+
+    // from here on, we depend on the plugin's host to resize us
+    SetFocus(hwndFrame);
+}
+
+// Open file new file in plugin mode
+static const WCHAR* HandleOpenPluginWindowCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr pdfFile, hwndPluginParentStr;
+    HWND hwndPluginParent;
+    const WCHAR* next = str::Parse(cmd, L"[OpenPluginWindow(\"%S\",%? \"%S\")]", &pdfFile, &hwndPluginParentStr);
+    if (!next) return nullptr;
+
+    hwndPluginParent = (HWND)(INT_PTR)_wtol(hwndPluginParentStr.Get());
+
+    WindowInfo* newWin = nullptr;
+
+    if (!hwndPluginParent) {
+        LoadArgs args(pdfFile, win);
+        args.showWin = true;
+        newWin = LoadDocument(args);
+    } else {
+        LoadArgs args(pdfFile, nullptr);
+        args.showWin = false;
+
+        newWin = LoadDocument(args);
+        MakePluginWindow(newWin, hwndPluginParent);
+
+        // Resize ParentWindow to same size to force adjust of SumatraPDF plugin window
+        RECT ParentRect;
+        GetWindowRect(hwndPluginParent, &ParentRect);
+        ResizeWindow(hwndPluginParent, ParentRect.right - ParentRect.left, ParentRect.top - ParentRect.bottom);
+
+        // By default show toolbar
+        gGlobalPrefs->showToolbar = true;
+        ShowOrHideToolbar(newWin);
+    }
+
+    ack.fAck = 1;
+    PluginHostCopyData(newWin, L"[FileOpenPluginWindow()]");
+    return next;
+}
+
+// DDE command  : Send a message to application plugin host with requested property(ies)
+// Format       : [GetProperty("<ProperyName>")]
+// eg.          : [GetProperty("Page")]
+//                In this example, the message sent to application plugin host is
+//                [Page(<currentpage>,"<currentnameddest>")]
+static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr PropertyName;
+    const WCHAR* next = str::Parse(cmd, L"[GetProperty(\"%S\")]", &PropertyName);
+
+    if (!next)
+        return nullptr;
+
+    ack.fAck = 1;
+
+    if (str::Eq(PropertyName, L"ToolbarVisible")) {
+        PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(), IsWindowStyleSet(win->hwndReBar, WS_VISIBLE));
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"TocVisible")) {
+        PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(), win->tocVisible);
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"Page")) {
+        const WCHAR* pageLabel = (win->ctrl->HasPageLabels()) ? win->ctrl->GetPageLabel(win->currPageNo) : L"";
+        PluginHostCopyData(win, L"[%s(%d,\"%s\")]", PropertyName.Get(), win->currPageNo, pageLabel);
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"DisplayMode")) {
+        PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(), win->ctrl->GetDisplayMode());
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"Zoom")) {
+        PluginHostCopyData(win, L"[%s(%f,%f)]", PropertyName.Get(), win->ctrl->GetZoomVirtual(true),
+                           win->ctrl->GetZoomVirtual(false));
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
+        DisplayModel* dm = win->AsFixed();
+        ScrollState ss = dm->GetScrollState();
+        PluginHostCopyData(win, L"[%s(%d,%d)]", PropertyName.Get(), ss.x, ss.y);
+        return next;
+    }
+
+    ack.fAck = 0;
+    return next;
+}
+
+// DDE command  : Set a Sumatra propery from application plugin host
+// Format       : [SetProperty("<ProperyName>", "value")]
+// eg.          : [SetProperty("ToolbarVisible","1")]
+//                In this example, the Toolbar is set to be shown
+static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr PropertyName, PropertyValue;
+    const WCHAR* next = str::Parse(cmd, L"[SetProperty(\"%S\",%? \"%S\")]", &PropertyName, &PropertyValue);
+
+    if (!next) return nullptr;
+
+    ack.fAck = 1;
+    if (str::Eq(PropertyName, L"ToolbarVisible")) {
+        gGlobalPrefs->showToolbar = !str::Eq(PropertyValue, L"0");
+        ShowOrHideToolbar(win);
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"TocVisible")) {
+        if (!str::Eq(PropertyValue, L"0") != win->tocVisible) {
+            win->tocVisible = !win->tocVisible;
+            SetSidebarVisibility(win, win->tocVisible, gGlobalPrefs->showFavorites);
+        }
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"DisplayMode")) {
+        // AutoFreeStr viewModeWstr = strconv::WstrToUtf8(PropertyValue);
+        // DisplayMode mode = DisplayModeFromString(viewModeWstr.Get(), DisplayMode::Automatic);
+        DisplayMode mode = DisplayMode::Automatic;
+        str::Parse(PropertyValue.Get(), L"%u", &mode);
+        if (mode != DisplayMode::Automatic) {
+            SwitchToDisplayMode(win, mode);
+        }
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"Zoom")) {
+        float zoom = INVALID_ZOOM;
+        str::Parse(PropertyValue.Get(), L"%f", &zoom);
+        if (zoom != INVALID_ZOOM) {
+            ZoomToSelection(win, zoom);
+        }
+        return next;
+    }
+
+    if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
+        Point scroll(-1, -1);
+        str::Parse(PropertyValue.Get(), L"%d,%d", &scroll.x, &scroll.y);
+        if ((scroll.x != -1 || scroll.y != -1) && win->AsFixed()) {
+            DisplayModel* dm = win->AsFixed();
+            ScrollState ss = dm->GetScrollState();
+            ss.x = scroll.x;
+            ss.y = scroll.y;
+            dm->SetScrollState(ss);
+        }
+        return next;
+    }
+
+    ack.fAck = 0;
+    return next;
+}
+
+// DDE command  : Do a text search in document (from current page)
+// Format       : [TextSearch(<searchText>,<matchCase>)]
+// eg.          : [TextSearch("Text to Search", 1)]
+static const WCHAR* HandleTextSearchCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
+    AutoFreeWstr searchText;
+    BOOL matchCase = 0;
+    const WCHAR* next = str::Parse(cmd, L"[TextSearch(\"%S\",%u)]", &searchText, &matchCase);
+    if (!next) return nullptr;
+
+    DisplayModel* dm = win->AsFixed();
+    if (dm) {
+        ClearSearchResult(win);
+        win::SetText(win->hwndFindBox, searchText);
+        Edit_SetModify(win->hwndFindBox, TRUE);
+        dm->textSearch->SetSensitive(matchCase);
+        FindTextOnThread(win, TextSearchDirection::Forward, true);
+    }
+
+    ack.fAck = 1;
+    return next;
+}
+
+// DDE command  : Repeats same text search (Forward or Backward), including same match case.
+// Note         : Needs an initial text search command using Sumatra interface or "TextSearch" DDE command
+// Format       : [TextSearchNext(<Forward>])]
+// Note         : Use <Forward> = 1 for Search Forward or <Forward> = 0 for Backward
+// eg.          : [TextSearchNext(1)]
+static const WCHAR* HandleTextSearchNextCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
+    BOOL direction = 0;
+    const WCHAR* next = str::Parse(cmd, L"[TextSearchNext(%u)]", &direction);
+
+    if (!next) return nullptr;
+
+    FindTextOnThread(win, direction ? TextSearchDirection::Forward : TextSearchDirection::Backward, true);
+
+    ack.fAck = 1;
+    return next;
+}
+
+void HandlePluginCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
+    if (str::IsEmpty(cmd)) {
+        return;
+    }
+
+    WindowInfo* win = FindWindowInfoByHwnd(hwnd);
+    if (!win) return;
+
+    if (!win->IsDocLoaded()) {
+        ReloadDocument(win, false);
+        if (!win->IsDocLoaded()) {
+            return;
+        }
+    }
+
+    {
+        AutoFree tmp = strconv::WstrToUtf8(cmd);
+        logf("HandlePluginCmds: '%s'\n", tmp.Get());
+    }
+
+    while (!str::IsEmpty(cmd)) {
+        const WCHAR* nextCmd = nextCmd = HandleTextSearchCmd(win, cmd, ack);
+        if (!nextCmd) {
+            nextCmd = HandleTextSearchNextCmd(win, cmd, ack);
+        }
+        if (!nextCmd) {
+            nextCmd = HandleGetPropertyCmd(win, cmd, ack);
+        }
+        if (!nextCmd) {
+            nextCmd = HandleSetPropertyCmd(win, cmd, ack);
+        }
+        if (!nextCmd) {
+            nextCmd = HandleOpenPluginWindowCmd(win, cmd, ack);
+        }
+        if (!nextCmd) {
+            AutoFreeWstr tmp;
+            nextCmd = str::Parse(cmd, L"%S]", &tmp);
+        }
+        cmd = nextCmd;
+
+        {
+            AutoFree tmp = strconv::WstrToUtf8(cmd);
+            logf("HandlePluginCmds: cmd='%s'\n", tmp.Get());
+        }
+    }
+}

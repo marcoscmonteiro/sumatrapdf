@@ -40,9 +40,7 @@ LRESULT PluginHostCopyData(WindowInfo* win, const WCHAR* msg, ...) {
     }
 
     HWND parent = GetAncestor(plugin, GA_PARENT);
-
-    if (!parent)
-        return false;
+    if (!parent) return false;
 
     // Format msg string with argment list
     va_list args;
@@ -90,26 +88,19 @@ static const WCHAR* HandleOpenPluginWindowCmd(WindowInfo* win, const WCHAR* cmd,
 
     WindowInfo* newWin = nullptr;
 
-    if (!hwndPluginParent) {
-        LoadArgs args(pdfFile, win);
-        args.showWin = true;
-        newWin = LoadDocument(args);
-    } else {
-        LoadArgs args(pdfFile, nullptr);
-        args.showWin = false;
-
-        newWin = LoadDocument(args);
-        MakePluginWindow(newWin, hwndPluginParent);
-
-        // Resize ParentWindow to same size to force adjust of SumatraPDF plugin window
-        RECT ParentRect;
-        GetWindowRect(hwndPluginParent, &ParentRect);
-        ResizeWindow(hwndPluginParent, ParentRect.right - ParentRect.left, ParentRect.top - ParentRect.bottom);
-
-        // By default show toolbar
-        gGlobalPrefs->showToolbar = true;
-        ShowOrHideToolbar(newWin);
+    HWND parent = GetAncestor(win->hwndFrame, GA_PARENT);
+    if (win->IsDocLoaded() && hwndPluginParent == parent) {
+        CloseWindow(win, false, false);
     }
+    LoadArgs args(pdfFile, nullptr);
+    newWin = LoadDocument(args);
+    MakePluginWindow(newWin, hwndPluginParent);
+
+    // By default show toolbar
+    gGlobalPrefs->showToolbar = true;
+    ShowOrHideToolbar(newWin);
+
+    RepaintNow(newWin->hwndCanvas);
 
     ack.fAck = 1;
     PluginHostCopyData(newWin, L"[FileOpenPluginWindow()]");

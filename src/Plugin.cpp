@@ -86,13 +86,16 @@ static const WCHAR* HandleOpenPluginWindowCmd(WindowInfo* win, const WCHAR* cmd,
 
     hwndPluginParent = (HWND)(INT_PTR)_wtol(hwndPluginParentStr.Get());
 
-    WindowInfo* newWin = nullptr;
-
+    // Close previus document if already loaded in current window 
     HWND parent = GetAncestor(win->hwndFrame, GA_PARENT);
     if (win->IsDocLoaded() && hwndPluginParent == parent) {
         CloseWindow(win, false, false);
     }
+
+    // Create new window with document and put it embeded in parent window
+    WindowInfo* newWin = nullptr;   
     LoadArgs args(pdfFile, nullptr);
+    args.showWin = false;
     newWin = LoadDocument(args);
     MakePluginWindow(newWin, hwndPluginParent);
 
@@ -100,6 +103,7 @@ static const WCHAR* HandleOpenPluginWindowCmd(WindowInfo* win, const WCHAR* cmd,
     gGlobalPrefs->showToolbar = true;
     ShowOrHideToolbar(newWin);
 
+    // Repaint windows canvas
     RepaintNow(newWin->hwndCanvas);
 
     ack.fAck = 1;

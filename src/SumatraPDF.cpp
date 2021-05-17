@@ -1699,6 +1699,7 @@ WindowInfo* LoadDocument(LoadArgs& args) {
             RememberFavTreeExpansionState(currWin);
             win->expandedFavorites = currWin->expandedFavorites;
         }
+
     }
 
     HwndPasswordUI pwdUI(win->hwndFrame);

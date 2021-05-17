@@ -149,7 +149,7 @@ void FileExistenceChecker::Run() {
     });
 }
 
-/* // Moved to SearchAndDDE.cpp
+/* // Moved to plugin.cpp
 static void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     CrashIf(!IsWindow(hwndParent));
     CrashIf(!gPluginMode);

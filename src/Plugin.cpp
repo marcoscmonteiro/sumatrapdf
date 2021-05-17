@@ -61,16 +61,26 @@ LRESULT PluginHostCopyData(WindowInfo* win, const WCHAR* msg, ...) {
 void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     CrashIf(!IsWindow(hwndParent));
     CrashIf(!gPluginMode);
-
+    
     auto hwndFrame = win->hwndFrame;
+    
     long ws = GetWindowLong(hwndFrame, GWL_STYLE);
     ws &= ~(WS_POPUP | WS_BORDER | WS_CAPTION | WS_THICKFRAME);
     ws |= WS_CHILD;
     SetWindowLong(hwndFrame, GWL_STYLE, ws);
 
     SetParent(hwndFrame, hwndParent);
-    MoveWindow(hwndFrame, ClientRect(hwndParent));
+    
+    // MoveWindow(hwndFrame, ParentRect);
+    // Line above commented e substituted by 2 lines below.
+    // MSDN Documentation recomends use of SetWindowPos after use of SetWindowLong changing frame style.
+    // See remarks in reference:
+    // https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowlonga?redirectedfrom=MSDN&f1url=%3FappId%3DDev16IDEF1%26l%3DEN-US%26k%3Dk(WINUSER%252FSetWindowLong);k(SetWindowLong);k(DevLang-C%252B%252B);k(TargetOS-Windows)%26rd%3Dtrue
+    Rect ParentRect = ClientRect(hwndParent);
+    SetWindowPos(hwndFrame, HWND_BOTTOM, 0, 0, ParentRect.dx, ParentRect.dy, SWP_FRAMECHANGED);
+
     ShowWindow(hwndFrame, SW_SHOW);
+    
     UpdateWindow(hwndFrame);
 
     // from here on, we depend on the plugin's host to resize us

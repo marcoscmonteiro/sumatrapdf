@@ -1428,6 +1428,7 @@ static WindowInfo* CreateWindowInfo() {
     const WCHAR* clsName = FRAME_CLASS_NAME;
     const WCHAR* title = SUMATRA_WINDOW_TITLE;
     DWORD style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+
     int x = windowPos.x;
     int y = windowPos.y;
     int dx = windowPos.dx;
@@ -1446,6 +1447,7 @@ static WindowInfo* CreateWindowInfo() {
     // no additional adjustments needed when (un)maximizing
     clsName = CANVAS_CLASS_NAME;
     style = WS_CHILD | WS_HSCROLL | WS_VSCROLL | WS_CLIPCHILDREN;
+   
     /* position and size determined in OnSize */
     win->hwndCanvas = CreateWindowExW(0, clsName, nullptr, style, 0, 0, 0, 0, hwndFrame, nullptr, h, nullptr);
     if (!win->hwndCanvas) {

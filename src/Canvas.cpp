@@ -133,8 +133,9 @@ static void OnVScroll(WindowInfo* win, WPARAM wp) {
     // If the position has changed or we're dealing with a touchpad scroll event,
     // scroll the window and update it
     if (si.nPos != currPos || msg == SB_THUMBTRACK) {
-        win->AsFixed()->ScrollYTo(si.nPos);
+        win->AsFixed()->ScrollYTo(si.nPos);        
     }
+    PluginHostCopyData(win, L"[ScrollPositionChanged()]");
 }
 
 static void OnHScroll(WindowInfo* win, WPARAM wp) {
@@ -180,8 +181,9 @@ static void OnHScroll(WindowInfo* win, WPARAM wp) {
     // If the position has changed or we're dealing with a touchpad scroll event,
     // scroll the window and update it
     if (si.nPos != currPos || msg == SB_THUMBTRACK) {
-        win->AsFixed()->ScrollXTo(si.nPos);
+        win->AsFixed()->ScrollXTo(si.nPos);        
     }
+    PluginHostCopyData(win, L"[ScrollPositionChanged()]");
 }
 
 static void DrawMovePattern(WindowInfo* win, Point pt, Size size) {

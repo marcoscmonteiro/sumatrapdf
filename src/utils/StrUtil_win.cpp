@@ -600,6 +600,8 @@ const WCHAR* Parse(const WCHAR* str, const WCHAR* format, ...) {
             *va_arg(args, unsigned int*) = wcstoul(str, (WCHAR**)&end, 16);
         } else if ('f' == *f) {
             *va_arg(args, float*) = (float)wcstod(str, (WCHAR**)&end);
+        } else if ('D' == *f) {
+            *va_arg(args, double*) = (double)wcstod(str, (WCHAR**)&end);
         } else if ('c' == *f) {
             *va_arg(args, WCHAR*) = *str, end = str + 1;
         } else if ('s' == *f) {

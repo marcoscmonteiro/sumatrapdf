@@ -31,16 +31,16 @@ LRESULT PluginHostCopyData(WindowInfo* win, const WCHAR* msg, ...) {
     if (!gPluginMode || !win)
         return false;
 
-    HWND plugin = win->hwndFrame;
-    if (plugin == 0) {
+    HWND PluginWin = win->hwndFrame;
+    if (PluginWin == 0) {
         CrashIf(gWindows.empty());
         if (gWindows.empty())
             return false;
-        plugin = gWindows.at(0)->hwndFrame;
+        PluginWin = gWindows.at(0)->hwndFrame;
     }
 
-    HWND parent = GetAncestor(plugin, GA_PARENT);
-    if (!parent) return false;
+    HWND ParentWin = GetAncestor(PluginWin, GA_PARENT);
+    if (!ParentWin) return false;
 
     // Format msg string with argment list
     va_list args;
@@ -55,7 +55,7 @@ LRESULT PluginHostCopyData(WindowInfo* win, const WCHAR* msg, ...) {
     // Prepare struct and send message to plugin Host Window
     COPYDATASTRUCT cds = {0x44646558, /* Message to/from SumatraPDF Plugin */
                           (DWORD)MsgStrUTF8.size() + 1, MsgStrUTF8.Get()};
-    return SendMessage(parent, WM_COPYDATA, (WPARAM)plugin, (LPARAM)&cds);
+    return SendMessage(ParentWin, WM_COPYDATA, (WPARAM)PluginWin, (LPARAM)&cds);
 }
 
 void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
@@ -165,7 +165,7 @@ static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
         DisplayModel* dm = win->AsFixed();
         ScrollState ss = dm->GetScrollState();
-        PluginHostCopyData(win, L"[%s(%d,%d)]", PropertyName.Get(), ss.x, ss.y);
+        PluginHostCopyData(win, L"[%s(%d,%f,%f)]", PropertyName.Get(), ss.page, ss.x, ss.y);
         return next;
     }
 
@@ -219,15 +219,17 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     }
 
     if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
-        Point scroll(-1, -1);
-        str::Parse(PropertyValue.Get(), L"%d,%d", &scroll.x, &scroll.y);
-        if ((scroll.x != -1 || scroll.y != -1) && win->AsFixed()) {
-            DisplayModel* dm = win->AsFixed();
-            ScrollState ss = dm->GetScrollState();
-            ss.x = scroll.x;
-            ss.y = scroll.y;
-            dm->SetScrollState(ss);
-        }
+        int page;
+        double x;
+        double y;
+        str::Parse(PropertyValue.Get(), L"%d,%D,%D", &page, &x, &y);
+        DisplayModel* dm = win->AsFixed();
+        ScrollState ss; 
+        ss.page = page;
+        ss.x = x;
+        ss.y = y;
+        dm->SetScrollState(ss);
+
         return next;
     }
 

@@ -130,8 +130,7 @@ static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     AutoFreeWstr PropertyName;
     const WCHAR* next = str::Parse(cmd, L"[GetProperty(\"%S\")]", &PropertyName);
 
-    if (!next)
-        return nullptr;
+    if (!next) return nullptr;
 
     ack.fAck = 1;
 
@@ -162,11 +161,20 @@ static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
         return next;
     }
 
-    if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
-        DisplayModel* dm = win->AsFixed();
-        ScrollState ss = dm->GetScrollState();
-        PluginHostCopyData(win, L"[%s(%d,%f,%f)]", PropertyName.Get(), ss.page, ss.x, ss.y);
-        return next;
+    // Next properties requires DisplayModel
+    DisplayModel* dm = win->AsFixed();
+    if (dm) {
+        if (str::Eq(PropertyName, L"ScrollPosition")) {
+            ScrollState ss = dm->GetScrollState();
+            PluginHostCopyData(win, L"[%s(%d,%f,%f)]", PropertyName.Get(), ss.page, ss.x, ss.y);
+            return next;
+        }
+
+        if (str::Eq(PropertyName, L"Rotation")) {
+            int rotation = dm->GetRotation();
+            PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(), rotation);
+            return next;
+        }
     }
 
     ack.fAck = 0;
@@ -227,20 +235,29 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
         return next;
     }
 
-    if (str::Eq(PropertyName, L"ScrollPosition") && win->AsFixed()) {
-        int page;
-        double x;
-        double y;
-        str::Parse(PropertyValue.Get(), L"%d,%D,%D", &page, &x, &y);
-        DisplayModel* dm = win->AsFixed();
-        ScrollState ss; 
-        ss.page = page;
-        ss.x = x;
-        ss.y = y;
-        dm->SetScrollState(ss);
+    // Next properties requires DisplayModel
+    DisplayModel* dm = win->AsFixed();
+    if (dm) {
+        if (str::Eq(PropertyName, L"ScrollPosition")) {
+            int page;
+            double x, y;
+            str::Parse(PropertyValue.Get(), L"%d,%D,%D", &page, &x, &y);
+            ScrollState ss;
+            ss.page = page;
+            ss.x = x;
+            ss.y = y;
+            dm->SetScrollState(ss);
+            return next;
+        }
 
-        return next;
+        if (str::Eq(PropertyName, L"RotateBy")) {
+            int rotation;
+            str::Parse(PropertyValue.Get(), L"%d", &rotation);
+            dm->RotateBy(rotation);
+            return next;
+        }
     }
+
 
     ack.fAck = 0;
     return next;

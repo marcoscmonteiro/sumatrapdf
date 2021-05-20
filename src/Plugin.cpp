@@ -184,6 +184,15 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     if (!next) return nullptr;
 
     ack.fAck = 1;
+
+    if (str::Eq(PropertyName, L"Page")) {
+        uint page = 0;
+        str::Parse(PropertyValue.Get(), L"%u", &page);
+        if (!win->ctrl->ValidPageNo(page)) return next;
+        win->ctrl->GoToPage(page, true);
+        return next;
+    }
+
     if (str::Eq(PropertyName, L"ToolbarVisible")) {
         gGlobalPrefs->showToolbar = !str::Eq(PropertyValue, L"0");
         ShowOrHideToolbar(win);

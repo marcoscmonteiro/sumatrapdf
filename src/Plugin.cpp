@@ -88,10 +88,10 @@ void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
 }
 
 // Open file new file in plugin mode
-static const WCHAR* HandleOpenPluginWindowCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
+static const WCHAR* HandleOpenFileCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr pdfFile, hwndPluginParentStr;
     HWND hwndPluginParent;
-    const WCHAR* next = str::Parse(cmd, L"[OpenPluginWindow(\"%S\",%? \"%S\")]", &pdfFile, &hwndPluginParentStr);
+    const WCHAR* next = str::Parse(cmd, L"[OpenFile(\"%S\",%? \"%S\")]", &pdfFile, &hwndPluginParentStr);
     if (!next) return nullptr;
 
     hwndPluginParent = (HWND)(INT_PTR)_wtol(hwndPluginParentStr.Get());
@@ -117,7 +117,7 @@ static const WCHAR* HandleOpenPluginWindowCmd(WindowInfo* win, const WCHAR* cmd,
     RepaintNow(newWin->hwndCanvas);
 
     ack.fAck = 1;
-    PluginHostCopyData(newWin, L"[FileOpenPluginWindow()]");
+    PluginHostCopyData(newWin, L"[FileOpened()]");
     return next;
 }
 
@@ -334,7 +334,7 @@ void HandlePluginCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
             nextCmd = HandleSetPropertyCmd(win, cmd, ack);
         }
         if (!nextCmd) {
-            nextCmd = HandleOpenPluginWindowCmd(win, cmd, ack);
+            nextCmd = HandleOpenFileCmd(win, cmd, ack);
         }
         if (!nextCmd) {
             AutoFreeWstr tmp;

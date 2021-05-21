@@ -3980,10 +3980,6 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
         key = (WPARAM)SingleCharLowerW((WCHAR)key);
     }
 
-    /* Sends a message to plugin host window telling key pressed - MCM 24-04-2016 */
-    if (PluginHostCopyData(win, L"[KeyPressed(%i)]", key) == 1)
-        return;
-
     switch (key) {
         case VK_ESCAPE:
             OnFrameKeyEsc(win);
@@ -4814,13 +4810,31 @@ LRESULT CALLBACK WndProcFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_CHAR:
             if (win) {
-                FrameOnChar(win, wp, lp);
+
+              if (gPluginMode) {
+                    HWND hwndParent = GetParent(hwnd);
+                    if (hwndParent && SendMessage(hwndParent, msg, wp, lp))
+                        FrameOnChar(win, wp, lp);
+                } else
+                  FrameOnChar(win, wp, lp);
             }
             break;
 
         case WM_KEYDOWN:
             if (win) {
-                FrameOnKeydown(win, wp, lp);
+                if (gPluginMode) {
+                    HWND hwndParent = GetParent(hwnd);
+                    if (hwndParent && SendMessage(hwndParent, msg, wp, lp)) FrameOnKeydown(win, wp, lp);                                            
+                } else FrameOnKeydown(win, wp, lp);
+            }
+            break;
+
+        case WM_KEYUP:
+            if (win) {
+                if (gPluginMode) {
+                    HWND hwndParent = GetParent(hwnd);
+                    SendMessage(hwndParent, msg, wp, lp);
+                }
             }
             break;
 

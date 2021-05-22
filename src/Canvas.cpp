@@ -1275,7 +1275,7 @@ static LRESULT OnGesture(WindowInfo* win, UINT msg, WPARAM wp, LPARAM lp) {
 
 static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     // DbgLogMsg("canvas:", hwnd, msg, wp, lp);
-
+    
     int x = GET_X_LPARAM(lp);
     int y = GET_Y_LPARAM(lp);
     switch (msg) {
@@ -1283,19 +1283,19 @@ static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WP
             OnPaintDocument(win);
             return 0;
 
-        case WM_MOUSEMOVE:
+        case WM_MOUSEMOVE:            
             OnMouseMove(win, x, y, wp);
             return 0;
 
-        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDOWN:            
             OnMouseLeftButtonDown(win, x, y, wp);
             return 0;
 
-        case WM_LBUTTONUP:
+        case WM_LBUTTONUP:            
             OnMouseLeftButtonUp(win, x, y, wp);
             return 0;
 
-        case WM_LBUTTONDBLCLK:
+        case WM_LBUTTONDBLCLK:            
             OnMouseLeftButtonDblClk(win, x, y, wp);
             return 0;
 
@@ -1305,11 +1305,11 @@ static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WP
             OnMouseMiddleButtonDown(win, x, y, wp);
             return 0;
 
-        case WM_RBUTTONDOWN:
+        case WM_RBUTTONDOWN:            
             OnMouseRightButtonDown(win, x, y);
             return 0;
 
-        case WM_RBUTTONUP:
+        case WM_RBUTTONUP:            
             OnMouseRightButtonUp(win, x, y, wp);
             return 0;
 
@@ -1594,6 +1594,7 @@ LRESULT CALLBACK WndProcCanvas(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return DefWindowProc(hwnd, msg, wp, lp);
     }
 
+    SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
     // messages that require win
     switch (msg) {
         case WM_TIMER:

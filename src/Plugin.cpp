@@ -58,6 +58,15 @@ LRESULT PluginHostCopyData(WindowInfo* win, const WCHAR* msg, ...) {
     return SendMessage(ParentWin, WM_COPYDATA, (WPARAM)PluginWin, (LPARAM)&cds);
 }
 
+LRESULT SendPluginWndProcMessage(WindowInfo* win, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (gPluginMode) {
+        HWND hwndParent = GetParent(win->hwndFrame);
+        if (hwndParent)
+            return SendMessage(hwndParent, msg, wp, lp);
+    }
+    return 0;
+}
+
 void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     CrashIf(!IsWindow(hwndParent));
     CrashIf(!gPluginMode);

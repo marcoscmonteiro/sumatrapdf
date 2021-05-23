@@ -67,6 +67,13 @@ LRESULT SendPluginWndProcMessage(WindowInfo* win, HWND hwnd, UINT msg, WPARAM wp
     return 0;
 }
 
+void ScrollStatePluginMessage(WindowInfo* win, bool Changed) {
+    if (gPluginMode && win->AsFixed()) {
+        ScrollState ss = win->AsFixed()->GetScrollState();
+        PluginHostCopyData(win, L"[%s(%d,%f,%f)]", Changed ? L"ScrollStateChanged" : L"ScrollState", ss.page, ss.x, ss.y);
+    }
+}
+
 void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     CrashIf(!IsWindow(hwndParent));
     CrashIf(!gPluginMode);
@@ -173,9 +180,8 @@ static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     // Next properties requires DisplayModel
     DisplayModel* dm = win->AsFixed();
     if (dm) {
-        if (str::Eq(PropertyName, L"ScrollPosition")) {
-            ScrollState ss = dm->GetScrollState();
-            PluginHostCopyData(win, L"[%s(%d,%f,%f)]", PropertyName.Get(), ss.page, ss.x, ss.y);
+        if (str::Eq(PropertyName, L"ScrollState")) {
+            ScrollStatePluginMessage(win, false);
             return next;
         }
 
@@ -247,7 +253,7 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     // Next properties requires DisplayModel
     DisplayModel* dm = win->AsFixed();
     if (dm) {
-        if (str::Eq(PropertyName, L"ScrollPosition")) {
+        if (str::Eq(PropertyName, L"ScrollState")) {
             int page;
             double x, y;
             str::Parse(PropertyValue.Get(), L"%d,%D,%D", &page, &x, &y);

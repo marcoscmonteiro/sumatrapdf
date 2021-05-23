@@ -865,7 +865,7 @@ void ControllerCallbackHandler::UpdateScrollbars(Size canvas) {
     }
     ShowScrollBar(win->hwndCanvas, SB_VERT, viewPort.dy < canvas.dy);
     SetScrollInfo(win->hwndCanvas, SB_VERT, &si, TRUE);
-    PluginHostCopyData(win, L"[ScrollPositionChanged()]");
+    ScrollStatePluginMessage(win, true);
 }
 
 // The current page edit box is updated with the current page number

@@ -53,6 +53,7 @@
 #include "Tabs.h"
 #include "Toolbar.h"
 #include "Translations.h"
+#include "Plugin.h"
 
 // these can be global, as the mouse wheel can't affect more than one window at once
 static int gDeltaPerLine = 0;
@@ -135,7 +136,8 @@ static void OnVScroll(WindowInfo* win, WPARAM wp) {
     if (si.nPos != currPos || msg == SB_THUMBTRACK) {
         win->AsFixed()->ScrollYTo(si.nPos);        
     }
-    PluginHostCopyData(win, L"[ScrollPositionChanged()]");
+
+    ScrollStatePluginMessage(win, true);
 }
 
 static void OnHScroll(WindowInfo* win, WPARAM wp) {
@@ -183,7 +185,7 @@ static void OnHScroll(WindowInfo* win, WPARAM wp) {
     if (si.nPos != currPos || msg == SB_THUMBTRACK) {
         win->AsFixed()->ScrollXTo(si.nPos);        
     }
-    PluginHostCopyData(win, L"[ScrollPositionChanged()]");
+    ScrollStatePluginMessage(win, true);
 }
 
 static void DrawMovePattern(WindowInfo* win, Point pt, Size size) {
@@ -1287,15 +1289,18 @@ static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WP
             OnMouseMove(win, x, y, wp);
             return 0;
 
-        case WM_LBUTTONDOWN:            
+        case WM_LBUTTONDOWN:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseLeftButtonDown(win, x, y, wp);
             return 0;
 
-        case WM_LBUTTONUP:            
+        case WM_LBUTTONUP:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseLeftButtonUp(win, x, y, wp);
             return 0;
 
-        case WM_LBUTTONDBLCLK:            
+        case WM_LBUTTONDBLCLK:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseLeftButtonDblClk(win, x, y, wp);
             return 0;
 
@@ -1305,23 +1310,28 @@ static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WP
             OnMouseMiddleButtonDown(win, x, y, wp);
             return 0;
 
-        case WM_RBUTTONDOWN:            
+        case WM_RBUTTONDOWN:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseRightButtonDown(win, x, y);
             return 0;
 
-        case WM_RBUTTONUP:            
+        case WM_RBUTTONUP:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseRightButtonUp(win, x, y, wp);
             return 0;
 
         case WM_RBUTTONDBLCLK:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseRightButtonDblClick(win, x, y, wp);
             return 0;
 
         case WM_VSCROLL:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnVScroll(win, wp);
             return 0;
 
         case WM_HSCROLL:
+            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnHScroll(win, wp);
             return 0;
 
@@ -1594,7 +1604,6 @@ LRESULT CALLBACK WndProcCanvas(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return DefWindowProc(hwnd, msg, wp, lp);
     }
 
-    SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
     // messages that require win
     switch (msg) {
         case WM_TIMER:

@@ -708,14 +708,23 @@ static bool ShouldShowCreateAnnotationMenu(TabInfo* tab, int x, int y) {
 }
 
 void OnWindowContextMenu(WindowInfo* win, int x, int y) {
+    /* Sends a message to plugin host window telling Context Menu is opening - MCM 24/04/2016
+     *  Fix X, Y position of Context Menu based on Canvas position on framewindow  - MCM 23/06/2020
+     */
+    if (gPluginMode) {
+        RECT frameRect, canvasRect;
+        GetWindowRect(win->hwndFrame, &frameRect);
+        GetWindowRect(win->hwndCanvas, &canvasRect);
+        if (PluginHostCopyData(win, L"[ContextMenuOpened(%d, %d)]", canvasRect.left - frameRect.left + x,
+                               canvasRect.top - frameRect.top + y) == 1)
+            return;
+    }
+
     DisplayModel* dm = win->AsFixed();
     CrashIf(!dm);
     if (!dm) {
         return;
     }
-
-	/* Sends a message to plugin host window telling Context Menu is opening - MCM 24-04-2016  */
-    if (PluginHostCopyData(win, L"[ContextMenuOpened(%d, %d)]", x, y) == 1) return;
 
     TabInfo* tab = win->currentTab;
     IPageElement* pageEl = dm->GetElementAtPos({x, y});

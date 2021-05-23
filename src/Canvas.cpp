@@ -1296,7 +1296,7 @@ static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WP
 
         case WM_LBUTTONUP:
             SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
-            OnMouseLeftButtonUp(win, x, y, wp);
+            OnMouseLeftButtonUp(win, x, y, wp);            
             return 0;
 
         case WM_LBUTTONDBLCLK:

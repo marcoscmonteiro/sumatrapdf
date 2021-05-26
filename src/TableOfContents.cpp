@@ -48,6 +48,7 @@
 #include "Tabs.h"
 #include "Menu.h"
 #include "TocEditor.h"
+#include "Plugin.h"
 
 /* Define if you want page numbers to be displayed in the ToC sidebar */
 // #define DISPLAY_TOC_PAGE_NUMBERS
@@ -1073,7 +1074,16 @@ static LRESULT CALLBACK WndProcTocBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
             }
             break;
     }
-    return DefSubclassProc(hwnd, msg, wp, lp);
+
+    if (gPluginMode) {
+        HWND hwndFrame = GetParent(hwnd);
+        if (hwndFrame) {
+            WindowInfo* winFrame = FindWindowInfoByHwnd(hwndFrame);
+            if (winFrame) SendPluginWndProcMessage(winFrame, hwnd, msg, wp, lp);
+        }
+    }
+    
+     return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
 static void SubclassToc(WindowInfo* win) {

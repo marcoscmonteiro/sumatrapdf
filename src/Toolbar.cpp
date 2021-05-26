@@ -270,6 +270,15 @@ static LRESULT CALLBACK WndProcToolbar(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
             FindTextOnThread(win, TextSearchDirection::Forward, false);
         }
     }
+
+    if (gPluginMode) {
+        HWND hwndParentFrame = GetParent(hwnd);
+        if (hwndParentFrame) {
+            WindowInfo* win = FindWindowInfoByHwnd(hwndParentFrame);
+            if (win) SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
+        }
+    }
+
     return CallWindowProc(DefWndProcToolbar, hwnd, msg, wp, lp);
 }
 
@@ -279,6 +288,8 @@ static LRESULT CALLBACK WndProcFindBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
     if (!win || !win->IsDocLoaded()) {
         return DefWindowProc(hwnd, msg, wp, lp);
     }
+    if (win)
+        SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
 
     if (ExtendedEditWndProc(hwnd, msg, wp, lp)) {
         // select the whole find box on a non-selecting click
@@ -448,6 +459,8 @@ static LRESULT CALLBACK WndProcPageBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
     if (!win || !win->IsDocLoaded()) {
         return DefWindowProc(hwnd, msg, wp, lp);
     }
+
+    if (win) SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
 
     if (ExtendedEditWndProc(hwnd, msg, wp, lp)) {
         // select the whole page box on a non-selecting click

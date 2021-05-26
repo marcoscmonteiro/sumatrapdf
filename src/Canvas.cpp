@@ -1290,17 +1290,14 @@ static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WP
             return 0;
 
         case WM_LBUTTONDOWN:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseLeftButtonDown(win, x, y, wp);
             return 0;
 
         case WM_LBUTTONUP:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseLeftButtonUp(win, x, y, wp);            
             return 0;
 
         case WM_LBUTTONDBLCLK:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseLeftButtonDblClk(win, x, y, wp);
             return 0;
 
@@ -1311,27 +1308,22 @@ static LRESULT WndProcCanvasFixedPageUI(WindowInfo* win, HWND hwnd, UINT msg, WP
             return 0;
 
         case WM_RBUTTONDOWN:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseRightButtonDown(win, x, y);
             return 0;
 
         case WM_RBUTTONUP:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseRightButtonUp(win, x, y, wp);
             return 0;
 
         case WM_RBUTTONDBLCLK:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnMouseRightButtonDblClick(win, x, y, wp);
             return 0;
 
         case WM_VSCROLL:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnVScroll(win, wp);
             return 0;
 
         case WM_HSCROLL:
-            SendPluginWndProcMessage(win, hwnd, msg, wp, lp);
             OnHScroll(win, wp);
             return 0;
 
@@ -1646,6 +1638,12 @@ LRESULT CALLBACK WndProcCanvas(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return UiaReturnRawElementProvider(hwnd, wp, lp, win->uiaProvider);
 
         default:
+            if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP || msg == WM_LBUTTONDBLCLK ||
+                msg == WM_MBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP || msg == WM_RBUTTONDBLCLK ||
+                msg == WM_VSCROLL || msg == WM_HSCROLL || msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL ||
+                msg == WM_SETCURSOR || msg == WM_CONTEXTMENU) 
+                if (SendPluginWndProcMessage(win, hwnd, msg, wp, lp)) return 0; 
+
             // TODO: achieve this split through subclassing or different window classes
             if (win->AsFixed()) {
                 return WndProcCanvasFixedPageUI(win, hwnd, msg, wp, lp);

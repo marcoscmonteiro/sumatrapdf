@@ -1073,8 +1073,14 @@ static LRESULT CALLBACK WndProcTocBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                 ToggleTocBox(win);
             }
             break;
+
+        // Sometimes toc label (with close button) needs to be repainted when a MDI window pass over it
+        case WM_PAINT:
+            ScheduleRepaint(win->tocLabelWithClose->hwnd);
+            break;
     }
 
+    // When in plugin mode send WndProc message back to framewindow so it can be send back to Plugin Host Window
     if (gPluginMode) {
         HWND hwndFrame = GetParent(hwnd);
         if (hwndFrame) {

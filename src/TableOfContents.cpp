@@ -641,6 +641,18 @@ static void SaveEmbeddedFile(TabInfo* tab, PageDestination* dest) {
 
 static void TocContextMenu(ContextMenuEvent* ev) {
     WindowInfo* win = FindWindowInfoByHwnd(ev->w->hwnd);
+
+    // Sends a message to plugin host window telling Toc Context Menu is opening - MCM 28/05/2021
+    if (gPluginMode) {
+        RECT frameRect, tocBoxRect, tocLabelRect;
+        GetWindowRect(win->hwndFrame, &frameRect);
+        GetWindowRect(win->hwndTocBox, &tocBoxRect);
+        GetWindowRect(win->tocLabelWithClose->hwnd, &tocLabelRect);
+        if (PluginHostCopyData(win, L"[TocContextMenuOpened(%d, %d)]", ev->mouseWindow.x,
+                               tocBoxRect.top - frameRect.top + (tocLabelRect.bottom - tocLabelRect.top) + ev->mouseWindow.y) == 1)
+            return;
+    }
+
     const WCHAR* filePath = win->ctrl->FilePath();
 
     POINT pt{};
@@ -648,6 +660,7 @@ static void TocContextMenu(ContextMenuEvent* ev) {
     if (!ti) {
         pt = {ev->mouseGlobal.x, ev->mouseGlobal.y};
     }
+
     int pageNo = 0;
     TocItem* dti = (TocItem*)ti;
     if (dti && dti->dest) {

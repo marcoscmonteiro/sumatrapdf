@@ -216,6 +216,11 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
         return next;
     }
 
+    if (str::Eq(PropertyName, L"NamedDest")) {
+        win->linkHandler->GotoNamedDest(PropertyValue);
+        return next;
+    }
+
     if (str::Eq(PropertyName, L"ToolbarVisible")) {
         gGlobalPrefs->showToolbar = !str::Eq(PropertyValue, L"0");
         ShowOrHideToolbar(win);

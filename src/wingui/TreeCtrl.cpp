@@ -452,7 +452,8 @@ void TreeCtrl::WndProc(WndEvent* ev) {
 
     // DbgLogMsg("tree:", hwnd, msg, wp, ev->lp);
 
-    SendMessage(parent, msg, wp, lp);
+    // MCM 27/05/2021 - Commenting SendMessages to Parent Window or SumatraPDFControl
+    //SendMessage(parent, msg, wp, lp);
 
     TreeCtrl* w = this;
     CrashIf(w->hwnd != (HWND)hwnd);

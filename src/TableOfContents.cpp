@@ -1080,14 +1080,15 @@ static LRESULT CALLBACK WndProcTocBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
             break;
     }
 
+    // MCM 27/05/2021 - Commenting SendMessages to Parent Window or SumatraPDFControl
     // When in plugin mode send WndProc message back to framewindow so it can be send back to Plugin Host Window
-    if (gPluginMode) {
-        HWND hwndFrame = GetParent(hwnd);
-        if (hwndFrame) {
-            WindowInfo* winFrame = FindWindowInfoByHwnd(hwndFrame);
-            if (winFrame) SendPluginWndProcMessage(winFrame, hwnd, msg, wp, lp);
-        }
-    }
+    //if (gPluginMode) {
+    //    HWND hwndFrame = GetParent(hwnd);
+    //    if (hwndFrame) {
+    //        WindowInfo* winFrame = FindWindowInfoByHwnd(hwndFrame);
+    //        if (winFrame) SendPluginWndProcMessage(winFrame, hwnd, msg, wp, lp);
+    //    }
+    //}
     
      return DefSubclassProc(hwnd, msg, wp, lp);
 }

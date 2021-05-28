@@ -766,6 +766,7 @@
     <ClInclude Include="..\mupdf\include\mupdf\fitz\device.h" />
     <ClInclude Include="..\mupdf\include\mupdf\fitz\display-list.h" />
     <ClInclude Include="..\mupdf\include\mupdf\fitz\document.h" />
+    <ClInclude Include="..\mupdf\include\mupdf\fitz\export.h" />
     <ClInclude Include="..\mupdf\include\mupdf\fitz\filter.h" />
     <ClInclude Include="..\mupdf\include\mupdf\fitz\font.h" />
     <ClInclude Include="..\mupdf\include\mupdf\fitz\geometry.h" />
@@ -815,7 +816,6 @@
     <ClInclude Include="..\mupdf\include\mupdf\pdf\javascript.h" />
     <ClInclude Include="..\mupdf\include\mupdf\pdf\name-table.h" />
     <ClInclude Include="..\mupdf\include\mupdf\pdf\object.h" />
-    <ClInclude Include="..\mupdf\include\mupdf\pdf\output-pdf.h" />
     <ClInclude Include="..\mupdf\include\mupdf\pdf\page.h" />
     <ClInclude Include="..\mupdf\include\mupdf\pdf\parse.h" />
     <ClInclude Include="..\mupdf\include\mupdf\pdf\resource.h" />
@@ -908,7 +908,7 @@
     <ClCompile Include="..\mupdf\source\fitz\load-jbig2.c" />
     <ClCompile Include="..\mupdf\source\fitz\load-jpeg.c" />
     <ClCompile Include="..\mupdf\source\fitz\load-jpx.c" />
-    <ClCompile Include="..\mupdf\source\fitz\load-jxr.c" />
+    <ClCompile Include="..\mupdf\source\fitz\load-jxr-win.c" />
     <ClCompile Include="..\mupdf\source\fitz\load-png.c" />
     <ClCompile Include="..\mupdf\source\fitz\load-pnm.c" />
     <ClCompile Include="..\mupdf\source\fitz\load-tiff.c" />

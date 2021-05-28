@@ -23,6 +23,7 @@ static struct input ocr_language_input;
 static int ocr_language_input_initialised = 0;
 static pdf_document *pdf_has_redactions_doc = NULL;
 static int pdf_has_redactions;
+static int do_snapshot;
 
 static int pdf_filter(const char *fn)
 {
@@ -73,6 +74,10 @@ static void save_pdf_options(void)
 
 	can_be_incremental = pdf_can_be_saved_incrementally(ctx, pdf);
 
+	ui_checkbox("Snapshot", &do_snapshot);
+	if (do_snapshot)
+		return; /* ignore normal PDF options */
+
 	ui_checkbox("High Security", &do_high_security);
 	if (do_high_security)
 	{
@@ -102,8 +107,7 @@ static void save_pdf_options(void)
 		return; /* ignore normal PDF options */
 	}
 
-	if (can_be_incremental)
-		ui_checkbox("Incremental", &save_opts.do_incremental);
+	ui_checkbox_aux("Incremental", &save_opts.do_incremental, !can_be_incremental);
 
 	fz_try(ctx)
 	{
@@ -353,8 +357,10 @@ static void save_high_security(void)
 static void do_save_pdf_dialog(int for_signing)
 {
 	if (ui_save_file(save_filename, save_pdf_options,
+			do_snapshot ?
+			"Select where to save the snapshot:" :
 			do_high_security ?
-			"Select where to save the redacted document" :
+			"Select where to save the redacted document:" :
 			for_signing ?
 			"Select where to save the signed document:" :
 			"Select where to save the document:"))
@@ -376,9 +382,14 @@ static void do_save_pdf_dialog(int for_signing)
 				static char opts_string[4096];
 				pdf_format_write_options(ctx, opts_string, sizeof(opts_string), &save_opts);
 				trace_action("doc.save(%q,%q);\n", save_filename, opts_string);
-				pdf_save_document(ctx, pdf, save_filename, &save_opts);
-				fz_strlcpy(filename, save_filename, PATH_MAX);
-				reload_document();
+				if (do_snapshot)
+					pdf_save_snapshot(ctx, pdf, save_filename);
+				else
+				{
+					pdf_save_document(ctx, pdf, save_filename, &save_opts);
+					fz_strlcpy(filename, save_filename, PATH_MAX);
+					reload_document();
+				}
 			}
 			fz_catch(ctx)
 			{
@@ -1038,7 +1049,7 @@ void do_annotate_panel(void)
 				choice = ui_select("Icon", name, text_icons, nelem(text_icons));
 				if (choice != -1)
 				{
-					trace_action("annot.setIcon(%q)\n", text_icons[choice]);
+					trace_action("annot.setIcon(%q);\n", text_icons[choice]);
 					pdf_set_annot_icon_name(ctx, selected_annot, text_icons[choice]);
 				}
 				break;
@@ -1046,7 +1057,7 @@ void do_annotate_panel(void)
 				choice = ui_select("Icon", name, file_attachment_icons, nelem(file_attachment_icons));
 				if (choice != -1)
 				{
-					trace_action("annot.setIcon(%q)\n", file_attachment_icons[choice]);
+					trace_action("annot.setIcon(%q);\n", file_attachment_icons[choice]);
 					pdf_set_annot_icon_name(ctx, selected_annot, file_attachment_icons[choice]);
 				}
 				break;
@@ -1054,7 +1065,7 @@ void do_annotate_panel(void)
 				choice = ui_select("Icon", name, sound_icons, nelem(sound_icons));
 				if (choice != -1)
 				{
-					trace_action("annot.setIcon(%q)\n", sound_icons[choice]);
+					trace_action("annot.setIcon(%q);\n", sound_icons[choice]);
 					pdf_set_annot_icon_name(ctx, selected_annot, sound_icons[choice]);
 				}
 				break;
@@ -1062,7 +1073,7 @@ void do_annotate_panel(void)
 				choice = ui_select("Icon", name, stamp_icons, nelem(stamp_icons));
 				if (choice != -1)
 				{
-					trace_action("annot.setIcon(%q)\n", stamp_icons[choice]);
+					trace_action("annot.setIcon(%q);\n", stamp_icons[choice]);
 					pdf_set_annot_icon_name(ctx, selected_annot, stamp_icons[choice]);
 				}
 				break;
@@ -1643,7 +1654,7 @@ static void do_edit_polygon(fz_irect canvas_area, int close)
 		if (!ui.down)
 		{
 			fz_point p = fz_transform_point_xy(ui.x, ui.y, view_page_inv_ctm);
-			trace_action("annot.addVertex(%g, %g)\n", p.x, p.y);
+			trace_action("annot.addVertex(%g, %g);\n", p.x, p.y);
 			pdf_add_annot_vertex(ctx, selected_annot, p);
 			drawing = 0;
 		}

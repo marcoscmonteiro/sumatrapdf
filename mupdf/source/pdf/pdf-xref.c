@@ -838,8 +838,7 @@ pdf_read_start_xref(fz_context *ctx, pdf_document *doc)
 	fz_throw(ctx, FZ_ERROR_GENERIC, "cannot find startxref");
 }
 
-static void
-fz_skip_space(fz_context *ctx, fz_stream *stm)
+void fz_skip_space(fz_context *ctx, fz_stream *stm)
 {
 	do
 	{
@@ -851,7 +850,7 @@ fz_skip_space(fz_context *ctx, fz_stream *stm)
 	while (1);
 }
 
-static int fz_skip_string(fz_context *ctx, fz_stream *stm, const char *str)
+int fz_skip_string(fz_context *ctx, fz_stream *stm, const char *str)
 {
 	while (*str)
 	{
@@ -1692,16 +1691,6 @@ pdf_init_document(fz_context *ctx, pdf_document *doc)
 	{
 		pdf_drop_obj(ctx, dict);
 		fz_rethrow(ctx);
-	}
-
-	fz_try(ctx)
-	{
-		pdf_read_ocg(ctx, doc);
-	}
-	fz_catch(ctx)
-	{
-		fz_rethrow_if(ctx, FZ_ERROR_TRYLATER);
-		fz_warn(ctx, "Ignoring broken Optional Content configuration");
 	}
 }
 

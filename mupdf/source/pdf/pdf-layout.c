@@ -4,14 +4,14 @@
 #include <math.h>
 
 #define LINE_LIMIT (100)
-#define LINE_HEIGHT (1.2)
+#define LINE_HEIGHT (1.2f)
 struct line { const char *a, *b; };
 
 struct font_info
 {
 	fz_context *ctx;
 	fz_font *font;
-	double fontsize;
+	float fontsize;
 };
 
 static float measure_character(struct font_info *info, int c)
@@ -124,7 +124,7 @@ static fz_matrix show_string(fz_context *ctx, fz_text *text, fz_font *user_font,
 		if (wmode == 0)
 			trm = fz_pre_translate(trm, adv, 0);
 		else
-			trm = fz_pre_translate(trm, 0, -adv);
+			trm = fz_pre_translate(trm, 0, adv);
 	}
 
 	return trm;
@@ -148,7 +148,7 @@ fz_text *pdf_layout_fit_text(fz_context *ctx, fz_font *font, fz_text_language la
 		int line_count, l;
 		float line_len;
 		fz_rect tbounds;
-		double xadj, yadj;
+		float xadj, yadj;
 		fz_text_span *span;
 
 		info.ctx = ctx;
@@ -165,18 +165,18 @@ fz_text *pdf_layout_fit_text(fz_context *ctx, fz_font *font, fz_text_language la
 			line_count = break_lines(&info, str, lines, LINE_LIMIT, width, &line_len);
 		} while (line_count > target_line_count++);
 
-		trm = fz_scale(info.fontsize, info.fontsize);
+		trm = fz_scale(info.fontsize, -info.fontsize);
 		trm.e += bounds.x0;
 		trm.f += bounds.y1;
 		text = fz_new_text(ctx);
 		for (l = 0; l < line_count; l++)
 		{
 			show_string(ctx, text, font, trm, lines[l].a, lines[l].b - lines[l].a, 0, 0, FZ_BIDI_LTR, lang);
-			trm = fz_pre_translate(trm, 0.0, (float)-LINE_HEIGHT);
+			trm = fz_pre_translate(trm, 0.0f, -LINE_HEIGHT);
 		}
 		tbounds = fz_bound_text(ctx, text, NULL, fz_identity);
-		xadj = (bounds.x0 + bounds.x1 - tbounds.x0 - tbounds.x1) / 2.0;
-		yadj = (bounds.y0 + bounds.y1 - tbounds.y0 - tbounds.y1) / 2.0;
+		xadj = (bounds.x0 + bounds.x1 - tbounds.x0 - tbounds.x1) / 2.0f;
+		yadj = (bounds.y0 + bounds.y1 - tbounds.y0 - tbounds.y1) / 2.0f;
 		for (span = text->head; span; span = span->next)
 		{
 			int i;

@@ -22,6 +22,7 @@
 #include "SearchAndDDE.h"
 #include "Selection.h"
 #include "Toolbar.h"
+#include "Print.h"
 
 /* Auxiliary function to callback Plugin Host Window with a OnCopyData message
  *  Based on SumatraLaunchBrowser function on SumatraPDF.cpp file
@@ -103,7 +104,11 @@ void MakePluginWindow(WindowInfo* win, HWND hwndParent) {
     SetFocus(hwndFrame);
 }
 
-// Open file new file in plugin mode
+// Command: Open file new file in plugin mode
+// Format : [OpenFile("<Filename>","<HandleToParentWindow_longint>")]
+// eg.    : [OpenFile("c:\\Folder\\teste.pdf", "1234")]
+//        : In this example "c:\\Folder\\teste.pdf" file is opened and the following message will be sent back to Window whose HANDLE is 1234:
+//        : [FileOpened()]
 static const WCHAR* HandleOpenFileCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr pdfFile, hwndPluginParentStr;
     HWND hwndPluginParent;
@@ -137,11 +142,11 @@ static const WCHAR* HandleOpenFileCmd(WindowInfo* win, const WCHAR* cmd, DDEACK&
     return next;
 }
 
-// DDE command  : Send a message to application plugin host with requested property(ies)
-// Format       : [GetProperty("<ProperyName>")]
-// eg.          : [GetProperty("Page")]
-//                In this example, the message sent to application plugin host is
-//                [Page(<currentpage>,"<currentnameddest>")]
+// Command: Send a message to application plugin host with requested property(ies)
+// Format : [GetProperty("<ProperyName>")]
+// eg.    : [GetProperty("Page")]
+//          In this example, the message sent to application plugin host is
+//          [Page(<currentpage>,"<currentnameddest>")]
 static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr PropertyName;
     const WCHAR* next = str::Parse(cmd, L"[GetProperty(\"%S\")]", &PropertyName);
@@ -196,10 +201,9 @@ static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     return next;
 }
 
-// DDE command  : Set a Sumatra propery from application plugin host
-// Format       : [SetProperty("<ProperyName>", "value")]
-// eg.          : [SetProperty("ToolbarVisible","1")]
-//                In this example, the Toolbar is set to be shown
+// Command: Set a Sumatra propery from application plugin host
+// Format : [SetProperty("<ProperyName>", "value")]
+// eg.    : In this example, the Toolbar is set to be shown: [SetProperty("ToolbarVisible","1")]
 static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr PropertyName, PropertyValue;
     const WCHAR* next = str::Parse(cmd, L"[SetProperty(\"%S\",%? \"%S\")]", &PropertyName, &PropertyValue);
@@ -283,9 +287,9 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
     return next;
 }
 
-// DDE command  : Do a text search in document (from current page)
-// Format       : [TextSearch(<searchText>,<matchCase>)]
-// eg.          : [TextSearch("Text to Search", 1)]
+// Command: Do a text search in document (from current page)
+// Format : [TextSearch(<searchText>,<matchCase>)]
+// eg.    : [TextSearch("Text to Search", 1)]
 static const WCHAR* HandleTextSearchCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
     AutoFreeWstr searchText;
     BOOL matchCase = 0;
@@ -305,11 +309,11 @@ static const WCHAR* HandleTextSearchCmd(WindowInfo* win, const WCHAR* cmd, DDEAC
     return next;
 }
 
-// DDE command  : Repeats same text search (Forward or Backward), including same match case.
-// Note         : Needs an initial text search command using Sumatra interface or "TextSearch" DDE command
-// Format       : [TextSearchNext(<Forward>])]
-// Note         : Use <Forward> = 1 for Search Forward or <Forward> = 0 for Backward
-// eg.          : [TextSearchNext(1)]
+// Command: Repeats same text search (Forward or Backward), including same match case.
+// Note   : Needs an initial text search command using Sumatra interface or "TextSearch" DDE command
+// Format : [TextSearchNext(<Forward>])]
+// Note   : Use <Forward> = 1 for Search Forward or <Forward> = 0 for Backward
+// eg.    : [TextSearchNext(1)]
 static const WCHAR* HandleTextSearchNextCmd(WindowInfo* win, const WCHAR* cmd, DDEACK& ack) {
     BOOL direction = 0;
     const WCHAR* next = str::Parse(cmd, L"[TextSearchNext(%u)]", &direction);
@@ -344,24 +348,15 @@ void HandlePluginCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
 
     while (!str::IsEmpty(cmd)) {
         const WCHAR* nextCmd = nextCmd = HandleTextSearchCmd(win, cmd, ack);
-        if (!nextCmd) {
-            nextCmd = HandleTextSearchNextCmd(win, cmd, ack);
-        }
-        if (!nextCmd) {
-            nextCmd = HandleGetPropertyCmd(win, cmd, ack);
-        }
-        if (!nextCmd) {
-            nextCmd = HandleSetPropertyCmd(win, cmd, ack);
-        }
-        if (!nextCmd) {
-            nextCmd = HandleOpenFileCmd(win, cmd, ack);
-        }
+        if (!nextCmd) nextCmd = HandleTextSearchNextCmd(win, cmd, ack);  
+        if (!nextCmd) nextCmd = HandleGetPropertyCmd(win, cmd, ack);        
+        if (!nextCmd) nextCmd = HandleSetPropertyCmd(win, cmd, ack);
+        if (!nextCmd) nextCmd = HandleOpenFileCmd(win, cmd, ack);
         if (!nextCmd) {
             AutoFreeWstr tmp;
             nextCmd = str::Parse(cmd, L"%S]", &tmp);
         }
         cmd = nextCmd;
-
         {
             AutoFree tmp = strconv::WstrToUtf8(cmd);
             logf("HandlePluginCmds: cmd='%s'\n", tmp.Get());

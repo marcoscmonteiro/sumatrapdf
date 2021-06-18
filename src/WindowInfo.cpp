@@ -44,14 +44,15 @@
 #include "Commands.h"
 #include "Caption.h"
 #include "Selection.h"
+#include "Flags.h"
 #include "StressTesting.h"
 #include "Translations.h"
 #include "uia/Provider.h"
 
 Vec<WindowInfo*> gWindows;
 
-NotificationGroupId NG_CURSOR_POS_HELPER = "cursorPosHelper";
-NotificationGroupId NG_RESPONSE_TO_ACTION = "responseToAction";
+Kind NG_CURSOR_POS_HELPER = "cursorPosHelper";
+Kind NG_RESPONSE_TO_ACTION = "responseToAction";
 
 WindowInfo::WindowInfo(HWND hwnd) {
     hwndFrame = hwnd;
@@ -75,7 +76,7 @@ WindowInfo::~WindowInfo() {
     FinishStressTest(this);
 
     CrashIf(tabs.size() > 0);
-    CrashIf(ctrl);
+    // CrashIf(ctrl); // TODO: seen in crash report
     CrashIf(linkOnLastButtonDown);
     CrashIf(annotationOnLastButtonDown);
 
@@ -106,7 +107,6 @@ WindowInfo::~WindowInfo() {
 
     delete frameRateWnd;
     delete infotip;
-    delete altBookmarks;
     delete tocTreeCtrl;
     if (favTreeCtrl) {
         delete favTreeCtrl->treeModel;
@@ -269,9 +269,9 @@ void WindowInfo::HideToolTip() {
     infotip->Hide();
 }
 
-NotificationWnd* WindowInfo::ShowNotification(const WCHAR* msg, int options, NotificationGroupId groupId) {
-    int timeoutMS = (options & NOS_PERSIST) ? 0 : 3000;
-    bool highlight = (options & NOS_HIGHLIGHT);
+NotificationWnd* WindowInfo::ShowNotification(const WCHAR* msg, NotificationOptions options, Kind groupId) {
+    int timeoutMS = ((uint)options & (uint)NotificationOptions::Persist) ? 0 : 3000;
+    bool highlight = ((uint)options & (uint)NotificationOptions::Highlight);
 
     NotificationWnd* wnd = new NotificationWnd(hwndCanvas, timeoutMS);
     wnd->highlight = highlight;
@@ -476,7 +476,7 @@ void LinkHandler::LaunchFile(const WCHAR* path, PageDestination* link) {
         bool ok = OpenFileExternally(fullPath);
         if (!ok) {
             AutoFreeWstr msg(str::Format(_TR("Error loading %s"), fullPath.Get()));
-            owner->ShowNotification(msg, NOS_HIGHLIGHT);
+            owner->ShowNotification(msg, NotificationOptions::Highlight);
         }
         return;
     }

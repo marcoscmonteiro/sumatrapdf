@@ -1,3 +1,9 @@
+For 3.3:
+- when Annotations.HighlightColor has alpha, it's incorrectly parsed because
+  we set as RGB but read as CMYK
+- when EditAnnotations window is visible and we do 'a', annotation is not added to the window
+
+
 Annotations:
  - cannot move ink attachments (repro file from 1716)
  - save attachment
@@ -35,11 +41,19 @@ Annotations:
 
 ------
 
+use RtlCaptureStackBackTrace in crash reporting code
+
+------
+
 A system to trigger re-layout when e.g. a button text changes.
 Add a way to register function to be called for a given hwnd.
 WindowBaseLayout() registers for its hwnd and calls Relayout().
 Add TriggerRelayout(HWND) which searches for registered function
 for hwnd and its parents.
+
+------
+
+Simplify how we layout toolbar. Maybe use layout system.
 
 ------
 
@@ -51,7 +65,6 @@ ProgramFiles directory (maybe would fix https://github.com/sumatrapdfreader/suma
 Fixes:
 - fix Vec bug (same as Str) where we're not using buf
 - fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1466 (-new-window preserves window state from history)
-- fix memleaks on reading .vbkm file
 - tweak PositionCloseTo() to run after creation and use actual window position
 
 ------
@@ -64,6 +77,8 @@ small refactorings:
 - change ProgressUpdateUI to a callback (e.g. in PrintThreadData)
 - use DirIter instead of FindFirstFile in Installer.cpp
 - use DirIter instead of FindFirstFile in FileThumbnails.cpp
+- CloseTab(WindowInfo*) => CloseTab(TabInfo*)
+
 ------
 
 possible refactorings:

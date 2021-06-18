@@ -25,6 +25,7 @@ extern "C" {
 #include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineFzUtil.h"
+#include "EnginePdfImpl.h"
 #include "EnginePdf.h"
 
 // in mupdf_load_system_font.c
@@ -34,6 +35,13 @@ extern "C" void pdf_install_load_system_font_funcs(fz_context* ctx);
 AnnotationType AnnotationTypeFromPdfAnnot(enum pdf_annot_type tp);
 
 Kind kindEnginePdf = "enginePdf";
+
+EnginePdf* AsEnginePdf(EngineBase* engine) {
+    if (!engine || !IsOfKind(engine, kindEnginePdf)) {
+        return nullptr;
+    }
+    return (EnginePdf*)engine;
+}
 
 static fz_link* FixupPageLinks(fz_link* root) {
     // Links in PDF documents are added from bottom-most to top-most,
@@ -298,82 +306,6 @@ struct PageTreeStackItem {
     }
 };
 
-class EnginePdf : public EngineBase {
-  public:
-    EnginePdf();
-    ~EnginePdf() override;
-    EngineBase* Clone() override;
-
-    RectF PageMediabox(int pageNo) override;
-    RectF PageContentBox(int pageNo, RenderTarget target = RenderTarget::View) override;
-
-    RenderedBitmap* RenderPage(RenderPageArgs& args) override;
-
-    RectF Transform(const RectF& rect, int pageNo, float zoom, int rotation, bool inverse = false) override;
-
-    std::span<u8> GetFileData() override;
-    bool SaveFileAs(const char* copyFileName, bool includeUserAnnots = false) override;
-    bool SaveFileAsPdf(const char* pdfFileName, bool includeUserAnnots = false);
-    PageText ExtractPageText(int pageNo) override;
-
-    bool HasClipOptimizations(int pageNo) override;
-    WCHAR* GetProperty(DocumentProperty prop) override;
-
-    bool BenchLoadPage(int pageNo) override;
-
-    Vec<IPageElement*>* GetElements(int pageNo) override;
-    IPageElement* GetElementAtPos(int pageNo, PointF pt) override;
-    RenderedBitmap* GetImageForPageElement(IPageElement*) override;
-
-    PageDestination* GetNamedDest(const WCHAR* name) override;
-    TocTree* GetToc() override;
-
-    WCHAR* GetPageLabel(int pageNo) const override;
-    int GetPageByLabel(const WCHAR* label) const override;
-
-    int GetAnnotations(Vec<Annotation*>* annotsOut);
-
-    static EngineBase* CreateFromFile(const WCHAR* path, PasswordUI* pwdUI);
-    static EngineBase* CreateFromStream(IStream* stream, PasswordUI* pwdUI);
-
-    // make sure to never ask for pagesAccess in an ctxAccess
-    // protected critical section in order to avoid deadlocks
-    CRITICAL_SECTION* ctxAccess;
-    CRITICAL_SECTION pagesAccess;
-
-    CRITICAL_SECTION mutexes[FZ_LOCK_MAX];
-
-    RenderedBitmap* GetPageImage(int pageNo, RectF rect, int imageIdx);
-
-    fz_context* ctx = nullptr;
-    fz_locks_context fz_locks_ctx;
-    fz_document* _doc = nullptr;
-    fz_stream* _docStream = nullptr;
-    Vec<FzPageInfo> _pages;
-    fz_outline* outline = nullptr;
-    fz_outline* attachments = nullptr;
-    pdf_obj* _info = nullptr;
-    WStrVec* _pageLabels = nullptr;
-
-    TocTree* tocTree = nullptr;
-
-    bool Load(const WCHAR* filePath, PasswordUI* pwdUI = nullptr);
-    bool Load(IStream* stream, PasswordUI* pwdUI = nullptr);
-    // TODO(port): fz_stream can no-longer be re-opened (fz_clone_stream)
-    // bool Load(fz_stream* stm, PasswordUI* pwdUI = nullptr);
-    bool LoadFromStream(fz_stream* stm, PasswordUI* pwdUI = nullptr);
-    bool FinishLoading();
-
-    FzPageInfo* GetFzPageInfoFast(int pageNo);
-    FzPageInfo* GetFzPageInfo(int pageNo, bool loadQuick);
-    fz_matrix viewctm(int pageNo, float zoom, int rotation);
-    fz_matrix viewctm(fz_page* page, float zoom, int rotation);
-    TocItem* BuildTocTree(TocItem* parent, fz_outline* outline, int& idCounter, bool isAttachment);
-    WCHAR* ExtractFontList();
-
-    std::span<u8> LoadStreamFromPDFFile(const WCHAR* filePath);
-};
-
 // https://github.com/sumatrapdfreader/sumatrapdf/issues/1336
 #if 0
 bool PdfLink::SaveEmbedded(LinkSaverUI& saveUI) {
@@ -448,6 +380,10 @@ EnginePdf::~EnginePdf() {
     fz_drop_outline(ctx, outline);
     fz_drop_outline(ctx, attachments);
     pdf_drop_obj(ctx, _info);
+
+    if (_doc) {
+        pdf_drop_page_tree(ctx, pdf_document_from_fz_document(ctx, _doc));
+    }
 
     fz_drop_document(ctx, _doc);
     drop_cached_fonts_for_ctx(ctx);
@@ -1134,7 +1070,7 @@ static PageElement* makePdfCommentFromPdfAnnot(fz_context* ctx, int pageNo, pdf_
     fz_rect rect = pdf_annot_rect(ctx, annot);
     auto tp = pdf_annot_type(ctx, annot);
     const char* contents = pdf_annot_contents(ctx, annot);
-    const char* label = pdf_field_label(ctx, annot->obj);
+    const char* label = pdf_annot_field_label(ctx, annot);
     const char* s = contents;
     // TODO: use separate classes for comments and tooltips?
     if (str::IsEmpty(contents) && PDF_ANNOT_WIDGET == tp) {
@@ -1160,14 +1096,14 @@ static void MakePageElementCommentsFromAnnotations(fz_context* ctx, FzPageInfo* 
         auto tp = pdf_annot_type(ctx, annot);
         const char* contents = pdf_annot_contents(ctx, annot); // don't free
         bool isContentsEmpty = str::IsEmpty(contents);
-        const char* label = pdf_field_label(ctx, annot->obj); // don't free
+        const char* label = pdf_annot_field_label(ctx, annot); // don't free
         bool isLabelEmpty = str::IsEmpty(label);
-        int flags = pdf_field_flags(ctx, annot->obj);
+        int flags = pdf_annot_field_flags(ctx, annot);
 
         if (PDF_ANNOT_FILE_ATTACHMENT == tp) {
             dbglogf("found file attachment annotation\n");
 
-            pdf_obj* fs = pdf_dict_get(ctx, annot->obj, PDF_NAME(FS));
+            pdf_obj* fs = pdf_dict_get(ctx, pdf_annot_obj(ctx, annot), PDF_NAME(FS));
             const char* attname = pdf_embedded_file_name(ctx, fs);
             fz_rect rect = pdf_annot_rect(ctx, annot);
             if (str::IsEmpty(attname) || fz_is_empty_rect(rect) || !pdf_is_embedded_file(ctx, fs)) {
@@ -1401,7 +1337,7 @@ RenderedBitmap* EnginePdf::RenderPage(RenderPageArgs& args) {
         // or "Print". "Export" is not used
         dev = fz_new_draw_device(ctx, fz_identity, pix);
         pdf_document* doc = pdf_document_from_fz_document(ctx, _doc);
-        pdf_run_page_with_usage(ctx, doc, pdfpage, dev, ctm, usage, fzcookie);
+        pdf_run_page_with_usage(ctx, pdfpage, dev, ctm, usage, fzcookie);
         bitmap = new_rendered_fz_pixmap(ctx, pix);
         fz_close_device(ctx, dev);
     }
@@ -1936,8 +1872,7 @@ int EnginePdf::GetPageByLabel(const WCHAR* label) const {
 }
 
 // in Annotation.cpp
-extern Annotation* MakeAnnotationPdf(CRITICAL_SECTION* ctxAccess, fz_context* ctx, pdf_page* page, pdf_annot* annot,
-                                     int pageNo);
+extern Annotation* MakeAnnotationPdf(CRITICAL_SECTION* ctxAccess, fz_context* ctx, pdf_annot* annot, int pageNo);
 
 int EnginePdf::GetAnnotations(Vec<Annotation*>* annotsOut) {
     int nAnnots = 0;
@@ -1946,7 +1881,7 @@ int EnginePdf::GetAnnotations(Vec<Annotation*>* annotsOut) {
         pdf_page* pdfpage = pdf_page_from_fz_page(ctx, pi->page);
         pdf_annot* annot = pdf_first_annot(ctx, pdfpage);
         while (annot) {
-            Annotation* a = MakeAnnotationPdf(ctxAccess, ctx, pdfpage, annot, i);
+            Annotation* a = MakeAnnotationPdf(ctxAccess, ctx, annot, i);
             if (a) {
                 annotsOut->Append(a);
                 nAnnots++;
@@ -2001,8 +1936,7 @@ static const char* getuser(void) {
 }
 
 Annotation* EnginePdfCreateAnnotation(EngineBase* engine, AnnotationType typ, int pageNo, PointF pos) {
-    CrashIf(engine->kind != kindEnginePdf);
-    EnginePdf* epdf = (EnginePdf*)engine;
+    EnginePdf* epdf = AsEnginePdf(engine);
     fz_context* ctx = epdf->ctx;
 
     auto pageInfo = epdf->GetFzPageInfo(pageNo, true);
@@ -2047,21 +1981,17 @@ Annotation* EnginePdfCreateAnnotation(EngineBase* engine, AnnotationType typ, in
     }
 
     pdf_update_appearance(ctx, annot);
-    auto res = MakeAnnotationPdf(epdf->ctxAccess, ctx, page, annot, pageNo);
+    auto res = MakeAnnotationPdf(epdf->ctxAccess, ctx, annot, pageNo);
     return res;
 }
 
 int EnginePdfGetAnnotations(EngineBase* engine, Vec<Annotation*>* annotsOut) {
-    CrashIf(engine->kind != kindEnginePdf);
-    EnginePdf* epdf = (EnginePdf*)engine;
+    EnginePdf* epdf = AsEnginePdf(engine);
     return epdf->GetAnnotations(annotsOut);
 }
 
 bool EnginePdfHasUnsavedAnnotations(EngineBase* engine) {
-    if (!engine || engine->kind != kindEnginePdf) {
-        return false;
-    }
-    EnginePdf* epdf = (EnginePdf*)engine;
+    EnginePdf* epdf = AsEnginePdf(engine);
     pdf_document* pdfdoc = pdf_document_from_fz_document(epdf->ctx, epdf->_doc);
     return pdfdoc->dirty;
 }
@@ -2082,10 +2012,7 @@ static bool IsAllowedAnnot(AnnotationType tp, AnnotationType* allowed) {
 }
 
 Annotation* EnginePdfGetAnnotationAtPos(EngineBase* engine, int pageNo, PointF pos, AnnotationType* allowedAnnots) {
-    if (!engine || engine->kind != kindEnginePdf) {
-        return nullptr;
-    }
-    EnginePdf* epdf = (EnginePdf*)engine;
+    EnginePdf* epdf = AsEnginePdf(engine);
     FzPageInfo* pi = epdf->GetFzPageInfo(pageNo, true);
 
     ScopedCritSec cs(epdf->ctxAccess);
@@ -2110,7 +2037,7 @@ Annotation* EnginePdfGetAnnotationAtPos(EngineBase* engine, int pageNo, PointF p
         annot = pdf_next_annot(epdf->ctx, annot);
     }
     if (matched) {
-        return MakeAnnotationPdf(epdf->ctxAccess, epdf->ctx, pdfpage, matched, pageNo);
+        return MakeAnnotationPdf(epdf->ctxAccess, epdf->ctx, matched, pageNo);
     }
     return nullptr;
 }

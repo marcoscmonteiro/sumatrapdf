@@ -37,8 +37,8 @@ enum class MouseAction {
 };
 // clang-format on
 
-extern NotificationGroupId NG_CURSOR_POS_HELPER;
-extern NotificationGroupId NG_RESPONSE_TO_ACTION;
+extern Kind NG_CURSOR_POS_HELPER;
+extern Kind NG_RESPONSE_TO_ACTION;
 
 // clang-format off
 enum PresentationMode {
@@ -104,10 +104,10 @@ struct WindowInfo {
     HWND hwndPageBox{nullptr};
     HWND hwndPageBg{nullptr};
     HWND hwndPageTotal{nullptr};
+    HWND hwndTbInfoText{nullptr};
 
     // state related to table of contents (PDF bookmarks etc.)
     HWND hwndTocBox{nullptr};
-    DropDownCtrl* altBookmarks{nullptr};
 
     LabelWithCloseWnd* tocLabelWithClose{nullptr};
     TreeCtrl* tocTreeCtrl{nullptr};
@@ -241,8 +241,8 @@ struct WindowInfo {
 
     void ShowToolTip(const WCHAR* text, Rect& rc, bool multiline = false);
     void HideToolTip();
-    NotificationWnd* ShowNotification(const WCHAR* msg, int options = NOS_WITH_TIMEOUT,
-                                      NotificationGroupId groupId = NG_RESPONSE_TO_ACTION);
+    NotificationWnd* ShowNotification(const WCHAR* msg, NotificationOptions options = NotificationOptions::WithTimeout,
+                                      Kind groupId = NG_RESPONSE_TO_ACTION);
 
     bool CreateUIAProvider();
 };

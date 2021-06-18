@@ -131,11 +131,8 @@ func main() {
 		flgTriggerRaMicroPreRel    bool
 		flgTriggerCodeQL           bool
 		flgWebsiteRun              bool
-		flgWebsiteDeployProd       bool
-		flgWebsiteDeployDev        bool
 		flgWebsiteDeployCloudflare bool
 		flgWebsiteImportNotion     bool
-		flgWebsiteImportAndDeploy  bool
 		flgWebsiteBuildCloudflare  bool
 		flgNoCache                 bool
 		flgClangFormat             bool
@@ -174,12 +171,9 @@ func main() {
 		flag.BoolVar(&flgTriggerRaMicroPreRel, "trigger-ramicro-pre-rel", false, "trigger pre-release build")
 		flag.BoolVar(&flgTriggerCodeQL, "trigger-codeql", false, "trigger codeql build")
 		flag.BoolVar(&flgWebsiteRun, "website-run", false, "preview website locally")
-		flag.BoolVar(&flgWebsiteDeployProd, "website-deploy-prod", false, "deploy website")
-		flag.BoolVar(&flgWebsiteDeployDev, "website-deploy-dev", false, "deploy a preview of website")
-		flag.BoolVar(&flgWebsiteDeployCloudflare, "website-deploy-cf", false, "deploy website to cloudflare")
+		flag.BoolVar(&flgWebsiteDeployCloudflare, "website-deploy", false, "deploy website to cloudflare")
 		flag.BoolVar(&flgWebsiteImportNotion, "website-import-notion", false, "import docs from notion")
-		flag.BoolVar(&flgWebsiteImportAndDeploy, "website-import-deploy", false, "import from notion and deploy")
-		flag.BoolVar(&flgWebsiteBuildCloudflare, "website-build-cf", false, "build the website (download Sumatra files")
+		flag.BoolVar(&flgWebsiteBuildCloudflare, "website-build-cf", false, "build the website (download Sumatra files)")
 		flag.BoolVar(&flgNoCache, "no-cache", false, "if true, notion import ignores cache")
 		flag.BoolVar(&flgCppCheck, "cppcheck", false, "run cppcheck (must be installed)")
 		flag.BoolVar(&flgCppCheckAll, "cppcheck-all", false, "run cppcheck with more checks (must be installed)")
@@ -211,23 +205,6 @@ func main() {
 
 	if flgWebsiteImportNotion {
 		websiteImportNotion()
-		return
-	}
-
-	if flgWebsiteDeployDev {
-		websiteDeployDev()
-		return
-	}
-
-	if flgWebsiteDeployProd {
-		websiteDeployProd()
-		return
-	}
-
-	if flgWebsiteImportAndDeploy {
-		websiteImportNotion()
-		u.CdUpDir("sumatrapdf")
-		websiteDeployProd()
 		return
 	}
 

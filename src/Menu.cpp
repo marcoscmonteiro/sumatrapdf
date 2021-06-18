@@ -44,13 +44,14 @@
 #include "SumatraDialogs.h"
 #include "Translations.h"
 #include "TocEditor.h"
+#include "Toolbar.h"
 #include "EditAnnotations.h"
 #include "TextSelection.h"
 #include "TextSearch.h"
 #include "SearchAndDDE.h"
 
 // SumatraPDF.cpp
-extern bool MakeAnnotationFromSelection(TabInfo* tab, AnnotationType annotType);
+extern Annotation* MakeAnnotationFromSelection(TabInfo* tab, AnnotationType annotType);
 
 // note: IDM_VIEW_SINGLE_PAGE - IDM_VIEW_CONTINUOUS and also
 //       CmdZoomFIT_PAGE - CmdZoomCUSTOM must be in a continuous range!
@@ -803,13 +804,7 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
         }
     }
 
-    bool enableSaveAnnotations = false;
-    bool canDoAnnotations = gIsDebugBuild || gIsPreReleaseBuild || gIsDailyBuild;
-    if (canDoAnnotations) {
-        enableSaveAnnotations = EngineHasUnsavedAnnotations(engine);
-    } else {
-        showCreateAnnotation = false;
-    }
+    bool enableSaveAnnotations = EngineHasUnsavedAnnotations(engine);
     win::menu::SetEnabled(popup, CmdSaveAnnotations, enableSaveAnnotations);
 
     const WCHAR* filePath = win->ctrl->FilePath();
@@ -850,7 +845,7 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
     DestroyMenu(popup);
 
     AnnotationType annotType = (AnnotationType)(cmd - CmdCreateAnnotText);
-
+    Annotation* annot;
     switch (cmd) {
         case CmdCopySelection:
         case CmdSelectAll:
@@ -901,21 +896,36 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
         case CmdCreateAnnotSquare:
         case CmdCreateAnnotLine:
         case CmdCreateAnnotCircle: {
-            Annotation* annot = EnginePdfCreateAnnotation(engine, annotType, pageNo, ptOnPage);
-            WindowInfoRerender(win);
-            StartEditAnnotations(win->currentTab, annot);
+            annot = EnginePdfCreateAnnotation(engine, annotType, pageNo, ptOnPage);
+            if (annot) {
+                WindowInfoRerender(win);
+                ToolbarUpdateStateForWindow(win, true);
+                StartEditAnnotations(tab, annot);
+            }
         } break;
         case CmdCreateAnnotHighlight:
-            MakeAnnotationFromSelection(win->currentTab, AnnotationType::Highlight);
+            annot = MakeAnnotationFromSelection(tab, AnnotationType::Highlight);
+            if (annot) {
+                StartEditAnnotations(tab, annot);
+            }
             break;
         case CmdCreateAnnotSquiggly:
-            MakeAnnotationFromSelection(win->currentTab, AnnotationType::Squiggly);
+            annot = MakeAnnotationFromSelection(tab, AnnotationType::Squiggly);
+            if (annot) {
+                StartEditAnnotations(tab, annot);
+            }
             break;
         case CmdCreateAnnotStrikeOut:
-            MakeAnnotationFromSelection(win->currentTab, AnnotationType::StrikeOut);
+            annot = MakeAnnotationFromSelection(tab, AnnotationType::StrikeOut);
+            if (annot) {
+                StartEditAnnotations(tab, annot);
+            }
             break;
         case CmdCreateAnnotUnderline:
-            MakeAnnotationFromSelection(win->currentTab, AnnotationType::Underline);
+            annot = MakeAnnotationFromSelection(tab, AnnotationType::Underline);
+            if (annot) {
+                StartEditAnnotations(tab, annot);
+            }
             break;
         case CmdCreateAnnotInk:
         case CmdCreateAnnotPolyLine:
@@ -1000,11 +1010,7 @@ static void RebuildFileMenu(TabInfo* tab, HMENU menu) {
 
     DisplayModel* dm = tab ? tab->AsFixed() : nullptr;
     EngineBase* engine = tab ? tab->GetEngine() : nullptr;
-    bool enableSaveAnnotations = false;
-    bool canDoAnnotations = gIsDebugBuild || gIsPreReleaseBuild || gIsDailyBuild;
-    if (canDoAnnotations) {
-        enableSaveAnnotations = EngineHasUnsavedAnnotations(engine);
-    }
+    bool enableSaveAnnotations = EngineHasUnsavedAnnotations(engine);
     win::menu::SetEnabled(menu, CmdSaveAnnotations, enableSaveAnnotations);
 }
 

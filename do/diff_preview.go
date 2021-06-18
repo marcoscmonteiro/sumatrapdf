@@ -7,14 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
 
 /*
 A tool to preview changes before checkin.
-Uses WinMerge to do the diffing (http://winmerge.org/)
+Uses WinMerge to do the diffing (https://winmerge.org/)
 Anohter option that wouldn't require winmerge is to make it a web server,
 implement web-based ui and launch the browser.
 */
@@ -41,12 +40,6 @@ type GitChange struct {
 	Type int // Modified, Added etc.
 	Path string
 	Name string
-}
-
-func printStack() {
-	buf := make([]byte, 1024*164)
-	n := runtime.Stack(buf, false)
-	fmt.Printf("%s", buf[:n])
 }
 
 func detectExeMust(name string) string {
@@ -164,7 +157,7 @@ func deleteOldDirs() {
 			// we shouldn't create anything but dirs
 			continue
 		}
-		age := time.Now().Sub(fi.ModTime())
+		age := time.Since(fi.ModTime())
 		path := filepath.Join(tempDir, fi.Name())
 		if age > time.Hour*24 {
 			fmt.Printf("Deleting %s because older than 1 day\n", path)
@@ -182,7 +175,7 @@ func getBeforeAfterDirs(dir string) (string, string) {
 	return dirBefore, dirAfter
 }
 
-// http://manual.winmerge.org/Command_line.html
+// https://manual.winmerge.org/Command_line.html
 func runWinMerge(dir string) {
 	dirBefore, dirAfter := getBeforeAfterDirs(dir)
 	/*

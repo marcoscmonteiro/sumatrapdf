@@ -133,8 +133,8 @@ bool gShowFrameRate = false;
 // embedded (e.g. in a web browser)
 const WCHAR* gPluginURL = nullptr; // owned by Flags in WinMain
 
-static NotificationGroupId NG_PERSISTENT_WARNING = "persistentWarning";
-static NotificationGroupId NG_PAGE_INFO_HELPER = "pageInfoHelper";
+static Kind NG_PERSISTENT_WARNING = "persistentWarning";
+static Kind NG_PAGE_INFO_HELPER = "pageInfoHelper";
 
 #define SPLITTER_DX 5
 #define SIDEBAR_MIN_WIDTH 150
@@ -539,9 +539,6 @@ static void UpdateWindowRtlLayout(WindowInfo* win) {
     SetRtl(win->hwndTocBox, isRTL);
     HWND tocBoxTitle = win->tocLabelWithClose->hwnd;
     SetRtl(tocBoxTitle, isRTL);
-    if (win->altBookmarks) {
-        SetRtl(win->altBookmarks->hwnd, isRTL);
-    }
 
     SetRtl(win->hwndFavBox, isRTL);
     HWND favBoxTitle = win->favLabelWithClose->hwnd;
@@ -552,6 +549,7 @@ static void UpdateWindowRtlLayout(WindowInfo* win) {
     SetRtl(win->hwndToolbar, isRTL);
     SetRtl(win->hwndFindBox, isRTL);
     SetRtl(win->hwndFindText, isRTL);
+    SetRtl(win->hwndTbInfoText, isRTL);
     SetRtl(win->hwndPageText, isRTL);
 
     SetRtl(win->hwndCaption, isRTL);
@@ -867,7 +865,7 @@ static NO_INLINE void VerifyController(Controller* ctrl, const WCHAR* path) {
     auto ctrlFilePath = ctrl->FilePath();
     auto s1 = ctrlFilePath ? strconv::WstrToUtf8(ctrlFilePath).data() : str::Dup("<null>");
     auto s2 = path ? strconv::WstrToUtf8(path).data() : str::Dup("<null>");
-    logf("CreateControllerForFile: ctrl->FilePath: '%s', filePath: '%s'\n", s1, s2);
+    logf("VerifyController: ctrl->FilePath: '%s', filePath: '%s'\n", s1, s2);
     CrashIf(true);
     str::Free(s1);
     str::Free(s2);
@@ -1216,7 +1214,7 @@ static void LoadDocIntoCurrentTab(const LoadArgs& args, Controller* ctrl, Displa
     if (unsupported) {
         unsupported.Set(str::Format(_TR("This document uses unsupported features (%s) and might not render properly"),
                                     unsupported.Get()));
-        win->ShowNotification(unsupported, NOS_WARNING, NG_PERSISTENT_WARNING);
+        win->ShowNotification(unsupported, NotificationOptions::Warning, NG_PERSISTENT_WARNING);
     }
 
     // This should only happen after everything else is ready
@@ -1594,7 +1592,7 @@ WindowInfo* LoadDocument(LoadArgs& args) {
     // there is a window the user has just been interacting with
     if (failEarly) {
         AutoFreeWstr msg(str::Format(_TR("File %s not found"), fullPath.Get()));
-        win->ShowNotification(msg, NOS_HIGHLIGHT);
+        win->ShowNotification(msg, NotificationOptions::Highlight);
         // display the notification ASAP (prefs::Save() can introduce a notable delay)
         win->RedrawAll(true);
 
@@ -1652,7 +1650,7 @@ WindowInfo* LoadDocument(LoadArgs& args) {
         // TODO: same message as in Canvas.cpp to not introduce
         // new translation. Find a better message e.g. why failed.
         WCHAR* msg = str::Format(_TR("Error loading %s"), fullPath.Get());
-        win->ShowNotification(msg, NOS_HIGHLIGHT);
+        win->ShowNotification(msg, NotificationOptions::Highlight);
         str::Free(msg);
         ShowWindow(win->hwndFrame, SW_SHOW);
 
@@ -1817,7 +1815,7 @@ static void UpdatePageInfoHelper(WindowInfo* win, NotificationWnd* wnd, int page
         pageInfo.Set(str::Format(L"%s %s (%d / %d)", _TR("Page:"), label.Get(), pageNo, win->ctrl->PageCount()));
     }
     if (!wnd) {
-        int options = NOS_PERSIST;
+        auto options = NotificationOptions::Persist;
         win->ShowNotification(pageInfo, options, NG_PAGE_INFO_HELPER);
     } else {
         wnd->UpdateMessage(pageInfo);
@@ -1908,7 +1906,7 @@ void UpdateCursorPositionHelper(WindowInfo* win, Point pos, NotificationWnd* wnd
         posInfo.Set(str::Format(L"%s - %s %s", posInfo.Get(), _TR("Selection:"), selStr.Get()));
     }
     if (!wnd) {
-        win->ShowNotification(posInfo, NOS_PERSIST, NG_CURSOR_POS_HELPER);
+        win->ShowNotification(posInfo, NotificationOptions::Persist, NG_CURSOR_POS_HELPER);
     } else {
         wnd->UpdateMessage(posInfo);
     }
@@ -2076,10 +2074,10 @@ void UpdateCheckAsync(WindowInfo* win, bool autoCheck) {
 
 // re-render the document currently displayed in this window
 void WindowInfoRerender(WindowInfo* win, bool includeNonClientArea) {
-    if (!win->AsFixed()) {
+    DisplayModel* dm = win->AsFixed();
+    if (!dm) {
         return;
     }
-    DisplayModel* dm = win->AsFixed();
     gRenderCache.CancelRendering(dm);
     gRenderCache.KeepForDisplayModel(dm, dm);
     if (includeNonClientArea) {
@@ -2160,7 +2158,7 @@ static void OnMenuExit() {
     // so use a stable copy for iteration
     Vec<WindowInfo*> toClose = gWindows;
     for (WindowInfo* win : toClose) {
-        CloseWindow(win, true);
+        CloseWindow(win, true, false);
     }
 }
 
@@ -2261,24 +2259,36 @@ void SaveAnnotationsToMaybeNewPdfFile(TabInfo* tab) {
     EnginePdfSaveUpdated(engine, dstFilePath.AsView());
 }
 
-static void MaybeSaveAnnotations(WindowInfo* win) {
-    DisplayModel* dm = win->AsFixed();
+static void MaybeSaveAnnotations(TabInfo* tab) {
+    if (!tab) {
+        return;
+    }
+    // TODO: hacky because CloseTab() can call CloseWindow() and
+    // they both ask to save annotations
+    // Could determine in CloseTab() if will CloseWindow() and
+    // not ask
+    if (tab->askedToSaveAnnotations) {
+        return;
+    }
+    tab->askedToSaveAnnotations = true;
+
+    DisplayModel* dm = tab->AsFixed();
     if (!dm) {
         return;
     }
     EngineBase* engine = dm->GetEngine();
-    bool confirm = EnginePdfHasUnsavedAnnotations(engine);
+    bool confirm = EngineHasUnsavedAnnotations(engine);
     if (!confirm) {
         return;
     }
     uint type = MB_YESNO | MB_ICONEXCLAMATION | MbRtlReadingMaybe();
     const WCHAR* title = _TR("Warning");
     const WCHAR* msg = _TR_TODO("You have unsaved annotations. Save them?");
-    int res = MessageBoxW(win->hwndFrame, msg, title, type);
+    int res = MessageBoxW(tab->win->hwndFrame, msg, title, type);
     if (res == IDNO) {
         return;
     }
-    SaveAnnotationsToMaybeNewPdfFile(win->currentTab);
+    SaveAnnotationsToMaybeNewPdfFile(tab);
 }
 
 // closes the current tab, selecting the next one
@@ -2290,19 +2300,19 @@ void CloseTab(WindowInfo* win, bool quitIfLast) {
         return;
     }
 
+    AbortFinding(win, true);
     ClearFindBox(win);
-    MaybeSaveAnnotations(win);
+    MaybeSaveAnnotations(win->currentTab);
 
     bool didSavePrefs = false;
     size_t tabCount = win->tabs.size();
     if (tabCount == 1 || (tabCount == 0 && quitIfLast)) {
         if (MayCloseWindow(win)) {
-            CloseWindow(win, quitIfLast);
+            CloseWindow(win, quitIfLast, false);
             didSavePrefs = true; // in CloseWindow()
         }
     } else {
         CrashIf(gPluginMode && !gWindows.Contains(win));
-        AbortFinding(win, true);
         TabsOnCloseDoc(win);
     }
     if (!didSavePrefs) {
@@ -2355,13 +2365,20 @@ void CloseWindow(WindowInfo* win, bool quitIfLast, bool forceClose) {
     AbortFinding(win, true);
     AbortPrinting(win);
 
-    if (win->AsFixed()) {
-        win->AsFixed()->dontRenderFlag = true;
-    } else if (win->AsEbook()) {
-        win->AsEbook()->EnableMessageHandling(false);
+    for (auto& tab : win->tabs) {
+        if (tab->AsFixed()) {
+            tab->AsFixed()->dontRenderFlag = true;
+        } else if (win->AsEbook()) {
+            tab->AsEbook()->EnableMessageHandling(false);
+        }
     }
+
     if (win->presentation) {
         ExitFullScreen(win);
+    }
+
+    for (auto& tab : win->tabs) {
+        MaybeSaveAnnotations(tab);
     }
 
     bool lastWindow = (1 == gWindows.size());
@@ -2730,7 +2747,7 @@ static void OnMenuRenameFile(WindowInfo* win) {
         LoadArgs args(srcFileName, win);
         args.forceReuse = true;
         LoadDocument(args);
-        win->ShowNotification(_TR("Failed to rename the file!"), NOS_WARNING);
+        win->ShowNotification(_TR("Failed to rename the file!"), NotificationOptions::Warning);
         return;
     }
 
@@ -3780,7 +3797,7 @@ static void OnFrameKeyEsc(WindowInfo* win) {
         return;
     }
     if (gGlobalPrefs->escToExit && MayCloseWindow(win)) {
-        CloseWindow(win, true);
+        CloseWindow(win, true, false);
         return;
     }
     if (win->presentation || win->isFullScreen) {
@@ -3828,24 +3845,19 @@ static void OnFrameKeyB(WindowInfo* win) {
     }
 }
 
-bool MakeAnnotationFromSelection(TabInfo* tab, AnnotationType annotType) {
-    bool annotsEnabled = gIsDebugBuild || gIsPreReleaseBuild;
-    if (!annotsEnabled) {
-        return false;
-    }
-
+Annotation* MakeAnnotationFromSelection(TabInfo* tab, AnnotationType annotType) {
     // converts current selection to annotation (or back to regular text
     // if it's already an annotation)
-    DisplayModel* dm = tab->win->AsFixed();
+    DisplayModel* dm = tab->AsFixed();
     if (!dm) {
-        return false;
+        return nullptr;
     }
     auto engine = dm->GetEngine();
     bool supportsAnnots = EngineSupportsAnnotations(engine);
     WindowInfo* win = tab->win;
     bool ok = supportsAnnots && win->showSelection && tab->selectionOnPage;
     if (!ok) {
-        return false;
+        return nullptr;
     }
 
     Vec<SelectionOnPage>* s = tab->selectionOnPage;
@@ -3861,31 +3873,25 @@ bool MakeAnnotationFromSelection(TabInfo* tab, AnnotationType annotType) {
         rects.Append(sel.rect);
     }
     if (pageNo == -1) {
-        return false;
+        return nullptr;
     }
     if (!ok) {
         // we don't support selections crossing pages
         // TODO: show an error message
-        return false;
+        return nullptr;
     }
     Annotation* annot = EnginePdfCreateAnnotation(engine, annotType, pageNo, PointF{});
-    annot->SetQuadPointsAsRect(rects);
+    SetQuadPointsAsRect(annot, rects);
 
-    bool isTextOnlySelection;
-    WCHAR* selTxt = GetSelectedText(win, L"\n", isTextOnlySelection);
-    if (selTxt) {
-        strconv::StackWstrToUtf8 str(selTxt);
-        annot->SetContents(str.Get());
-        str::Free(selTxt);
-    }
-
+    // copy selection to clipboard so that user can use Ctrl-V to set contents
+    CopySelectionToClipboard(win);
     DeleteOldSelectionInfo(win, true);
     WindowInfoRerender(win);
-    StartEditAnnotations(win->currentTab, annot);
-    return true;
+    ToolbarUpdateStateForWindow(win, true);
+    return annot;
 }
 
-static void OnFrameKeyM(WindowInfo* win) {
+static void ShowCursorPositionInDoc(WindowInfo* win) {
     // "cursor position" tip: make figuring out the current
     // cursor position in cm/in/pt possible (for exact layouting)
     if (!win->AsFixed()) {
@@ -3903,7 +3909,11 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
         return;
     }
 
-    if (key >= 0x100 && info && !IsCtrlPressed() && !IsAltPressed()) {
+    bool isCtrl = IsCtrlPressed();
+    bool isShift = IsShiftPressed();
+    bool isAlt = IsAltPressed();
+
+    if (key >= 0x100 && info && !isCtrl && !isAlt) {
         // determine the intended keypress by scan code for non-Latin keyboard layouts
         uint vk = MapVirtualKeyW((info >> 16) & 0xFF, MAPVK_VSC_TO_VK);
         if ('A' <= vk && vk <= 'Z') {
@@ -3942,10 +3952,10 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
     switch (key) {
         case VK_SPACE:
         case VK_RETURN:
-            FrameOnKeydown(win, IsShiftPressed() ? VK_PRIOR : VK_NEXT, 0);
+            FrameOnKeydown(win, isShift ? VK_PRIOR : VK_NEXT, 0);
             break;
         case VK_BACK: {
-            bool forward = IsShiftPressed();
+            bool forward = isShift;
             ctrl->Navigate(forward ? 1 : -1);
         } break;
         case 'g':
@@ -3997,12 +4007,14 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
         case '+':
         case '=':
         case 0xE0:
-        case 0xE4:
-            ZoomToSelection(win, ctrl->GetNextZoomStep(ZOOM_MAX), false);
-            break;
-        case '-':
-            ZoomToSelection(win, ctrl->GetNextZoomStep(ZOOM_MIN), false);
-            break;
+        case 0xE4: {
+            float newZoom = ctrl->GetNextZoomStep(ZOOM_MAX);
+            ZoomToSelection(win, newZoom, false);
+        } break;
+        case '-': {
+            float newZoom = ctrl->GetNextZoomStep(ZOOM_MIN);
+            ZoomToSelection(win, newZoom, false);
+        } break;
         case '/':
             if (!gIsDivideKeyDown) {
                 OnMenuFind(win);
@@ -4029,16 +4041,30 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
         case 'i':
             // experimental "page info" tip: make figuring out current page and
             // total pages count a one-key action (unless they're already visible)
-            if (win->AsFixed()) {
+            if (dm) {
                 TogglePageInfoHelper(win);
             }
             break;
         case 'm':
-            OnFrameKeyM(win);
+            ShowCursorPositionInDoc(win);
             break;
-        case 'a':
-            MakeAnnotationFromSelection(win->currentTab, AnnotationType::Highlight);
-            break;
+        case 'a': {
+            auto annot = MakeAnnotationFromSelection(win->currentTab, AnnotationType::Highlight);
+            if (annot) {
+                COLORREF col = gGlobalPrefs->annotations.highlightColor;
+                col = FixupColorForPDF(col);
+                SetColor(annot, col);
+                WindowInfoRerender(win);
+                if (isShift) {
+                    StartEditAnnotations(win->currentTab, annot);
+                } else {
+                    auto w = win->currentTab->editAnnotsWindow;
+                    if (w) {
+                        AddAnnotationToEditWindow(w, annot);
+                    }
+                }
+            }
+        } break;
     }
 }
 
@@ -4621,7 +4647,7 @@ static LRESULT FrameOnCommand(WindowInfo* win, HWND hwnd, UINT msg, WPARAM wp, L
             TestApp(GetModuleHandle(nullptr));
             break;
         case CmdDebugShowNotif: {
-            win->ShowNotification(L"This is a notification", NOS_WARNING);
+            win->ShowNotification(L"This is a notification", NotificationOptions::Warning);
             // TODO: this notification covers previous
             // win->ShowNotification(L"This is a second notification\nMy friend.");
         } break;
@@ -4853,7 +4879,7 @@ LRESULT CALLBACK WndProcFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_CLOSE:
             if (MayCloseWindow(win)) {
-                CloseWindow(win, true);
+                CloseWindow(win, true, false);
             }
             break;
 

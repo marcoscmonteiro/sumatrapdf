@@ -286,13 +286,37 @@ static TreeItem* TreeItemForPageNo(TreeCtrl* treeCtrl, int pageNo) {
     return bestMatch;
 }
 
+// TODO: I can't use TreeItem->IsExpanded() because it's not in sync with
+// the changes user makes to TreeCtrl
+static TreeItem* FindVisibleParentTreeItem(TreeCtrl* treeCtrl, TreeItem* ti) {
+    if (!ti) {
+        return nullptr;
+    }
+    while (true) {
+        auto parent = ti->Parent();
+        if (parent == nullptr) {
+            // ti is a root node
+            return ti;
+        }
+        if (treeCtrl->IsExpanded(parent)) {
+            return ti;
+        }
+        ti = parent;
+    }
+    return nullptr;
+}
+
 void UpdateTocSelection(WindowInfo* win, int currPageNo) {
     if (!win->tocLoaded || !win->tocVisible || win->tocKeepSelection) {
         return;
     }
 
-    TreeItem* item = TreeItemForPageNo(win->tocTreeCtrl, currPageNo);
-    win->tocTreeCtrl->SelectItem(item);
+    auto treeCtrl = win->tocTreeCtrl;
+    TreeItem* item = TreeItemForPageNo(treeCtrl, currPageNo);
+    // only select the items that are visible i.e. are top nodes or
+    // children of expanded node
+    TreeItem* toSelect = FindVisibleParentTreeItem(treeCtrl, item);
+    treeCtrl->SelectItem(toSelect);
 }
 
 static void UpdateDocTocExpansionStateRecur(TreeCtrl* treeCtrl, Vec<int>& tocState, TocItem* tocItem) {
@@ -430,9 +454,9 @@ static void AddFavoriteFromToc(WindowInfo* win, TocItem* dti) {
 }
 
 struct TocItemWithSortInfo {
-    TocItem* ti;
-    int tag;
-    COLORREF color;
+    TocItem* ti{nullptr};
+    int tag{0};
+    COLORREF color{0};
 };
 
 // extract a tag in <s> in format "(<n>)$"
@@ -806,15 +830,6 @@ static void TocContextMenu(ContextMenuEvent* ev) {
     }
 }
 
-static void AltBookmarksChanged(TabInfo* tab, int n, std::string_view s) {
-    if (n == 0) {
-        tab->currToc = tab->ctrl->GetToc();
-    } else {
-        tab->currToc = tab->altBookmarks[0]->tree;
-    }
-    SortAndSetTocTree(tab);
-}
-
 // TODO: temporary
 static bool LoadAlterenativeBookmarks(const WCHAR* baseFileName, VbkmFile& vbkm) {
     AutoFreeStr tmp = strconv::WstrToUtf8(baseFileName);
@@ -841,17 +856,6 @@ static bool ShouldCustomDraw(WindowInfo* win) {
 
 void OnTocCustomDraw(TreeItemCustomDrawEvent*);
 
-static void dropDownSelectionChanged(DropDownSelectionChangedEvent* ev) {
-    WindowInfo* win = FindWindowInfoByHwnd(ev->hwnd);
-    TabInfo* tab = win->currentTab;
-    DebugCrashIf(!tab);
-    if (!tab) {
-        return;
-    }
-    AltBookmarksChanged(tab, ev->idx, ev->item);
-    ev->didHandle = true;
-}
-
 void LoadTocTree(WindowInfo* win) {
     TabInfo* tab = win->currentTab;
     CrashIf(!tab);
@@ -868,33 +872,6 @@ void LoadTocTree(WindowInfo* win) {
     }
 
     tab->currToc = tocTree;
-
-    DeleteVecMembers(tab->altBookmarks);
-
-    // TODO: for now just for testing
-    // TODO: restore showing alternative bookmarks
-    VbkmFile* vbkm = new VbkmFile();
-    bool ok = LoadAlterenativeBookmarks(tab->filePath, *vbkm);
-    if (ok) {
-        tab->altBookmarks.Append(vbkm);
-        Vec<std::string_view> items;
-        items.Append("Default");
-        char* name = vbkm->name;
-        if (name) {
-            items.Append(name);
-        }
-        win->altBookmarks->SetItems(items);
-    } else {
-        delete vbkm;
-    }
-
-    if (tab->altBookmarks.size() > 0) {
-        win->altBookmarks->onSelectionChanged = dropDownSelectionChanged;
-        win->altBookmarks->SetVisibility(Visibility::Visible);
-    } else {
-        win->altBookmarks->onSelectionChanged = nullptr;
-        win->altBookmarks->SetVisibility(Visibility::Collapse);
-    }
 
     // consider a ToC tree right-to-left if a more than half of the
     // alphabetic characters are in a right-to-left script
@@ -916,7 +893,7 @@ void LoadTocTree(WindowInfo* win) {
     if (ShouldCustomDraw(win)) {
         treeCtrl->onTreeItemCustomDraw = OnTocCustomDraw;
     }
-    LayoutTreeContainer(win->tocLabelWithClose, win->altBookmarks, win->tocTreeCtrl->hwnd);
+    LayoutTreeContainer(win->tocLabelWithClose, win->tocTreeCtrl->hwnd);
     // uint fl = RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN;
     // RedrawWindow(hwnd, nullptr, nullptr, fl);
 }
@@ -1046,25 +1023,15 @@ static void TocTreeMsgFilter([[maybe_unused]] WndEvent* ev) {
 
 // Position label with close button and tree window within their parent.
 // Used for toc and favorites.
-void LayoutTreeContainer(LabelWithCloseWnd* l, DropDownCtrl* altBookmarks, HWND hwndTree) {
+void LayoutTreeContainer(LabelWithCloseWnd* l, HWND hwndTree) {
     HWND hwndContainer = GetParent(hwndTree);
     Size labelSize = l->GetIdealSize();
     Rect rc = WindowRect (hwndContainer);
-    bool altBookmarksVisible = altBookmarks && altBookmarks->IsVisible();
     int dy = rc.dy;
     int y = 0;
     MoveWindow(l->hwnd, y, 0, rc.dx, labelSize.dy, TRUE);
     dy -= labelSize.dy;
     y += labelSize.dy;
-    if (altBookmarksVisible) {
-        Size bs = altBookmarks->GetIdealSize();
-        int elDy = bs.dy;
-        RECT r{0, y, rc.dx, y + elDy};
-        altBookmarks->SetBounds(r);
-        elDy += 4;
-        dy -= elDy;
-        y += elDy;
-    }
     MoveWindow(hwndTree, 0, y, rc.dx, dy, TRUE);
 }
 
@@ -1087,7 +1054,7 @@ static LRESULT CALLBACK WndProcTocBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
 
     switch (msg) {
         case WM_SIZE:
-            LayoutTreeContainer(win->tocLabelWithClose, win->altBookmarks, win->tocTreeCtrl->hwnd);
+            LayoutTreeContainer(win->tocLabelWithClose, win->tocTreeCtrl->hwnd);
             break;
 
         case WM_COMMAND:
@@ -1161,7 +1128,7 @@ void TocTreeCharHandler(CharEvent* ev) {
         return;
     }
 
-    CloseWindow(win, true);
+    CloseWindow(win, true, false);
     ev->didHandle = true;
 }
 
@@ -1182,9 +1149,6 @@ void CreateToc(WindowInfo* win) {
     // TODO: use the same font size as in GetTreeFont()?
     l->SetFont(GetDefaultGuiFont(true, false));
     // label is set in UpdateToolbarSidebarText()
-
-    win->altBookmarks = new DropDownCtrl(win->hwndTocBox);
-    win->altBookmarks->Create();
 
     auto* treeCtrl = new TreeCtrl(win->hwndTocBox);
     treeCtrl->fullRowSelect = true;

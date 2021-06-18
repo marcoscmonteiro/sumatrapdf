@@ -10,7 +10,7 @@
     <projectUrl>https://github.com/marcoscmonteiro/SumatraPDF</projectUrl>    
     <description>SumatraPDF.exe (x86) modified to work in enhanced plugin mode and packaged to work with SumatraPDFControl project</description>
     <releaseNotes>First release version</releaseNotes>
-    <copyright>Copyright © Marcos C. Monteiro 2021</copyright>
+    <copyright>Copyright Â© Marcos C. Monteiro 2021</copyright>
     <tags>SumatraPDF PDF viewer windows forms windowsforms winforms GPL</tags>
     <repository type="Git" url="https://github.com/marcoscmonteiro/SumatraPDF" branch="master"/>
     <iconUrl>https://raw.githubusercontent.com/marcoscmonteiro/SumatraPDF/master/gfx/SumatraPDF-48x48x32.png</iconUrl>

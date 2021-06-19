@@ -182,6 +182,11 @@ static const WCHAR* HandleGetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
         return next;
     }
 
+    if (str::Eq(PropertyName, L"PageCount")) {
+        PluginHostCopyData(win, L"[%s(%d)]", PropertyName.Get(), win->ctrl->PageCount());
+        return next;
+    }
+
     // Next properties requires DisplayModel
     DisplayModel* dm = win->AsFixed();
     if (dm) {

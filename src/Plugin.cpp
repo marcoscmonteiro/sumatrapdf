@@ -341,12 +341,12 @@ void HandlePluginCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
         }
     }
 
-    {
-        AutoFree tmp = strconv::WstrToUtf8(cmd);
-        logf("HandlePluginCmds: '%s'\n", tmp.Get());
-    }
-
     while (!str::IsEmpty(cmd)) {
+        {
+            AutoFree tmp = strconv::WstrToUtf8(cmd);
+            logf("HandlePluginCmds: '%s'\n", tmp.Get());
+        }
+
         const WCHAR* nextCmd = nextCmd = HandleTextSearchCmd(win, cmd, ack);
         if (!nextCmd) nextCmd = HandleTextSearchNextCmd(win, cmd, ack);  
         if (!nextCmd) nextCmd = HandleGetPropertyCmd(win, cmd, ack);        
@@ -357,9 +357,6 @@ void HandlePluginCmds(HWND hwnd, const WCHAR* cmd, DDEACK& ack) {
             nextCmd = str::Parse(cmd, L"%S]", &tmp);
         }
         cmd = nextCmd;
-        {
-            AutoFree tmp = strconv::WstrToUtf8(cmd);
-            logf("HandlePluginCmds: cmd='%s'\n", tmp.Get());
-        }
+
     }
 }

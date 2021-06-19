@@ -672,7 +672,7 @@ static void TocContextMenu(ContextMenuEvent* ev) {
         GetWindowRect(win->hwndFrame, &frameRect);
         GetWindowRect(win->hwndTocBox, &tocBoxRect);
         GetWindowRect(win->tocLabelWithClose->hwnd, &tocLabelRect);
-        if (PluginHostCopyData(win, L"[TocContextMenuOpened(%d, %d)]", ev->mouseWindow.x,
+        if (PluginHostCopyData(win, L"[TocContextMenuOpening(%d, %d)]", ev->mouseWindow.x,
                                tocBoxRect.top - frameRect.top + (tocLabelRect.bottom - tocLabelRect.top) + ev->mouseWindow.y) == 1)
             return;
     }

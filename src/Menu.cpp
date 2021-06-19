@@ -716,7 +716,7 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
         RECT frameRect, canvasRect;
         GetWindowRect(win->hwndFrame, &frameRect);
         GetWindowRect(win->hwndCanvas, &canvasRect);
-        if (PluginHostCopyData(win, L"[ContextMenuOpened(%d, %d)]", canvasRect.left - frameRect.left + x,
+        if (PluginHostCopyData(win, L"[ContextMenuOpening(%d, %d)]", canvasRect.left - frameRect.left + x,
                                canvasRect.top - frameRect.top + y) == 1)
             return;
     }

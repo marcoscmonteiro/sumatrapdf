@@ -66,16 +66,17 @@ type crashInfo struct {
 	crashLinesAll    string
 	ExceptionInfo    []string
 	exceptionInfoAll string
-	body             []byte
 
 	// soft-delete
 	isDeleted bool
 
 	// path of a file on disk, if exists
-	path string
+	pathTxt  string
+	fileSize int
 
 	// unique name of the crash
-	FileName string
+	fileNameHTML string
+	fileNameTxt  string
 	// full key in remote store
 	storeKey string
 }
@@ -101,7 +102,7 @@ func (ci *crashInfo) CrashLine() string {
 }
 
 func (ci *crashInfo) URL() string {
-	return "/" + ci.FileName
+	return "/" + ci.fileNameHTML
 }
 
 func symbolicateCrashLine(s string, gitSha1 string) crashLine {
@@ -222,8 +223,7 @@ func removeEmptyCrashLines(a []string) []string {
 	return res
 }
 
-func parseCrash(res *crashInfo) {
-	d := res.body
+func parseCrash(d []byte, ci *crashInfo) {
 	d = u.NormalizeNewlines(d)
 	s := string(d)
 	lines := strings.Split(s, "\n")
@@ -233,7 +233,7 @@ func parseCrash(res *crashInfo) {
 	for _, l := range lines {
 		if inExceptionInfo {
 			if isEmptyLine(s) || len(tmpLines) > 5 {
-				res.ExceptionInfo = removeEmptyLines(tmpLines)
+				ci.ExceptionInfo = removeEmptyLines(tmpLines)
 				tmpLines = nil
 				inExceptionInfo = false
 				continue
@@ -243,7 +243,7 @@ func parseCrash(res *crashInfo) {
 		}
 		if inCrashLines {
 			if isEmptyLine(s) || strings.HasPrefix(s, "Thread:") || len(tmpLines) > 32 {
-				res.CrashLines = removeEmptyCrashLines(tmpLines)
+				ci.CrashLines = removeEmptyCrashLines(tmpLines)
 				tmpLines = nil
 				inCrashLines = false
 				continue
@@ -252,16 +252,16 @@ func parseCrash(res *crashInfo) {
 			continue
 		}
 		if strings.HasPrefix(l, "Crash file:") {
-			res.CrashFile = l
+			ci.CrashFile = l
 			continue
 		}
 		if strings.HasPrefix(l, "OS:") {
-			res.OS = l
+			ci.OS = l
 			continue
 		}
 		if strings.HasPrefix(l, "Git:") {
 			parts := strings.Split(l, " ")
-			res.GitSha1 = parts[1]
+			ci.GitSha1 = parts[1]
 			continue
 		}
 		if strings.HasPrefix(l, "Exception:") {
@@ -275,13 +275,13 @@ func parseCrash(res *crashInfo) {
 			continue
 		}
 		if strings.HasPrefix(l, "Ver:") {
-			res.Version = l
-			res.Ver = parseCrashVersion(l)
+			ci.Version = l
+			ci.Ver = parseCrashVersion(l)
 		}
 	}
-	res.crashLinesAll = strings.Join(res.CrashLines, "\n")
-	res.exceptionInfoAll = strings.Join(res.ExceptionInfo, "\n")
-	symbolicateCrashInfoLines(res)
+	ci.crashLinesAll = strings.Join(ci.CrashLines, "\n")
+	ci.exceptionInfoAll = strings.Join(ci.ExceptionInfo, "\n")
+	symbolicateCrashInfoLines(ci)
 }
 
 var crashesDirCached = ""
@@ -319,19 +319,19 @@ func storeDayToDirDay(s string) string {
 	return strings.Join(parts, "-")
 }
 
-func getCrashInfoForDayName(day, name string) *crashInfo {
+func getCrashInfoForDayName(day, fileNameTxt string) *crashInfo {
 	panicIf(len(day) != len("yyyy-dd-mm"))
 	crashes := crashesPerDay[day]
-	// foo.txt => foo.html
-	fileName := strings.Replace(name, ".txt", ".html", -1)
 	for _, c := range crashes {
-		if c.FileName == fileName {
+		if c.fileNameTxt == fileNameTxt {
 			return c
 		}
 	}
 	crash := &crashInfo{
-		Day:      day,
-		FileName: fileName,
+		Day:         day,
+		fileNameTxt: fileNameTxt,
+		// foo.txt => foo.html
+		fileNameHTML: strings.Replace(fileNameTxt, ".txt", ".html", -1),
 	}
 	crashes = append(crashes, crash)
 	crashesPerDay[day] = crashes
@@ -349,11 +349,11 @@ func isOutdated(day string) bool {
 // decide if should delete crash based on the content
 // this is to filter out crashes we don't care about
 // like those from other apps
-func shouldDeleteParsedCrash(ci *crashInfo) bool {
-	if bytes.Contains(ci.body, []byte("einkreader.exe")) {
+func shouldDeleteParsedCrash(body []byte) bool {
+	if bytes.Contains(body, []byte("einkreader.exe")) {
 		return true
 	}
-	return bytes.Contains(ci.body, []byte("jikepdf.exe"))
+	return bytes.Contains(body, []byte("jikepdf.exe"))
 }
 
 const nDownloaders = 64
@@ -365,62 +365,63 @@ var (
 	nDeleted    = 0
 )
 
-func downloadOrReadOrDelete(mc *u.MinioClient, crash *crashInfo) {
+func downloadOrReadOrDelete(mc *u.MinioClient, ci *crashInfo) {
 	dataDir := crashesDataDir()
-	crash.path = filepath.Join(dataDir, crash.Day, crash.FileName)
+	path := filepath.Join(dataDir, ci.Day, ci.fileNameTxt)
+	ci.pathTxt = path
 
-	if isOutdated(crash.Day) {
-		crash.isDeleted = true
-		mc.Delete(crash.storeKey)
-		os.Remove(crash.path)
+	if isOutdated(ci.Day) {
+		ci.isDeleted = true
+		mc.Delete(ci.storeKey)
+		os.Remove(path)
 		nDeleted++
 		if nDeleted < 32 || nDeleted%100 == 0 {
-			logf("deleted outdated %s %d\n", crash.storeKey, nRemoteFiles)
+			logf("deleted outdated %s %d\n", ci.storeKey, nRemoteFiles)
 		}
 		return
 	}
 
-	var err error
-	crash.body, err = ioutil.ReadFile(crash.path)
+	body, err := ioutil.ReadFile(path)
 	if err == nil {
 		nReadFiles++
 		if nReadFiles < 32 || nReadFiles%200 == 0 {
-			logf("read %s for %s %d\n", crash.path, crash.storeKey, nRemoteFiles)
+			logf("read %s for %s %d\n", path, ci.storeKey, nRemoteFiles)
 		}
 	} else {
-		err = mc.DownloadFileAtomically(crash.path, crash.storeKey)
-		panicIf(err != nil, "mc.DownloadFileAtomc.DownloadFileAtomically('%s', '%s') failed with '%s'", crash.path, crash.storeKey, err)
-		crash.body, err = ioutil.ReadFile(crash.path)
+		err = mc.DownloadFileAtomically(path, ci.storeKey)
+		panicIf(err != nil, "mc.DownloadFileAtomc.DownloadFileAtomically('%s', '%s') failed with '%s'", path, ci.storeKey, err)
+		body, err = ioutil.ReadFile(path)
 		panicIfErr(err)
 		nDownloaded++
 		if nDownloaded < 50 || nDownloaded%200 == 0 {
-			logf("downloaded '%s' => '%s' %d\n", crash.storeKey, crash.path, nRemoteFiles)
+			logf("downloaded '%s' => '%s' %d\n", ci.storeKey, path, nRemoteFiles)
 		}
 	}
+	ci.fileSize = len(body)
 
-	parseCrash(crash)
-	if shouldDeleteParsedCrash(crash) {
-		crash.isDeleted = true
-		mc.Delete(crash.storeKey)
-		os.Remove(crash.path)
+	parseCrash(body, ci)
+	if shouldDeleteParsedCrash(body) {
+		ci.isDeleted = true
+		mc.Delete(ci.storeKey)
+		os.Remove(path)
 		nInvalid++
 		if nInvalid < 32 || nInvalid%100 == 0 {
-			logf("deleted invalid %s %d\n", crash.path, nRemoteFiles)
+			logf("deleted invalid %s %d\n", path, nRemoteFiles)
 		}
 		return
 	}
 	if filterNoSymbols {
 		// those are not hard deleted but we don't want to show them
 		// TODO: maybe delete them as well?
-		if hasNoSymbols(crash) {
-			crash.isDeleted = true
+		if hasNoSymbols(ci) {
+			ci.isDeleted = true
 		}
 	}
-	if filterOlderVersions && crash.Ver != nil {
-		build := crash.Ver.Build
+	if filterOlderVersions && ci.Ver != nil {
+		build := ci.Ver.Build
 		// filter out outdated builds
 		if build > 0 && build < lowestCrashingBuildToShow {
-			crash.isDeleted = true
+			ci.isDeleted = true
 		}
 
 	}
@@ -639,15 +640,16 @@ func getTmplDay() *template.Template {
 }
 
 func genCrashHTML(dir string, ci *crashInfo) {
-	name := ci.FileName
+	name := ci.fileNameHTML
 	path := filepath.Join(dir, name)
+	body := u.ReadFileMust(ci.pathTxt)
 	var buf bytes.Buffer
 	v := struct {
 		CrashBody        string
 		CrashLinesLinked []crashLine
 	}{
 		CrashLinesLinked: ci.CrashLinesLinked,
-		CrashBody:        string(ci.body),
+		CrashBody:        string(body),
 	}
 	err := getTmplCrash().Execute(&buf, v)
 	must(err)
@@ -744,7 +746,8 @@ func filterBigCrashes() {
 				nFiltered++
 				continue
 			}
-			if len(ci.body) > 256*1024 && ci.Ver.Main == "3.2" {
+			// TODO: maybe delete those crashes in main loop and apply to all versions
+			if ci.fileSize > 256*1024 && ci.Ver.Main == "3.2" {
 				nFiltered++
 				continue
 			}

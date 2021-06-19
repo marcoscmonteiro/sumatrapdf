@@ -10,13 +10,10 @@
 // ColorNoChange indicates that we shouldn't change the color
 #define ColorNoChange ((COLORREF)(0xfdffffff))
 
-COLORREF FixupColorForPDF(COLORREF);
-
-COLORREF MkRgb(u8 r, u8 g, u8 b);
 COLORREF MkGray(u8 x);
-COLORREF MkRgba(u8 r, u8 g, u8 b, u8 a);
-void UnpackRgb(COLORREF, u8& r, u8& g, u8& b);
-void UnpackRgba(COLORREF, u8& r, u8& g, u8& b, u8& a);
+COLORREF MkColor(u8 r, u8 g, u8 b, u8 a = 0);
+void UnpackColor(COLORREF, u8& r, u8& g, u8& b);
+void UnpackColor(COLORREF, u8& r, u8& g, u8& b, u8& a);
 
 COLORREF ColorSetRed(COLORREF c, u8 red);
 COLORREF ColorSetGreen(COLORREF c, u8 green);
@@ -26,7 +23,6 @@ COLORREF ColorSetAlpha(COLORREF c, u8 alpha);
 bool ParseColor(COLORREF* destColor, const WCHAR* txt);
 bool ParseColor(COLORREF* destColor, const char* txt);
 bool ParseColor(COLORREF* destColor, std::string_view sv);
-void SerializeColorRgb(COLORREF, str::Str&);
 void SerializeColor(COLORREF, str::Str&);
 
 COLORREF AdjustLightness(COLORREF c, float factor);
@@ -46,6 +42,10 @@ u8 GetRed(COLORREF rgb);
 u8 GetGreen(COLORREF rgb);
 u8 GetBlue(COLORREF rgb);
 u8 GetAlpha(COLORREF rgb);
+
+// PdfColor is aarrggbb, where 0xff alpha is opaque and 0x0 alpha is transparent
+// this is different than COLORREF, which ggrrbb and no alpha
+typedef uint64_t PdfColor;
 
 // disabled because not compatible with wdl / lice
 #if 0

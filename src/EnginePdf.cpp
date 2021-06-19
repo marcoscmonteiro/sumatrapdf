@@ -943,7 +943,7 @@ TocItem* EnginePdf::BuildTocTree(TocItem* parent, fz_outline* outline, int& idCo
         CrashIf(!item->PageNumbersMatch());
 
         if (outline->n_color > 0) {
-            item->color = FromPdfColor(ctx, outline->n_color, outline->color);
+            item->color = ColorRefFromPdfFloat(ctx, outline->n_color, outline->color);
         }
 
         if (outline->down) {
@@ -1871,9 +1871,6 @@ int EnginePdf::GetPageByLabel(const WCHAR* label) const {
     return pageNo;
 }
 
-// in Annotation.cpp
-extern Annotation* MakeAnnotationPdf(CRITICAL_SECTION* ctxAccess, fz_context* ctx, pdf_annot* annot, int pageNo);
-
 int EnginePdf::GetAnnotations(Vec<Annotation*>* annotsOut) {
     int nAnnots = 0;
     for (int i = 1; i <= pageCount; i++) {
@@ -1881,7 +1878,7 @@ int EnginePdf::GetAnnotations(Vec<Annotation*>* annotsOut) {
         pdf_page* pdfpage = pdf_page_from_fz_page(ctx, pi->page);
         pdf_annot* annot = pdf_first_annot(ctx, pdfpage);
         while (annot) {
-            Annotation* a = MakeAnnotationPdf(ctxAccess, ctx, annot, i);
+            Annotation* a = MakeAnnotationPdf(this, annot, i);
             if (a) {
                 annotsOut->Append(a);
                 nAnnots++;
@@ -1980,8 +1977,8 @@ Annotation* EnginePdfCreateAnnotation(EngineBase* engine, AnnotationType typ, in
         pdf_set_annot_border(ctx, annot, 1);
     }
 
-    pdf_update_appearance(ctx, annot);
-    auto res = MakeAnnotationPdf(epdf->ctxAccess, ctx, annot, pageNo);
+    pdf_update_annot(ctx, annot);
+    auto res = MakeAnnotationPdf(epdf, annot, pageNo);
     return res;
 }
 
@@ -2037,7 +2034,7 @@ Annotation* EnginePdfGetAnnotationAtPos(EngineBase* engine, int pageNo, PointF p
         annot = pdf_next_annot(epdf->ctx, annot);
     }
     if (matched) {
-        return MakeAnnotationPdf(epdf->ctxAccess, epdf->ctx, matched, pageNo);
+        return MakeAnnotationPdf(epdf, matched, pageNo);
     }
     return nullptr;
 }

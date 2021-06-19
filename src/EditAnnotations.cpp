@@ -38,6 +38,7 @@ extern "C" {
 #include "SumatraConfig.h"
 #include "DisplayMode.h"
 #include "SettingsStructs.h"
+#include "GlobalPrefs.h"
 #include "Controller.h"
 #include "DisplayModel.h"
 #include "ProgressUpdateUI.h"
@@ -63,36 +64,25 @@ static const char *gFontNames = "Cour\0Helv\0TiRo\0";
 static const char *gFontReadableNames = "Courier\0Helvetica\0TimesRoman\0";
 static const char* gQuaddingNames = "Left\0Center\0Right\0";
 
-static COLORREF gColorsValues[] = {
-    //0x00000000, /* transparent */
-    ColorUnset, /* transparent */
-    //0xff00ffff, /* aqua */
-    0xffffff00, /* aqua */
-    0xff000000, /* black */
-    //0xff0000ff, /* blue */
-    0xffff0000, /* blue */
-    //0xffff00ff, /* fuchsia */
-    0xffff00ff, /* fuchsia */
-    0xff808080, /* gray */
-    0xff008000, /* green */
-    0xff00ff00, /* lime */
-    //0xff800000, /* maroon */
-    0xff000080, /* maroon */
-    //0xff000080, /* navy */
-    0xff800000, /* navy */
-    //0xff808000, /* olive */
-    0xff008080, /* olive */
-    //0xffffa500, /* orange */
-    0xff00a5ff, /* orange */
-    0xff800080, /* purple */
-    //0xffff0000, /* red */
-    0xff0000ff, /* red */
-    0xffc0c0c0, /* silver */
-    //0xff008080, /* teal */
-    0xff808000, /* teal */
-    0xffffffff, /* white */
-    //0xffffff00, /* yellow */
-    0xff00ffff, /* yellow */
+static PdfColor gColorsValues[] = {
+	0x00000000, /* transparent */
+	0xff00ffff, /* aqua */
+	0xff000000, /* black */
+	0xff0000ff, /* blue */
+	0xffff00ff, /* fuchsia */
+	0xff808080, /* gray */
+	0xff008000, /* green */
+	0xff00ff00, /* lime */
+	0xff800000, /* maroon */
+	0xff000080, /* navy */
+	0xff808000, /* olive */
+	0xffffa500, /* orange */
+	0xff800080, /* purple */
+	0xffff0000, /* red */
+	0xffc0c0c0, /* silver */
+	0xff008080, /* teal */
+	0xffffffff, /* white */
+	0xffffff00, /* yellow */
 };
 
 AnnotationType gAnnotsWithBorder[] = {
@@ -115,14 +105,10 @@ AnnotationType gAnnotsWithColor[] = {
 };
 // clang-format on
 
-const char* GetKnownColorName(COLORREF c) {
-    if (c == ColorUnset) {
-        return gColors; // first value is "None" for unset
-    }
-    COLORREF c2 = ColorSetAlpha(c, 0xff);
+const char* GetKnownColorName(PdfColor c) {
     int n = (int)dimof(gColorsValues);
     for (int i = 1; i < n; i++) {
-        if (c2 == gColorsValues[i]) {
+        if (c == gColorsValues[i]) {
             const char* s = seqstrings::IdxToStr(gColors, i);
             return s;
         }
@@ -284,9 +270,9 @@ static bool DidAnnotationsChange(EditAnnotationsWindow* win) {
 static void EnableSaveIfAnnotationsChanged(EditAnnotationsWindow* win) {
     bool didChange = DidAnnotationsChange(win);
     if (didChange) {
-        win->staticSaveTip->SetTextColor(MkRgb(0, 0, 0));
+        win->staticSaveTip->SetTextColor(MkColor(0, 0, 0));
     } else {
-        win->staticSaveTip->SetTextColor(MkRgb(0xcc, 0xcc, 0xcc));
+        win->staticSaveTip->SetTextColor(MkColor(0xcc, 0xcc, 0xcc));
     }
     win->buttonSavePDF->SetIsEnabled(didChange);
 }
@@ -361,14 +347,34 @@ static void ItemsFromSeqstrings(Vec<std::string_view>& items, const char* string
     }
 }
 
-static void DropDownFillColors(DropDownCtrl* w, COLORREF col, str::Str& customColor) {
+static void SerializePdfColor(PdfColor c, str::Str& out) {
+    u8 r, g, b, a;
+    UnpackPdfColor(c, r, g, b, a);
+    out.AppendFmt("#%02x%02x%02x", r, g, b);
+}
+
+static bool ParsePdfColor(PdfColor* destColor, std::string_view sv) {
+    CrashIf(!destColor);
+    const char* txt = sv.data();
+    if (str::StartsWith(txt, "0x")) {
+        txt += 2;
+    } else if (str::StartsWith(txt, "#")) {
+        txt += 1;
+    }
+    unsigned int r, g, b;
+    bool ok = str::Parse(txt, "%2x%2x%2x%$", &r, &g, &b);
+    *destColor = MkPdfColor(r, g, b, 0xff);
+    return ok;
+}
+
+static void DropDownFillColors(DropDownCtrl* w, PdfColor col, str::Str& customColor) {
     Vec<std::string_view> items;
     ItemsFromSeqstrings(items, gColors);
     const char* colorName = GetKnownColorName(col);
     int idx = seqstrings::StrToIdx(gColors, colorName);
     if (idx == -1) {
         customColor.Reset();
-        SerializeColorRgb(col, customColor);
+        SerializePdfColor(col, customColor);
         items.Append(customColor.AsView());
         idx = items.isize() - 1;
     }
@@ -376,7 +382,7 @@ static void DropDownFillColors(DropDownCtrl* w, COLORREF col, str::Str& customCo
     w->SetCurrentSelection(idx);
 }
 
-static COLORREF GetDropDownColor(std::string_view sv) {
+static PdfColor GetDropDownColor(std::string_view sv) {
     int idx = seqstrings::StrToIdx(gColors, sv.data());
     if (idx >= 0) {
         int nMaxColors = (int)dimof(gColorsValues);
@@ -384,10 +390,10 @@ static COLORREF GetDropDownColor(std::string_view sv) {
         if (idx < nMaxColors) {
             return gColorsValues[idx];
         }
-        return ColorUnset;
+        return 0;
     }
-    COLORREF col = ColorUnset;
-    ParseColor(&col, sv);
+    PdfColor col{0};
+    ParsePdfColor(&col, sv);
     return col;
 }
 
@@ -530,7 +536,7 @@ static void DoTextColor(EditAnnotationsWindow* win, Annotation* annot) {
     if (Type(annot) != AnnotationType::FreeText) {
         return;
     }
-    COLORREF col = DefaultAppearanceTextColor(annot);
+    PdfColor col = DefaultAppearanceTextColor(annot);
     DropDownFillColors(win->dropDownTextColor, col, win->currTextColor);
     win->staticTextColor->SetIsVisible(true);
     win->dropDownTextColor->SetIsVisible(true);
@@ -639,7 +645,7 @@ static void DoColor(EditAnnotationsWindow* win, Annotation* annot) {
     if (!isVisible) {
         return;
     }
-    COLORREF col = GetColor(annot);
+    PdfColor col = GetColor(annot);
     DropDownFillColors(win->dropDownColor, col, win->currCustomColor);
     win->staticColor->SetIsVisible(true);
     win->dropDownColor->SetIsVisible(true);
@@ -658,7 +664,7 @@ static void DoInteriorColor(EditAnnotationsWindow* win, Annotation* annot) {
     if (!isVisible) {
         return;
     }
-    COLORREF col = InteriorColor(annot);
+    PdfColor col = InteriorColor(annot);
     DropDownFillColors(win->dropDownInteriorColor, col, win->currCustomInteriorColor);
     win->staticInteriorColor->SetIsVisible(true);
     win->dropDownInteriorColor->SetIsVisible(true);
@@ -1134,7 +1140,7 @@ static void CreateMainLayout(EditAnnotationsWindow* win) {
         w->SetInsetsPt(11, 0, 0, 0);
         w->SetText("Delete annotation");
         // TODO: doesn't work
-        w->SetTextColor(MkRgb(0xff, 0, 0));
+        w->SetTextColor(MkColor(0xff, 0, 0));
         bool ok = w->Create();
         CrashIf(!ok);
         w->onClicked = std::bind(&ButtonDeleteHandler, win);
@@ -1150,7 +1156,7 @@ static void CreateMainLayout(EditAnnotationsWindow* win) {
 
     {
         auto w = CreateStatic(parent, "Tip: use Ctrl to save as a new PDF");
-        w->SetTextColor(MkRgb(0xcc, 0xcc, 0xcc));
+        w->SetTextColor(MkColor(0xcc, 0xcc, 0xcc));
         w->SetInsetsPt(0, 0, 2, 0);
         // TODO: make invisible until buttonSavePDF is enabled
         win->staticSaveTip = w;
@@ -1234,7 +1240,7 @@ void StartEditAnnotations(TabInfo* tab, Annotation* annot) {
     mainWindow->hIcon = LoadIconW(h, iconName);
 
     mainWindow->isDialog = true;
-    mainWindow->backgroundColor = MkRgb((u8)0xee, (u8)0xee, (u8)0xee);
+    mainWindow->backgroundColor = MkColor((u8)0xee, (u8)0xee, (u8)0xee);
     mainWindow->SetText(_TR("Annotations"));
     // PositionCloseTo(w, args->hwndRelatedTo);
     // SIZE winSize = {w->initialSize.dx, w->initialSize.Height};
@@ -1276,4 +1282,21 @@ void StartEditAnnotations(TabInfo* tab, Annotation* annot) {
     mainWindow->SetIsVisible(true);
 
     delete annot;
+}
+
+static PdfColor ToPdfColor(COLORREF c) {
+    u8 r, g, b, a;
+    UnpackColor(c, r, g, b, a);
+    // COLORREF has a of 0 for opaque but for PDF use
+    // opaque is 0xff
+    if (a == 0) {
+        a = 0xff;
+    }
+    auto res = MkPdfColor(r, g, b, a);
+    return res;
+}
+
+PdfColor GetAnnotationHighlightColor() {
+    COLORREF col = gGlobalPrefs->annotations.highlightColor;
+    return ToPdfColor(col);
 }

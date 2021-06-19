@@ -4051,8 +4051,7 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
         case 'a': {
             auto annot = MakeAnnotationFromSelection(win->currentTab, AnnotationType::Highlight);
             if (annot) {
-                COLORREF col = gGlobalPrefs->annotations.highlightColor;
-                col = FixupColorForPDF(col);
+                PdfColor col = GetAnnotationHighlightColor();
                 SetColor(annot, col);
                 WindowInfoRerender(win);
                 if (isShift) {
@@ -4061,6 +4060,8 @@ static void FrameOnChar(WindowInfo* win, WPARAM key, LPARAM info = 0) {
                     auto w = win->currentTab->editAnnotsWindow;
                     if (w) {
                         AddAnnotationToEditWindow(w, annot);
+                    } else {
+                        delete annot;
                     }
                 }
             }

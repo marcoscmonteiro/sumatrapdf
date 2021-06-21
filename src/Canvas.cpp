@@ -405,18 +405,20 @@ static void SetObjectUnderMouse(WindowInfo* win, int x, int y) {
     DisplayModel* dm = win->AsFixed();
     Point pt{x, y};
 
-    Annotation* annot = dm->GetAnnotationAtPos(pt, moveableAnnotations);
-    if (annot) {
-        win->annotationOnLastButtonDown = annot;
-        CreateMovePatternLazy(win);
-        RectF r = GetRect(annot);
-        int pageNo = dm->GetPageNoByPoint(pt);
-        Rect rScreen = dm->CvtToScreen(pageNo, r);
-        win->annotationBeingMovedSize = {rScreen.dx, rScreen.dy};
-        int offsetX = rScreen.x - pt.x;
-        int offsetY = rScreen.y - pt.y;
-        win->annotationBeingMovedOffset = Point{offsetX, offsetY};
-        DrawMovePattern(win, pt, win->annotationBeingMovedSize);
+    if (gAllowEditAnnotations) {
+        Annotation* annot = dm->GetAnnotationAtPos(pt, moveableAnnotations);
+        if (annot) {
+            win->annotationOnLastButtonDown = annot;
+            CreateMovePatternLazy(win);
+            RectF r = GetRect(annot);
+            int pageNo = dm->GetPageNoByPoint(pt);
+            Rect rScreen = dm->CvtToScreen(pageNo, r);
+            win->annotationBeingMovedSize = {rScreen.dx, rScreen.dy};
+            int offsetX = rScreen.x - pt.x;
+            int offsetY = rScreen.y - pt.y;
+            win->annotationBeingMovedOffset = Point{offsetX, offsetY};
+            DrawMovePattern(win, pt, win->annotationBeingMovedSize);
+        }
     }
 
     IPageElement* pageEl = dm->GetElementAtPos(pt);

@@ -24,6 +24,8 @@
 #include "Toolbar.h"
 #include "Print.h"
 
+bool gAllowEditAnnotations = true;
+
 /* Auxiliary function to callback Plugin Host Window with a OnCopyData message
  *  Based on SumatraLaunchBrowser function on SumatraPDF.cpp file
  *  MCM 24-04-2016
@@ -283,6 +285,13 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
             int rotation;
             str::Parse(PropertyValue.Get(), L"%d", &rotation);
             dm->RotateBy(rotation);
+            return next;
+        }
+
+        if (str::Eq(PropertyName, L"AllowEditAnnotations")) {
+            int trueOrFalse;
+            str::Parse(PropertyValue.Get(), L"%d", &trueOrFalse);
+            gAllowEditAnnotations = (trueOrFalse == 1);
             return next;
         }
     }

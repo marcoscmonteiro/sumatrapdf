@@ -95,15 +95,6 @@ func build(dir, config, platform string) {
 	createPdbLzsaMust(dir)
 }
 
-func buildJustInstaller(dir, config, platform string) {
-	msbuildPath := detectMsbuildPath()
-	slnPath := filepath.Join("vs2019", "SumatraPDF.sln")
-
-	p := fmt.Sprintf(`/p:Configuration=%s;Platform=%s`, config, platform)
-	runExeLoggedMust(msbuildPath, slnPath, `/t:SumatraPDF-dll:Rebuild;PdfFilter:Rebuild;PdfPreview:Rebuild`, p, `/m`)
-	signFilesMust(dir)
-}
-
 func extractSumatraVersionMust() string {
 	path := filepath.Join("src", "Version.h")
 	d := u.ReadFileMust(path)
@@ -363,7 +354,7 @@ func createManifestMust() {
 	}
 	dirs := []string{rel32Dir, rel64Dir}
 	// in daily build, there's no 32bit build
-	if !pathExists(rel32Dir) {
+	if !u.PathExists(rel32Dir) {
 		dirs = []string{rel64Dir}
 	}
 	for _, dir := range dirs {
@@ -376,7 +367,7 @@ func createManifestMust() {
 	}
 
 	s := strings.Join(lines, "\n")
-	u.CreateDirIfNotExistsMust(artifactsDir)
+	u.CreateDirMust(artifactsDir)
 	path := filepath.Join(artifactsDir, "manifest.txt")
 	u.WriteFileMust(path, []byte(s))
 }
@@ -407,6 +398,7 @@ var (
 func signFilesMust(dir string) {
 	if !shouldSignAndUpload() {
 		logf("Skipping signing in dir '%s'\n", dir)
+		return
 	}
 	if u.FileExists(filepath.Join(dir, "SumatraPDF.exe")) {
 		signMust(filepath.Join(dir, "SumatraPDF.exe"))
@@ -415,4 +407,11 @@ func signFilesMust(dir string) {
 	signMust(filepath.Join(dir, "PdfFilter.dll"))
 	signMust(filepath.Join(dir, "PdfPreview.dll"))
 	signMust(filepath.Join(dir, "SumatraPDF-dll.exe"))
+}
+
+func signFilesOptional(dir string) {
+	if !hasCertPwd() {
+		return
+	}
+	signFilesMust(dir)
 }

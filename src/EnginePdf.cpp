@@ -1172,6 +1172,12 @@ FzPageInfo* EnginePdf::GetFzPageInfo(int pageNo, bool loadQuick) {
         return nullptr;
     }
 
+    if (pageInfo->commentsNeedRebuilding) {
+        DeleteVecMembers(pageInfo->comments);
+        MakePageElementCommentsFromAnnotations(ctx, pageInfo);
+        pageInfo->commentsNeedRebuilding = false;
+    }
+
     if (loadQuick || pageInfo->fullyLoaded) {
         return pageInfo;
     }
@@ -1774,7 +1780,8 @@ const pdf_write_options pdf_default_write_options2 = {
 // annotations).
 // if filePath is not given, we save under the same name
 // TODO: if the file is locked, this might fail.
-bool EnginePdfSaveUpdated(EngineBase* engine, std::string_view path) {
+bool EnginePdfSaveUpdated(EngineBase* engine, std::string_view path,
+                          std::function<void(std::string_view)> showErrorFunc) {
     CrashIf(!engine);
     if (!engine) {
         return false;
@@ -1787,9 +1794,9 @@ bool EnginePdfSaveUpdated(EngineBase* engine, std::string_view path) {
     fz_context* ctx = enginePdf->ctx;
     pdf_document* doc = pdf_document_from_fz_document(ctx, enginePdf->_doc);
 
-    pdf_write_options save_opts;
+    pdf_write_options save_opts{};
     save_opts = pdf_default_write_options2;
-    save_opts.do_incremental = 1;
+    save_opts.do_incremental = pdf_can_be_saved_incrementally(ctx, doc);
     save_opts.do_compress = 1;
     save_opts.do_compress_images = 1;
     save_opts.do_compress_fonts = 1;
@@ -1797,15 +1804,18 @@ bool EnginePdfSaveUpdated(EngineBase* engine, std::string_view path) {
         save_opts.do_garbage = 1;
     }
 
-    bool ok = true;
+    bool ok = false;
     fz_try(ctx) {
         pdf_save_document(ctx, doc, path.data(), &save_opts);
+        ok = true;
+        logf("Saved annotations to '%s'\n", path.data());
     }
     fz_catch(ctx) {
-        const char* errMsg = fz_caught_message(enginePdf->ctx);
-        logf("Pdf save of '%s' failed with '%s'\n", path.data(), errMsg);
-        // TODO: show error message
-        ok = false;
+        const char* mupdfErr = fz_caught_message(enginePdf->ctx);
+        logf("Saving '%s' failed with: '%s'\n", path.data(), mupdfErr);
+        if (showErrorFunc) {
+            showErrorFunc(mupdfErr);
+        }
     }
     return ok;
 }
@@ -2037,4 +2047,14 @@ Annotation* EnginePdfGetAnnotationAtPos(EngineBase* engine, int pageNo, PointF p
         return MakeAnnotationPdf(epdf, matched, pageNo);
     }
     return nullptr;
+}
+
+void EnginePdf::InvalideAnnotationsForPage(int pageNo) {
+    ScopedCritSec scope(&pagesAccess);
+    CrashIf(pageNo < 1 || pageNo > pageCount);
+    int pageIdx = pageNo - 1;
+    FzPageInfo* pageInfo = &_pages[pageIdx];
+    if (pageInfo) {
+        pageInfo->commentsNeedRebuilding = true;
+    }
 }

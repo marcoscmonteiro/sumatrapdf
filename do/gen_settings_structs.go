@@ -35,10 +35,11 @@ var (
 
 // Field defines a field in a struct
 type Field struct {
-	Name       string
-	Type       *Type
-	Default    interface{}
-	Comment    string
+	Name    string
+	Type    *Type
+	Default interface{}
+	Comment string
+	// internal settings are not serialized, only valid during program runtime
 	Internal   bool
 	CName      string
 	Expert     bool // expert prefs are not exposed by the UI
@@ -358,7 +359,7 @@ var (
 		mkField("InvertColors", Bool, false,
 			"if true, TextColor and BackgroundColor will be temporarily swapped").setInternal(),
 		mkField("HideScrollbars", Bool, false,
-			"if true, hides the scrollbars but retain ability to scroll").setInternal(),
+			"if true, hides the scrollbars but retains ability to scroll"),
 	}
 
 	ebookUI = []*Field{
@@ -398,7 +399,7 @@ var (
 	}
 
 	annotations = []*Field{
-		mkField("HighlightColor", Color, mkRGB(0xFF, 0xFF, 0x60),
+		mkField("HighlightColor", Color, mkRGB(0xFF, 0xFF, 0x0),
 			"color used for highlight annotations"),
 	}
 
@@ -442,7 +443,7 @@ var (
 				"DefaultDisplayMode after deserialization and before serialization").setDoc("layout of pages. valid values: automatic, single page, facing, book view, " +
 			"continuous, continuous facing, continuous book view"),
 		mkCompactStruct("ScrollPos", scrollPos,
-			"how far this document has been scrolled (in x and y direction)").setStructName("Point"),
+			"how far this document has been scrolled (in x and y direction)").setStructName("PointF"),
 		mkField("PageNo", Int, 1,
 			"number of the last read page"),
 		mkField("Zoom", Utf8String, "fit page",
@@ -493,7 +494,7 @@ var (
 		mkField("Rotation", Int, 0,
 			"same as FileStates -> Rotation"),
 		mkCompactStruct("ScrollPos", scrollPos,
-			"how far this document has been scrolled (in x and y direction)").setStructName("Point"),
+			"how far this document has been scrolled (in x and y direction)").setStructName("PointF"),
 		mkField("ShowToc", Bool, true,
 			"if true, the table of contents was shown when the document was closed"),
 		mkCompactArray("TocState", Int, nil,

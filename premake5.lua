@@ -144,7 +144,7 @@ workspace "SumatraPDF"
   filter {}
 
   filter {"platforms:x64_asan", "configurations:Release"}
-    targetdir "out/re64_asan"
+    targetdir "out/rel64_asan"
   filter {"platforms:x64_asan", "configurations:ReleaseAnalyze"}
     targetdir "out/rel64_prefast_asan"
   filter {"platforms:x64_asan", "configurations:Debug"}
@@ -266,6 +266,7 @@ workspace "SumatraPDF"
     includedirs { "ext/libjpeg-turbo" }
     libdjvu_files()
 
+  --[[
   project "wdl"
     kind "StaticLib"
     language "C++"
@@ -274,7 +275,7 @@ workspace "SumatraPDF"
     disablewarnings { "4018", "4100", "4244", "4505", "4456", "4457", "4245", "4505", "4701", "4706", "4996" }
     characterset "MBCS"
     wdl_files()
-
+  --]]
 
   project "unarrlib"
     kind "StaticLib"
@@ -893,7 +894,7 @@ workspace "SumatraPDF"
     regconf()
     entrypoint "WinMainCRTStartup"
     flags { "NoManifest" }
-    includedirs { "src", "mupdf/include", "ext/WDL" }
+    includedirs { "src", "mupdf/include" }
 
     synctex_files()
     mui_files()
@@ -921,7 +922,7 @@ workspace "SumatraPDF"
     disablewarnings { "4505" }
 
     links {
-      "engines", "libdjvu",  "libwebp", "mupdf", "unarrlib", "utils", "unrar", "wdl"
+      "engines", "libdjvu",  "libwebp", "mupdf", "unarrlib", "utils", "unrar"
     }
     links {
       "comctl32", "delayimp", "gdiplus", "msimg32", "shlwapi", "urlmon",
@@ -941,7 +942,7 @@ workspace "SumatraPDF"
     regconf()
     entrypoint "WinMainCRTStartup"
     flags { "NoManifest" }
-    includedirs { "src", "mupdf/include", "ext/WDL" }
+    includedirs { "src", "mupdf/include" }
 
     synctex_files()
     mui_files()
@@ -973,7 +974,7 @@ workspace "SumatraPDF"
     files { "src/MuPDF_Exports.cpp" }
 
     links {
-      "libmupdf", "unrar", "unarrlib", "utils", "engines", "wdl"
+      "libmupdf", "unrar", "unarrlib", "utils", "engines"
     }
     links {
       "comctl32", "delayimp", "gdiplus", "msimg32", "shlwapi", "urlmon",

@@ -255,16 +255,15 @@ static MenuDef menuDefContext[] = {
     { _TRN("Select &All"),                  CmdSelectAll,             MF_REQ_ALLOW_COPY },
     { SEP_ITEM,                             0,                        MF_REQ_ALLOW_COPY },
     // note: strings cannot be "" or else items are not there
-    {"add",                                 CmdFavoriteAdd,           MF_NO_TRANSLATE   },
-    {"del",                                 CmdFavoriteDel,           MF_NO_TRANSLATE   },
+    { "add",                                CmdFavoriteAdd,           MF_NO_TRANSLATE   },
+    { "del",                                CmdFavoriteDel,           MF_NO_TRANSLATE   },
     { _TRN("Show &Favorites"),              CmdFavoriteToggle,        0                 },
     { _TRN("Show &Bookmarks\tF12"),         CmdViewBookmarks,         0                 },
     { _TRN("Show &Toolbar\tF8"),            CmdViewShowHideToolbar,   MF_NOT_FOR_EBOOK_UI },
     { _TRN("Show &Scrollbars"),             CmdViewShowHideScrollbars,MF_NOT_FOR_CHM | MF_NOT_FOR_EBOOK_UI },
     { _TRN("Save Annotations"),             CmdSaveAnnotations,       MF_REQ_DISK_ACCESS },
-#if 0
-    {"New Bookmarks",                       CmdNewBookmarks,          MF_NO_TRANSLATE },
-#endif
+    //{"New Bookmarks",                       CmdNewBookmarks,          MF_NO_TRANSLATE },
+    { _TRN("Select Annotation in Editor"),  CmdSelectAnnotation,      MF_REQ_DISK_ACCESS },
     { _TRN("Edit Annotations"),             CmdEditAnnotations,       MF_REQ_DISK_ACCESS },
     { SEP_ITEM,                             0,                        MF_PLUGIN_MODE_ONLY | MF_REQ_ALLOW_COPY },
     { _TRN("&Save As..."),                  CmdSaveAs,                MF_PLUGIN_MODE_ONLY | MF_REQ_DISK_ACCESS },
@@ -275,36 +274,33 @@ static MenuDef menuDefContext[] = {
 };
 //] ACCESSKEY_GROUP Context Menu (Content)
 
-//[ ACCESSKEY_GROUP Context Menu (Start)
-static MenuDef menuDefCreateAnnot[] = {
-    { _TRN("Text"), CmdCreateAnnotText, 0 },
-    { _TRN("Free Text"), CmdCreateAnnotFreeText, 0 },
-    { _TRN("Stamp"), CmdCreateAnnotStamp, 0 },
-    { _TRN("Caret"), CmdCreateAnnotCaret, 0 },
+//[ ACCESSKEY_GROUP Context Menu (Create annot from selection)
+static MenuDef menuDefCreateAnnotFromSelection[] = {
+    { _TRN("&Highlight\ta"), CmdCreateAnnotHighlight, 0 },
+    { _TRN("&Underline"), CmdCreateAnnotUnderline, 0 },
+    { _TRN("&Strike Out"), CmdCreateAnnotStrikeOut, 0 },
+    { _TRN("S&quiggly"), CmdCreateAnnotSquiggly, 0 },
+    //{ _TRN("Redact"), CmdCreateAnnotRedact, 0 },
+    { 0, 0, 0 },
+};
+//] ACCESSKEY_GROUP Context Menu (Create annot from selection)
+
+//[ ACCESSKEY_GROUP Context Menu (Create annot under cursor)
+static MenuDef menuDefCreateAnnotUnderCursor[] = {
+    { _TRN("&Text"), CmdCreateAnnotText, 0 },
+    { _TRN("&Free Text"), CmdCreateAnnotFreeText, 0 },
+    { _TRN("&Stamp"), CmdCreateAnnotStamp, 0 },
+    { _TRN("&Caret"), CmdCreateAnnotCaret, 0 },
     //{ _TRN("Ink"), CmdCreateAnnotInk, 0 },
     //{ _TRN("Square"), CmdCreateAnnotSquare, 0 },
     //{ _TRN("Circle"), CmdCreateAnnotCircle, 0 },
     //{ _TRN("Line"), CmdCreateAnnotLine, 0 },
     //{ _TRN("Polygon"), CmdCreateAnnotPolygon, 0 },
     //{ _TRN("Poly Line"), CmdCreateAnnotPolyLine, 0 },
-    { _TRN("Highlight"), CmdCreateAnnotHighlight, 0 },
-    { _TRN("Underline"), CmdCreateAnnotUnderline, 0 },
-    { _TRN("Strike Out"), CmdCreateAnnotStrikeOut, 0 },
-    { _TRN("Squiggly"), CmdCreateAnnotSquiggly, 0 },
     //{ _TRN("File Attachment"), CmdCreateAnnotFileAttachment, 0 },
-    //{ _TRN("Redact"), CmdCreateAnnotRedact, 0 },
     { 0, 0, 0 },
 };
-//] ACCESSKEY_GROUP Context Menu (Start)
-
-//[ ACCESSKEY_GROUP Context Menu (Start)
-static MenuDef menuDefCreateAnnotRaMicro[] = {
-    { _TRN("Text"), CmdCreateAnnotText, 0 },
-    { _TRN("Free Text"), CmdCreateAnnotFreeText, 0 },
-    { _TRN("Highlight"), CmdCreateAnnotHighlight, 0 },
-    { 0, 0, 0 },
-};
-//] ACCESSKEY_GROUP Context Menu (Start)
+//] ACCESSKEY_GROUP Context Menu (Create annot under cursor)
 
 //[ ACCESSKEY_GROUP Context Menu (Start)
 static MenuDef menuDefContextStart[] = {
@@ -550,24 +546,48 @@ static bool IsFileCloseMenuEnabled() {
     return false;
 }
 
-static void MenuUpdateStateForWindow(WindowInfo* win) {
-    // those menu items will be disabled if no document is opened, enabled otherwise
-    static int menusToDisableIfNoDocument[] = {
-        CmdViewRotateLeft, CmdViewRotateRight,      CmdGoToNextPage,     CmdGoToPrevPage,  CmdGoToFirstPage,
-        CmdGoToLastPage,   CmdGoToNavBack,          CmdGoToNavForward,   CmdGoToPage,      CmdFindFirst,
-        CmdSaveAs,         CmdSaveAsBookmark,       CmdSendByEmail,      CmdSelectAll,     CmdCopySelection,
-        CmdProperties,     CmdViewPresentationMode, CmdOpenWithAcrobat,  CmdOpenWithFoxIt, CmdOpenWithPdfXchange,
-        CmdRenameFile,     CmdShowInFolder,         CmdDebugAnnotations,
-        // IDM_VIEW_WITH_XPS_VIEWER and IDM_VIEW_WITH_HTML_HELP
-        // are removed instead of disabled (and can remain enabled
-        // for broken XPS/CHM documents)
-    };
-    // this list coincides with menusToEnableIfBrokenPDF
-    static int menusToDisableIfDirectory[] = {
-        CmdRenameFile, CmdSendByEmail, CmdOpenWithAcrobat, CmdOpenWithFoxIt, CmdOpenWithPdfXchange, CmdShowInFolder,
-    };
-#define menusToEnableIfBrokenPDF menusToDisableIfDirectory
+// clang-format off
+// those menu items will be disabled if no document is opened, enabled otherwise
+static int menusToDisableIfNoDocument[] = {
+    CmdViewRotateLeft,
+    CmdViewRotateRight,
+    CmdGoToNextPage,
+    CmdGoToPrevPage,
+    CmdGoToFirstPage,
+    CmdGoToLastPage,
+    CmdGoToNavBack,
+    CmdGoToNavForward,
+    CmdGoToPage,
+    CmdFindFirst,
+    CmdSaveAs,
+    CmdSaveAsBookmark,
+    CmdSendByEmail,
+    CmdSelectAll,
+    CmdCopySelection,
+    CmdProperties,
+    CmdViewPresentationMode,
+    CmdOpenWithAcrobat,
+    CmdOpenWithFoxIt,
+    CmdOpenWithPdfXchange,
+    CmdRenameFile,
+    CmdShowInFolder,
+    CmdDebugAnnotations,
+    // IDM_VIEW_WITH_XPS_VIEWER and IDM_VIEW_WITH_HTML_HELP
+    // are removed instead of disabled (and can remain enabled
+    // for broken XPS/CHM documents)
+};
 
+static int menusToDisableIfDirectoryOrBrokenPDF[] = {
+    CmdRenameFile,
+    CmdSendByEmail,
+    CmdOpenWithAcrobat,
+    CmdOpenWithFoxIt,
+    CmdOpenWithPdfXchange,
+    CmdShowInFolder,
+};
+// clang-format on
+
+static void MenuUpdateStateForWindow(WindowInfo* win) {
     TabInfo* tab = win->currentTab;
 
     for (int i = 0; i < dimof(menusToDisableIfNoDocument); i++) {
@@ -603,13 +623,13 @@ static void MenuUpdateStateForWindow(WindowInfo* win) {
     bool fileExists = tab && file::Exists(tab->filePath);
 
     if (tab && tab->ctrl && !fileExists && dir::Exists(tab->filePath)) {
-        for (int i = 0; i < dimof(menusToDisableIfDirectory); i++) {
-            int id = menusToDisableIfDirectory[i];
+        for (int i = 0; i < dimof(menusToDisableIfDirectoryOrBrokenPDF); i++) {
+            int id = menusToDisableIfDirectoryOrBrokenPDF[i];
             win::menu::SetEnabled(win->menu, id, false);
         }
     } else if (fileExists && CouldBePDFDoc(tab)) {
-        for (int i = 0; i < dimof(menusToEnableIfBrokenPDF); i++) {
-            int id = menusToEnableIfBrokenPDF[i];
+        for (int i = 0; i < dimof(menusToDisableIfDirectoryOrBrokenPDF); i++) {
+            int id = menusToDisableIfDirectoryOrBrokenPDF[i];
             win::menu::SetEnabled(win->menu, id, true);
         }
     }
@@ -691,23 +711,6 @@ void OnAboutContextMenu(WindowInfo* win, int x, int y) {
     }
 }
 
-// TODO: return false in fullscreen
-static bool ShouldShowCreateAnnotationMenu(TabInfo* tab, int x, int y) {
-    DisplayModel* dm = tab->AsFixed();
-    if (!dm) {
-        return false;
-    }
-    Kind engineType = dm->GetEngineType();
-    if (engineType != kindEnginePdf) {
-        return false;
-    }
-    int pageNo = dm->GetPageNoByPoint(Point{x, y});
-    if (pageNo < 0) {
-        return false;
-    }
-    return true;
-}
-
 void OnWindowContextMenu(WindowInfo* win, int x, int y) {
     /* Sends a message to plugin host window telling Context Menu is opening - MCM 24/04/2016
      *  Fix X, Y position of Context Menu based on Canvas position on framewindow  - MCM 23/06/2020
@@ -736,35 +739,34 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
 
     HMENU popup = BuildMenuFromMenuDef(menuDefContext, CreatePopupMenu());
 
-    bool showBookmarksMenu = IsTocEditorEnabledForWindowInfo(tab);
-    if (!showBookmarksMenu) {
-        win::menu::Remove(popup, CmdNewBookmarks);
+    int pageNoUnderCursor = dm->GetPageNoByPoint(Point{x, y});
+    PointF ptOnPage = dm->CvtFromScreen(Point{x, y}, pageNoUnderCursor);
+    EngineBase* engine = dm->GetEngine();
+    bool annotationsSupported = EngineSupportsAnnotations(engine) && !win->isFullScreen;
+    Annotation* annotUnderCursor{nullptr};
+    if (annotationsSupported) {
+        annotUnderCursor = dm->GetAnnotationAtPos(Point{x, y}, nullptr);
+        bool isTextSelected = win->showSelection && tab->selectionOnPage;
+        if (isTextSelected) {
+            HMENU popupCreateAnnot = BuildMenuFromMenuDef(menuDefCreateAnnotFromSelection, CreatePopupMenu());
+            uint flags = MF_BYPOSITION | MF_ENABLED | MF_POPUP;
+            InsertMenuW(popup, (uint)-1, flags, (UINT_PTR)popupCreateAnnot, _TR("Create Annotation From Selection"));
+        }
+
+        if (pageNoUnderCursor > 0) {
+            // those are only valid if mouse cursor is on a page
+            HMENU popupCreateAnnot = BuildMenuFromMenuDef(menuDefCreateAnnotUnderCursor, CreatePopupMenu());
+            uint flags = MF_BYPOSITION | MF_ENABLED | MF_POPUP;
+            InsertMenuW(popup, (uint)-1, flags, (UINT_PTR)popupCreateAnnot, _TR("Create Annotation Under Cursor"));
+        }
+        win::menu::SetEnabled(popup, CmdEditAnnotations, true);
+        bool enableSaveAnnotations = EngineHasUnsavedAnnotations(engine);
+        win::menu::SetEnabled(popup, CmdSaveAnnotations, enableSaveAnnotations);
+        win::menu::SetEnabled(popup, CmdSelectAnnotation, annotUnderCursor != nullptr);
     } else {
-        auto path = tab->filePath.Get();
-        if (str::EndsWithI(path, L".vbkm")) {
-            // for .vbkm change wording from "New Bookmarks" => "Edit Bookmarks"
-            win::menu::SetText(popup, CmdNewBookmarks, _TR("Edit Bookmarks"));
-        }
-    }
-
-    bool showCreateAnnotations = ShouldShowCreateAnnotationMenu(tab, x, y);
-    if (showCreateAnnotations) {
-        MenuDef* mdef = menuDefCreateAnnot;
-        if (gIsRaMicroBuild) {
-            mdef = menuDefCreateAnnotRaMicro;
-        }
-        HMENU popupCreateAnnot = BuildMenuFromMenuDef(mdef, CreatePopupMenu());
-        uint flags = MF_BYPOSITION | MF_ENABLED | MF_POPUP;
-        InsertMenuW(popup, (uint)-1, flags, (UINT_PTR)popupCreateAnnot, _TR("Create Annotation"));
-
-        bool isTextSelection = win->showSelection && tab->selectionOnPage;
-        if (!isTextSelection) {
-            win::menu::SetEnabled(popupCreateAnnot, CmdCreateAnnotHighlight, false);
-            win::menu::SetEnabled(popupCreateAnnot, CmdCreateAnnotUnderline, false);
-            win::menu::SetEnabled(popupCreateAnnot, CmdCreateAnnotStrikeOut, false);
-            win::menu::SetEnabled(popupCreateAnnot, CmdCreateAnnotSquiggly, false);
-            win::menu::SetEnabled(popupCreateAnnot, CmdCreateAnnotRedact, false);
-        }
+        win::menu::Remove(popup, CmdSelectAnnotation);
+        win::menu::Remove(popup, CmdEditAnnotations);
+        win::menu::Remove(popup, CmdSaveAnnotations);
     }
 
     if (!pageEl || !pageEl->Is(kindPageElementDest) || !value) {
@@ -793,24 +795,10 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
     win::menu::SetEnabled(popup, CmdFavoriteToggle, HasFavorites());
     win::menu::SetChecked(popup, CmdFavoriteToggle, gGlobalPrefs->showFavorites);
 
-    EngineBase* engine = dm->GetEngine();
-    bool showCreateAnnotation = EngineSupportsAnnotations(engine);
-
-    int pageNo = dm->GetPageNoByPoint(Point{x, y});
-    PointF ptOnPage = dm->CvtFromScreen(Point{x, y}, pageNo);
-    if (showCreateAnnotation) {
-        if (pageNo <= 0) {
-            showCreateAnnotation = false;
-        }
-    }
-
-    bool enableSaveAnnotations = EngineHasUnsavedAnnotations(engine);
-    win::menu::SetEnabled(popup, CmdSaveAnnotations, enableSaveAnnotations);
-
     const WCHAR* filePath = win->ctrl->FilePath();
-    if (pageNo > 0) {
-        AutoFreeWstr pageLabel = win->ctrl->GetPageLabel(pageNo);
-        bool isBookmarked = gFavorites.IsPageInFavorites(filePath, pageNo);
+    if (pageNoUnderCursor > 0) {
+        AutoFreeWstr pageLabel = win->ctrl->GetPageLabel(pageNoUnderCursor);
+        bool isBookmarked = gFavorites.IsPageInFavorites(filePath, pageNoUnderCursor);
         if (isBookmarked) {
             win::menu::Remove(popup, CmdFavoriteAdd);
 
@@ -845,7 +833,7 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
     DestroyMenu(popup);
 
     AnnotationType annotType = (AnnotationType)(cmd - CmdCreateAnnotText);
-    Annotation* annot;
+    Annotation* createdAnnot{nullptr};
     switch (cmd) {
         case CmdCopySelection:
         case CmdSelectAll:
@@ -858,14 +846,21 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
         case CmdViewShowHideScrollbars:
         case CmdSaveAnnotations:
         case CmdNewBookmarks:
+            // handle in FrameOnCommand() in SumatraPDF.cpp
             HwndSendCommand(win->hwndFrame, cmd);
+            break;
+        case CmdSelectAnnotation:
+            CrashIf(!annotUnderCursor);
+            SelectAnnotationInEditWindow(tab->editAnnotsWindow, annotUnderCursor);
             break;
         case CmdEditAnnotations:
             StartEditAnnotations(tab, nullptr);
+            SelectAnnotationInEditWindow(tab->editAnnotsWindow, annotUnderCursor);
             break;
         case CmdCopyLinkTarget: {
-            const WCHAR* tmp = SkipFileProtocol(value);
+            WCHAR* tmp = CleanupFileURL(value);
             CopyTextToClipboard(tmp);
+            str::Free(tmp);
         } break;
         case CmdCopyComment:
             CopyTextToClipboard(value);
@@ -884,7 +879,7 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
             AddFavoriteForCurrentPage(win);
             break;
         case CmdFavoriteDel:
-            DelFavorite(filePath, pageNo);
+            DelFavorite(filePath, pageNoUnderCursor);
             break;
         case CmdExitFullScreen:
             ExitFullScreen(win);
@@ -896,42 +891,34 @@ void OnWindowContextMenu(WindowInfo* win, int x, int y) {
         case CmdCreateAnnotSquare:
         case CmdCreateAnnotLine:
         case CmdCreateAnnotCircle: {
-            annot = EnginePdfCreateAnnotation(engine, annotType, pageNo, ptOnPage);
-            if (annot) {
+            createdAnnot = EnginePdfCreateAnnotation(engine, annotType, pageNoUnderCursor, ptOnPage);
+            if (createdAnnot) {
                 WindowInfoRerender(win);
                 ToolbarUpdateStateForWindow(win, true);
-                StartEditAnnotations(tab, annot);
             }
         } break;
         case CmdCreateAnnotHighlight:
-            annot = MakeAnnotationFromSelection(tab, AnnotationType::Highlight);
-            if (annot) {
-                StartEditAnnotations(tab, annot);
-            }
+            createdAnnot = MakeAnnotationFromSelection(tab, AnnotationType::Highlight);
             break;
         case CmdCreateAnnotSquiggly:
-            annot = MakeAnnotationFromSelection(tab, AnnotationType::Squiggly);
-            if (annot) {
-                StartEditAnnotations(tab, annot);
-            }
+            createdAnnot = MakeAnnotationFromSelection(tab, AnnotationType::Squiggly);
             break;
         case CmdCreateAnnotStrikeOut:
-            annot = MakeAnnotationFromSelection(tab, AnnotationType::StrikeOut);
-            if (annot) {
-                StartEditAnnotations(tab, annot);
-            }
+            createdAnnot = MakeAnnotationFromSelection(tab, AnnotationType::StrikeOut);
             break;
         case CmdCreateAnnotUnderline:
-            annot = MakeAnnotationFromSelection(tab, AnnotationType::Underline);
-            if (annot) {
-                StartEditAnnotations(tab, annot);
-            }
+            createdAnnot = MakeAnnotationFromSelection(tab, AnnotationType::Underline);
             break;
         case CmdCreateAnnotInk:
         case CmdCreateAnnotPolyLine:
             // TODO: implement me
             break;
     }
+    if (createdAnnot) {
+        StartEditAnnotations(tab, createdAnnot);
+    }
+    delete annotUnderCursor;
+
     /*
         { _TR_TODON("Line"), CmdCreateAnnotLine, 0 },
         { _TR_TODON("Highlight"), CmdCreateAnnotHighlight, 0 },

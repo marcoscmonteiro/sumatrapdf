@@ -349,14 +349,25 @@ void UpdateTocExpansionState(Vec<int>& tocState, TreeCtrl* treeCtrl, TocTree* do
 }
 
 // copied from mupdf/fitz/dev_text.c
+// clang-format off
 static bool isLeftToRightChar(WCHAR c) {
-    return ((0x0041 <= (c) && (c) <= 0x005A) || (0x0061 <= (c) && (c) <= 0x007A) || (0xFB00 <= (c) && (c) <= 0xFB06));
+    return (
+        ((0x0041 <= c) && (c <= 0x005A)) ||
+        ((0x0061 <= c) && (c <= 0x007A)) ||
+        ((0xFB00 <= c) && (c <= 0xFB06))
+    );
 }
 
 static bool isRightToLeftChar(WCHAR c) {
-    return ((0x0590 <= (c) && (c) <= 0x05FF) || (0x0600 <= (c) && (c) <= 0x06FF) || (0x0750 <= (c) && (c) <= 0x077F) ||
-            (0xFB50 <= (c) && (c) <= 0xFDFF) || (0xFE70 <= (c) && (c) <= 0xFEFE));
+    return (
+        ((0x0590 <= c) && (c <= 0x05FF)) ||
+        ((0x0600 <= c) && (c <= 0x06FF)) ||
+        ((0x0750 <= c) && (c <= 0x077F)) ||
+        ((0xFB50 <= c) && (c <= 0xFDFF)) ||
+        ((0xFE70 <= c) && (c <= 0xFEFE))
+    );
 }
+// clang-format off
 
 static void GetLeftRightCounts(TocItem* node, int& l2r, int& r2l) {
 next:
@@ -692,9 +703,10 @@ static void TocContextMenu(ContextMenuEvent* ev) {
     }
 
     TabInfo* tab = win->currentTab;
-    bool showBookmarksMenu = IsTocEditorEnabledForWindowInfo(tab);
     HMENU popup = BuildMenuFromMenuDef(menuDefContext, CreatePopupMenu());
 
+    bool showBookmarksMenu = false;
+#if 0 // TODO: remove
     if (showBookmarksMenu) {
         HMENU popupSort = BuildMenuFromMenuDef(menuDefSortByTag, CreatePopupMenu());
         uint flags = MF_BYCOMMAND | MF_ENABLED | MF_POPUP;
@@ -716,6 +728,7 @@ static void TocContextMenu(ContextMenuEvent* ev) {
                 break;
         }
     }
+#endif
 
     bool isEmbeddedFile = false;
     PageDestination* dest = nullptr;
@@ -991,6 +1004,21 @@ static void TocTreeSelectionChanged(TreeSelectionChangedEvent* ev) {
 
 // also used in Favorites.cpp
 void TocTreeKeyDown(TreeKeyDownEvent* ev) {
+    // TODO: trying to fix https://github.com/sumatrapdfreader/sumatrapdf/issues/1841
+    // doesn't work i.e. page up / page down seems to be processed anyway by TreeCtrl
+#if 0
+    if ((ev->keyCode == VK_PRIOR) || (ev->keyCode == VK_NEXT)) {
+        // up/down in tree is not very useful, so instead
+        // send it to frame so that it scrolls document instead
+        WindowInfo* win = FindWindowInfoByHwnd(ev->hwnd);
+        // this is sent as WM_NOTIFY to TreeCtrl but for frame it's WM_KEYDOWN
+        // alternatively, we could call FrameOnKeydown(ev->wp, ev->lp, false);
+        SendMessageW(win->hwndFrame, WM_KEYDOWN, ev->wp, ev->lp);
+        ev->didHandle = true;
+        ev->result = 1;
+        return;
+    }
+#endif
     if (ev->keyCode != VK_TAB) {
         return;
     }

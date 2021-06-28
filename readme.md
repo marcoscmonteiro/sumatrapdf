@@ -2,17 +2,15 @@
 
 ## About this project:
 
-* The aim of this project is generate 2 NuGet packages to be referenced by applications using [SumatraPDFControl](https://sumatrapdfcontrol.mcmonteiro.net):
+* The aim of this project is generate 2 NuGet packages to be referenced by applications using [SumatraPDFControl](https://www.nuget.org/packages/SumatraPDFControl/).
 
-* Is was forked from original [SumatraPDF](https://www.sumatrapdfreader.org) and aimed to work in enhanced plugin mode.
+* Is was forked from original [SumatraPDF](https://www.sumatrapdfreader.org) and modified to work in enhanced plugin mode.
 
-## Compiling
+## Remarks
 
-To compile you need Visual Studio 2019 16.6 or later. [Free Community edition](https://www.visualstudio.com/vs/community/) works.
+* [SumatraPDF](https://www.sumatrapdfreader.org) is a multi-format (PDF, EPUB, MOBI, FB2, CHM, XPS, DjVu) reader for Windows under (A)GPLv3 license.
 
-* Open `vs2019/SumatraPDF.sln` and hit F5 to compile and run.
-
-* For best results use the latest release available as that's what I use and test with.	If things don't compile, first make sure you're using the latest version of Visual Studio.
+* [SumatraPDFControl](https://sumatrapdfcontrol.mcmonteiro.net) is a windows Forms Control based on [SumatraPDFReader](https://www.sumatrapdfreader.org/) to view and read Portable Document Files (PDF).
 
 ## Related NuGet Packages
 
@@ -22,9 +20,14 @@ To compile you need Visual Studio 2019 16.6 or later. [Free Community edition](h
 
 * [SumatraPDFControl](https://www.nuget.org/packages/SumatraPDFControl/)
 
-## Remarks
+## Compiling
 
-* [SumatraPDF](https://www.sumatrapdfreader.org) is a multi-format (PDF, EPUB, MOBI, FB2, CHM, XPS, DjVu) reader for Windows under (A)GPLv3 license.
+To compile you need Visual Studio 2019 16.6 or later. [Free Community edition](https://www.visualstudio.com/vs/community/) works.
 
-* [SumatraPDFControl](https://sumatrapdfcontrol.mcmonteiro.net) is a windows Forms Control based on [SumatraPDFReader](https://www.sumatrapdfreader.org/) to view and read Portable Document Files (PDF)
+* Open `vs2019/SumatraPDF.sln` and hit F5 to compile and run.
+
+* For best results use the latest release available as that's what I use and test with.	If things don't compile, first make sure you're using the latest version of Visual Studio.
+
+
+
 

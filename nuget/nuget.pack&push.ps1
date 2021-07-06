@@ -57,6 +57,7 @@ if ($s.ToLower() -eq "y") {
     msbuild "$SumatraPDFBaseDir\vs2019\SumatraPDF.vcxproj" /p:Configuration=Release /p:Platform=Win32
 }
 
+Remove-Item *.nupkg
 nuget pack .\SumatraPDF.PluginMode.x64.nuspec
 nuget pack .\SumatraPDF.PluginMode.x86.nuspec
 

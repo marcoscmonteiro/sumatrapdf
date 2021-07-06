@@ -2,14 +2,14 @@
 <package>
   <metadata>
     <id>SumatraPDF.PluginMode.x86</id>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <title>SumatraPDF Plugin Mode x86 compiled</title>
     <authors>Marcos C. Monteiro</authors>
     <requireLicenseAcceptance>true</requireLicenseAcceptance>
     <license type="expression">GPL-3.0-only</license>
     <projectUrl>https://github.com/marcoscmonteiro/SumatraPDF</projectUrl>    
     <description>SumatraPDF.exe (x86) modified to work in enhanced plugin mode and packaged to work with SumatraPDFControl project</description>
-    <releaseNotes>Allow disable PDF Annotation in plugin mode</releaseNotes>
+    <releaseNotes>Deploy SumatraPDF-settings.txt to disable auto update of SumatraPDF.exe</releaseNotes>
     <copyright>Copyright © Marcos C. Monteiro 2021</copyright>
     <tags>SumatraPDF PDF viewer windows forms windowsforms winforms GPL</tags>
     <repository type="Git" url="https://github.com/marcoscmonteiro/SumatraPDF" branch="master"/>
@@ -23,6 +23,7 @@
   <files>
     <file src="..\gfx\SumatraPDF-48x48x32.png" target="images\SumatraPDF.png" />
     <file src="..\out\rel32\SumatraPDF.exe" target="contentFiles\any\any\x86\" />
+    <file src=".\SumatraPDF-settings.txt" target="contentFiles\any\any\x86\" />
     <file src="..\readme.md" target="docs\readme.md" />
   </files>
 </package>

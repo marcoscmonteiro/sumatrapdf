@@ -26,7 +26,8 @@ function NugetPush {
         $RepoURL = $Repositories[$repo][0]
         $ApiKey = $Repositories[$repo][1]
         Write-Output "Publishing projects in $RepoURL (note: if version already exists an error will be logged)" | Tee-Object .\NugetPush.log -Append
-        nuget push -Source "$RepoURL" -ApiKey $ApiKey -SkipDuplicate *.nupkg >> NugetPush.log
+        #nuget push -Source "$RepoURL" -ApiKey $ApiKey -SkipDuplicate *.nupkg >> NugetPush.log
+        dotnet nuget push ".\*.nupkg" --api-key $ApiKey --skip-duplicate --source "$RepoURL" >> NugetPush.log
       }  
       Write-Output "Published" | Tee-Object .\NugetPush.log -Append
       Get-Content .\NugetPush.log 
@@ -63,10 +64,12 @@ nuget pack .\SumatraPDF.PluginMode.x86.nuspec
 
 # Get ApiKey from secret file (not versioned on GIT)
 $NugetOrgApiKey = Get-Content ~/Onedrive/Documentos/nuget/NUGET.ORG.APIKEY.TXT
+$GitHubPAT = Get-Content ~/Onedrive/Documentos/nuget/GITHUB.PAT.TXT
 
 # HashTable containing the repositories with URL and ApiKey for publishing the components
 $Repositories = @{
     "Nuget.Org" = @( "https://api.nuget.org/v3/index.json", $NugetOrgApiKey )
+    "GitHub" = @( "https://nuget.pkg.github.com/marcoscmonteiro/index.json", $GitHubPAT )
 }
 
 NugetPush -Repositories $Repositories -AutoPublish ""

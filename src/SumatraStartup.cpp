@@ -76,6 +76,7 @@
 #include "SumatraConfig.h"
 #include "EngineEbook.h"
 #include "ExternalViewers.h"
+#include "Plugin.h"
 
 // gFileExistenceChecker is initialized at startup and should
 // terminate and delete itself asynchronously while the UI is
@@ -498,7 +499,13 @@ static bool RegisterForPdfExtentions(HWND hwnd) {
 }
 
 static int RunMessageLoop() {
-    HACCEL accTable = CreateSumatraAcceleratorTable();
+
+    HACCEL accTable;
+    if (gPluginMode)
+        // Certain Accelerators are not suitable for plugin mode. Using only those defined in Plugin.cpp
+        accTable = CreateSumatraPluginAcceleratorTable();
+    else
+        accTable = CreateSumatraAcceleratorTable();
 
     MSG msg{0};
 
@@ -509,6 +516,7 @@ static int RunMessageLoop() {
         if (win) {
             accHwnd = win->hwndFrame;
         }
+
         if (TranslateAccelerator(accHwnd, accTable, &msg)) {
             continue;
         }

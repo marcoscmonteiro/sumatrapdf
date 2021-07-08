@@ -4991,10 +4991,14 @@ LRESULT CALLBACK WndProcFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return DefWindowProc(hwnd, msg, wp, lp);
 
         case WM_SYSCHAR:
-            if (win && FrameOnSysChar(win, wp)) {
-                return 0;
+            // Plugin mode do not work well with ALT key - user can close SumatraPDF
+            if (!gPluginMode) {
+                if (win && FrameOnSysChar(win, wp)) {
+                    return 0;
+                }
+                return DefWindowProc(hwnd, msg, wp, lp);
             }
-            return DefWindowProc(hwnd, msg, wp, lp);
+            return 0;
 
         case WM_SYSCOMMAND:
             // temporarily show the menu bar if it has been hidden

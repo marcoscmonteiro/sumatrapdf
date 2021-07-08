@@ -2,14 +2,14 @@
 <package>
   <metadata>
     <id>SumatraPDF.PluginMode.x86</id>
-    <version>1.0.3</version>
+    <version>1.0.4</version>
     <title>SumatraPDF Plugin Mode x86 compiled</title>
     <authors>Marcos C. Monteiro</authors>
     <requireLicenseAcceptance>true</requireLicenseAcceptance>
     <license type="expression">GPL-3.0-only</license>
     <projectUrl>https://github.com/marcoscmonteiro/SumatraPDF</projectUrl>    
     <description>SumatraPDF.exe (x86) modified to work in enhanced plugin mode and packaged to work with SumatraPDFControl project</description>
-    <releaseNotes>Deploy sumatrapdfrestrict.ini to disable unnecessary functions when SumatraPDF.exe is running in plugin mode</releaseNotes>
+    <releaseNotes>Disable ALT and some keyboard accelerators not suitable for SumatraPDF.exe in plugin mode</releaseNotes>
     <copyright>Copyright © Marcos C. Monteiro 2021</copyright>
     <tags>SumatraPDF PDF viewer windows forms windowsforms winforms GPL</tags>
     <repository type="Git" url="https://github.com/marcoscmonteiro/SumatraPDF" branch="master"/>

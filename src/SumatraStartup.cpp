@@ -517,7 +517,7 @@ static int RunMessageLoop() {
             accHwnd = win->hwndFrame;
         }
 
-        if (TranslateAccelerator(accHwnd, accTable, &msg)) {
+        if (gEnableAccelerators && TranslateAccelerator(accHwnd, accTable, &msg)) {
             continue;
         }
 

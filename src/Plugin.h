@@ -7,3 +7,4 @@ void ScrollStatePluginMessage(WindowInfo* win, bool Changed);
 HACCEL CreateSumatraPluginAcceleratorTable();
 
 extern bool gAllowEditAnnotations;
+extern bool gEnableAccelerators;

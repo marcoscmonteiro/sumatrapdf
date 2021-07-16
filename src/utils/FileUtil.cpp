@@ -175,12 +175,16 @@ std::string_view GetDir(std::string_view pathSV) {
 }
 
 WCHAR* Join(const WCHAR* path, const WCHAR* fileName, const WCHAR* fileName2) {
+    // TODO: not sure if should allow null path
     if (IsSep(*fileName)) {
         fileName++;
     }
     const WCHAR* sepStr = nullptr;
-    if (!IsSep(path[str::Len(path) - 1])) {
-        sepStr = L"\\";
+    size_t pathLen = str::Len(path);
+    if (pathLen > 0) {
+        if (!IsSep(path[pathLen - 1])) {
+            sepStr = L"\\";
+        }
     }
     WCHAR* res = str::Join(path, sepStr, fileName);
     if (fileName2) {
@@ -495,8 +499,8 @@ std::span<u8> ReadFileWithAllocator(const char* filePath, Allocator* allocator) 
     if (nRead != size) {
         int err = ferror(fp);
         int isEof = feof(fp);
-        logf("ReadFileWithAllocator: fread() failed, path: '%s', size: %d, nRead: %d, err: %d, isEof: %d\n", filePath, (int)size, (int)nRead,
-             err, isEof);
+        logf("ReadFileWithAllocator: fread() failed, path: '%s', size: %d, nRead: %d, err: %d, isEof: %d\n", filePath,
+             (int)size, (int)nRead, err, isEof);
         // we should either get eof or err
         // either way shouldn't happen because we're reading the exact size of file
         // I've seen this in crash reports so maybe the files are over-written

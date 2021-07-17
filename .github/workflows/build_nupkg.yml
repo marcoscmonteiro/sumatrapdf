@@ -1,0 +1,61 @@
+name: build_nupkg
+
+on: 
+  #push:
+  #  branches:
+  #  - master    
+  workflow_dispatch:
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: .\vs2019\SumatraPDF.vcxproj
+  NUPKG_PATH: .\nuget
+  NUGET_SOURCE: https://api.nuget.org/v3/index.json  
+  NUGET_API_KEY: ${{secrets.NUGET_API_KEY}}  
+  GITHUB_NUGET_SOURCE: https://nuget.pkg.github.com/marcoscmonteiro/index.json
+  GITHUB_NUGET_API_KEY: ${{secrets.PKG_GITHUB}}
+
+  # Configuration type to build.
+  # You can convert this to a build matrix if you need coverage of multiple configuration types.
+  # https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.0.2
+
+    - name: Build x64
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild ${{env.SOLUTION_FILE_PATH}} -p:Configuration=${{env.BUILD_CONFIGURATION}} -p:Plataform=x64
+
+    - name: Build Win32
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild ${{env.SOLUTION_FILE_PATH}} -p:Configuration=${{env.BUILD_CONFIGURATION}} -p:Plataform=Win32
+    
+    - name: Nuget Pack x64
+      working-directory: ${{env.NUPKG_PATH}}
+      run: nuget pack .\SumatraPDF.PluginMode.x64.nuspec
+
+    - name: Nuget Pack x86
+      working-directory: ${{env.NUPKG_PATH}}
+      run: nuget pack .\SumatraPDF.PluginMode.x86.nuspec
+
+    - name: Nuget Push
+      shell: cmd
+      working-directory: ${{env.NUPKG_PATH}}
+      run: dotnet nuget push .\*.nupkg --source ${{env.NUGET_SOURCE}} --api-key "%NUGET_API_KEY%" --skip-duplicate 
+    
+    - name: GitHub Packages Push
+      shell: cmd
+      working-directory: ${{env.NUPKG_PATH}}
+      run: dotnet nuget push .\*.nupkg --source ${{env.GITHUB_NUGET_SOURCE}} --api-key "%GITHUB_NUGET_API_KEY%" --skip-duplicate 

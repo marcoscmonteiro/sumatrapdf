@@ -1283,7 +1283,7 @@ RectF EnginePdf::Transform(const RectF& rect, int pageNo, float zoom, int rotati
         logf("doc: %s, pageNo: %d, zoom: %.2f\n", name, pageNo, zoom);
         free(name);
     }
-    DebugCrashIf(zoom <= 0);
+    ReportIf(zoom <= 0);
     if (zoom <= 0) {
         zoom = 1;
     }
@@ -1411,7 +1411,7 @@ fz_matrix EnginePdf::viewctm(int pageNo, float zoom, int rotation) {
     return fz_create_view_ctm(tmpRc, zoom, rotation);
 }
 
-fz_matrix EnginePdf::viewctm(fz_page* page, float zoom, int rotation) {
+fz_matrix EnginePdf::viewctm(fz_page* page, float zoom, int rotation) const {
     return fz_create_view_ctm(fz_bound_page(ctx, page), zoom, rotation);
 }
 

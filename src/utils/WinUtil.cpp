@@ -397,6 +397,8 @@ bool RedirectIOToExistingConsole() {
 }
 // returns true if had to allocate new console (i.e. show console window)
 // false if redirected to existing console, which means it was launched from a shell
+// TODO: also detect redirected i/o as described in
+// https://github.com/apenwarr/fixconsole/blob/master/fixconsole_windows.go
 bool RedirectIOToConsole() {
     if (gConsoleRedirectStatus != ConsoleRedirectStatus::NotRedirected) {
         return gConsoleRedirectStatus == ConsoleRedirectStatus::RedirectedToAllocatedConsole;
@@ -1261,7 +1263,7 @@ void SetText(HMENU m, int id, const WCHAR* s) {
     if (!ok) {
         logf(L"SetText(): id=%d, s='%s'\n", id, s ? s : L"(null)");
         LogLastError();
-        SubmitBugReportIf(true);
+        ReportIf(true);
     }
 }
 

@@ -19,7 +19,7 @@ class ScopedMem {
         free(ptr);
         ptr = newPtr;
     }
-    T* Get() const {
+    [[nodiscard]] T* Get() const {
         return ptr;
     }
     T* StealData() {
@@ -85,7 +85,7 @@ struct AutoDelete {
         return o;
     }
 
-    T* Get() const {
+    [[nodiscard]] T* Get() const {
         return o;
     }
 };
@@ -176,15 +176,15 @@ struct AutoFree {
         return len;
     }
 
-    [[nodiscard]] bool empty() {
+    [[nodiscard]] bool empty() const {
         return (data == nullptr) || (len == 0);
     }
 
-    [[nodiscard]] std::string_view AsView() {
+    [[nodiscard]] std::string_view AsView() const {
         return {data, len};
     }
 
-    [[nodiscard]] std::span<u8> AsSpan() {
+    [[nodiscard]] std::span<u8> AsSpan() const {
         return {(u8*)data, len};
     }
 
@@ -217,7 +217,7 @@ struct AutoFree {
 };
 
 // TODO: replace most of AutoFree with AutoFreeStr
-typedef AutoFree AutoFreeStr;
+using AutoFreeStr = AutoFree;
 
 struct AutoFreeWstr {
     WCHAR* data = nullptr;
@@ -259,7 +259,7 @@ struct AutoFreeWstr {
     AutoFreeWstr& operator=(const AutoFreeWstr&& other) = delete;
 #endif
 
-    WCHAR* Get() const {
+    [[nodiscard]] WCHAR* Get() const {
         return data;
     }
 
@@ -296,7 +296,7 @@ struct AutoFreeWstr {
         return (data == nullptr) || (size() == 0);
     }
 
-    std::wstring_view AsView() {
+    std::wstring_view AsView() const {
         size_t sz = str::Len(data);
         return {data, sz};
     }

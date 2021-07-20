@@ -9,6 +9,8 @@ import (
 
 /*
 https://clang.llvm.org/extra/clang-tidy/checks/list.html
+
+https://github.com/derceg/explorerplusplus/blob/master/.clang-tidy
 https://codeyarns.com/2019/01/28/how-to-use-clang-tidy/
 https://www.reddit.com/r/cpp/comments/ezn21f/which_checks_do_you_use_for_clangtidy/
 https://www.reddit.com/r/cpp/comments/5bqkk5/good_clangtidy_files/
@@ -35,21 +37,6 @@ clang-tidy src/*.cpp -fix -header-filter=src/ -checks="-*,readability-inconsiste
 */
 
 /*
-Done:
-src
-src/utils
-src/wingui
-src/mui
-src/uia
-src/ifilter
-src/previewer
-
-Fix warnings:
-* clang-analyzer-deadcode.DeadStores
-* clang-analyzer-cplusplus.NewDeleteLeaks
-* clang-analyzer-unix.Malloc
-* clang-analyzer-core.uninitialized.Assign
-
 TODO fixes:
 modernize-use-default-member-init
 modernize-return-braced-init-list
@@ -82,10 +69,17 @@ const clangTidyLogFile = "clangtidy.out.txt"
 
 // TODO: maybe re-enable clang-diagnostic-switch, for now it's too many false positives
 func clangTidyFile(path string) {
+	/*
+		checks := []string{
+			"-*",
+			"bugprone-*",
+		}
+	*/
 	args := []string{
-		"--checks=-clang-diagnostic-microsoft-goto,-clang-diagnostic-unused-value,-clang-diagnostic-ignored-pragma-optimize,-clang-diagnostic-pragma-pack,-clang-diagnostic-switch",
+		//"--checks=" + strings.Join(checks, ","),
+		"--header-filter=.*",
 		"-extra-arg=-std=c++20",
-		"", // file
+		path,
 		"--",
 		"-I", "mupdf/include",
 		"-I", "src",
@@ -109,12 +103,58 @@ func clangTidyFile(path string) {
 		"-D_WIN32_WINNT=0x0a00",
 		"-DPRE_RELEASE_VER=3.3",
 	}
-	args[2] = path
 	cmd := exec.Command("clang-tidy", args...)
-	_ = runCmdShowProgressAndLog(cmd, clangTidyLogFile)
+	err := runCmdShowProgressAndLog(cmd, clangTidyLogFile)
+	must(err)
 }
 
-func runClangTidy() {
+// modernize-raw-string-literal
+// modernize-use-nullptr
+// modernize-use-override
+// modernize-use-equals-default
+// readability-avoid-const-params-in-decls
+// readability-simplify-boolean-expr
+// modernize-use-using : needs to figure out how to not run in ext
+// readability-braces-around-statements¶
+func clangTidyFix(path string) {
+	args := []string{
+		// fix one-by-one
+		"--checks=-*,readability-make-member-function-const",
+		"-p",
+		".",
+		"--header-filter=src/",
+		"--fix",
+		"-extra-arg=-std=c++20",
+		path,
+		"--",
+		"-I", "mupdf/include",
+		"-I", "src",
+		"-I", "src/utils",
+		"-I", "src/wingui",
+		"-I", "ext/WDL",
+		"-I", "ext/CHMLib/src",
+		"-I", "ext/libdjvu",
+		"-I", "ext/zlib",
+		"-I", "ext/synctex",
+		"-I", "ext/unarr",
+		"-I", "ext/lzma/C",
+		"-I", "ext/libwebp/src",
+		"-I", "ext/freetype/include",
+
+		"-DUNICODE",
+		"-DWIN32",
+		"-D_WIN32",
+		"-D_CRT_SECURE_NO_WARNINGS",
+		"-DWINVER=0x0a00",
+		"-D_WIN32_WINNT=0x0a00",
+		"-DPRE_RELEASE_VER=3.3",
+	}
+	cmd := exec.Command("clang-tidy", args...)
+	err := runCmdShowProgressAndLog(cmd, clangTidyLogFile)
+	must(err)
+}
+
+func runClangTidy(fix bool) {
 	os.Remove(clangTidyLogFile)
 	files := []string{
 		`src\*.cpp`,
@@ -141,8 +181,7 @@ func runClangTidy() {
 		whitelisted := []string{
 			"resource.h",
 			"Version.h",
-			"Trans_sumatra_txt.cpp",
-			"Trans_installer_txt.cpp",
+			"TranslationsInfo.cpp",
 			"signfile.cpp",
 		}
 		s = strings.ToLower(s)
@@ -167,7 +206,11 @@ func runClangTidy() {
 			if isWhiteListed(path) {
 				continue
 			}
-			clangTidyFile(path)
+			if fix {
+				clangTidyFix(path)
+			} else {
+				clangTidyFile(path)
+			}
 		}
 	}
 	logf("\nLogged output to '%s'\n", clangTidyLogFile)

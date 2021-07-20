@@ -533,7 +533,6 @@
     <ClInclude Include="..\src\AppPrefs.h" />
     <ClInclude Include="..\src\AppTools.h" />
     <ClInclude Include="..\src\AppUtil.h" />
-    <ClInclude Include="..\src\AutoUpdate.h" />
     <ClInclude Include="..\src\Canvas.h" />
     <ClInclude Include="..\src\Caption.h" />
     <ClInclude Include="..\src\ChmModel.h" />
@@ -562,6 +561,7 @@
     <ClInclude Include="..\src\ProgressUpdateUI.h" />
     <ClInclude Include="..\src\RenderCache.h" />
     <ClInclude Include="..\src\SaveAsPdf.h" />
+    <ClInclude Include="..\src\Scratch.h" />
     <ClInclude Include="..\src\SearchAndDDE.h" />
     <ClInclude Include="..\src\Selection.h" />
     <ClInclude Include="..\src\SettingsStructs.h" />
@@ -579,6 +579,7 @@
     <ClInclude Include="..\src\Theme.h" />
     <ClInclude Include="..\src\Toolbar.h" />
     <ClInclude Include="..\src\Translations.h" />
+    <ClInclude Include="..\src\UpdateCheck.h" />
     <ClInclude Include="..\src\Version.h" />
     <ClInclude Include="..\src\WindowInfo.h" />
     <ClInclude Include="..\src\mui\Mui.h" />
@@ -614,7 +615,6 @@
     <ClCompile Include="..\src\AppPrefs.cpp" />
     <ClCompile Include="..\src\AppTools.cpp" />
     <ClCompile Include="..\src\AppUtil.cpp" />
-    <ClCompile Include="..\src\AutoUpdate.cpp" />
     <ClCompile Include="..\src\Canvas.cpp" />
     <ClCompile Include="..\src\CanvasAboutUI.cpp" />
     <ClCompile Include="..\src\Caption.cpp" />
@@ -644,6 +644,7 @@
     <ClCompile Include="..\src\Print.cpp" />
     <ClCompile Include="..\src\RenderCache.cpp" />
     <ClCompile Include="..\src\SaveAsPdf.cpp" />
+    <ClCompile Include="..\src\Scratch.cpp" />
     <ClCompile Include="..\src\SearchAndDDE.cpp" />
     <ClCompile Include="..\src\Selection.cpp" />
     <ClCompile Include="..\src\StressTesting.cpp" />
@@ -670,9 +671,10 @@
     <ClCompile Include="..\src\TextSelection.cpp" />
     <ClCompile Include="..\src\Theme.cpp" />
     <ClCompile Include="..\src\Toolbar.cpp" />
-    <ClCompile Include="..\src\Trans_sumatra_txt.cpp" />
     <ClCompile Include="..\src\Translations.cpp" />
+    <ClCompile Include="..\src\TranslationsInfo.cpp" />
     <ClCompile Include="..\src\Uninstaller.cpp" />
+    <ClCompile Include="..\src\UpdateCheck.cpp" />
     <ClCompile Include="..\src\WindowInfo.cpp" />
     <ClCompile Include="..\src\mui\Mui.cpp" />
     <ClCompile Include="..\src\mui\MuiBase.cpp" />

@@ -865,7 +865,7 @@ void DisplayModel::ChangeStartPage(int newStartPage) {
    coordinates of a current view into that large sheet, calculate which
    parts of each page is visible on the screen.
    Needs to be recalucated after scrolling the view. */
-void DisplayModel::RecalcVisibleParts() {
+void DisplayModel::RecalcVisibleParts() const {
     CrashIf(!pagesInfo);
     if (!pagesInfo) {
         return;
@@ -892,7 +892,7 @@ void DisplayModel::RecalcVisibleParts() {
     }
 }
 
-int DisplayModel::GetPageNoByPoint(Point pt) {
+int DisplayModel::GetPageNoByPoint(Point pt) const {
     // no reasonable answer possible, if zoom hasn't been set yet
     if (zoomReal <= 0) {
         return -1;
@@ -913,7 +913,7 @@ int DisplayModel::GetPageNoByPoint(Point pt) {
     return -1;
 }
 
-int DisplayModel::GetPageNextToPoint(Point pt) {
+int DisplayModel::GetPageNextToPoint(Point pt) const {
     if (zoomReal <= 0) {
         return startPage;
     }
@@ -960,9 +960,7 @@ static float getZoomSafe(DisplayModel* dm, int pageNo, const PageInfo* pageInfo)
         "dm->zoomVirtual: %.2f\n",
         name, pageNo, zoom, pageInfo->zoomReal, dm->zoomReal, dm->zoomVirtual);
     free(name);
-    DebugCrashIf(true);
-
-    SubmitBugReportIf(true);
+    ReportIf(true);
 
     if (dm->zoomReal > 0) {
         return dm->zoomReal;
@@ -980,7 +978,7 @@ Point DisplayModel::CvtToScreen(int pageNo, PointF pt) {
     if (!pageInfo) {
         const char* isValid = ValidPageNo(pageNo) ? "yes" : "no";
         logf("DisplayModel::CvtToScreen: GetPageInfo(%d) failed, is valid page: %s\n", pageNo, isValid);
-        SubmitBugReportIf(!pageInfo);
+        ReportIf(!pageInfo);
         return Point();
     }
 
@@ -1159,7 +1157,7 @@ void DisplayModel::SetViewPortSize(Size newViewPortSize) {
     }
 }
 
-RectF DisplayModel::GetContentBox(int pageNo) {
+RectF DisplayModel::GetContentBox(int pageNo) const {
     RectF cbox{};
     // we cache the contentBox
     PageInfo* pageInfo = GetPageInfo(pageNo);
@@ -1189,7 +1187,7 @@ Point DisplayModel::GetContentStart(int pageNo) {
 void DisplayModel::GoToPage(int pageNo, int scrollY, bool addNavPt, int scrollX) {
     if (!ValidPageNo(pageNo)) {
         logf("DisplayModel::GoToPage: invalid pageNo: %d, nPages: %d\n", pageNo, engine->PageCount());
-        SubmitBugReportIf(ValidPageNo(pageNo));
+        ReportIf(ValidPageNo(pageNo));
         return;
     }
 
@@ -1661,7 +1659,7 @@ void DisplayModel::RotateBy(int newRotation) {
 
 /* Given <region> (in user coordinates ) on page <pageNo>, copies text in that region
  * into a newly allocated buffer (which the caller needs to free()). */
-WCHAR* DisplayModel::GetTextInRegion(int pageNo, RectF region) {
+WCHAR* DisplayModel::GetTextInRegion(int pageNo, RectF region) const {
     Rect* coords;
     const WCHAR* pageText = textCache->GetTextForPage(pageNo, nullptr, &coords);
     if (str::IsEmpty(pageText)) {
@@ -1851,7 +1849,7 @@ void DisplayModel::CopyNavHistory(DisplayModel& orig) {
     }
 }
 
-bool DisplayModel::ShouldCacheRendering(int pageNo) {
+bool DisplayModel::ShouldCacheRendering(int pageNo) const {
     // recommend caching for all documents which are non-trivial to render
     if (!engine->IsImageCollection()) {
         return true;

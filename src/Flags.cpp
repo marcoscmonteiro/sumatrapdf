@@ -28,7 +28,7 @@ Flags::~Flags() {
     str::Free(stressTestFilter);
     str::Free(stressTestRanges);
     str::Free(lang);
-    str::Free(copySelfToPath);
+    str::Free(updateSelfTo);
     str::Free(deleteFilePath);
 }
 
@@ -339,10 +339,7 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
             continue;
         }
         if (isArg(L"x")) {
-            // silently extract files to directory given if /d
-            // or current directory if no /d given
             i.justExtractFiles = true;
-            i.silent = true;
             continue;
         }
         if (isArg(L"tester")) {
@@ -383,10 +380,6 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
             i.exitImmediately = true;
             return;
         }
-        if (isArg(L"test-auto-update")) {
-            i.testAutoUpdate = true;
-            continue;
-        }
 
         // follwing args require at least one param
         // if no params here, assume this is a file
@@ -394,6 +387,10 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
             goto CollectFile;
         }
 
+        if (isArg(L"sleep-ms")) {
+            eatIntParam(i.sleepMs);
+            continue;
+        }
         if (isArg(L"print-to")) {
             eatStringParam(i.printerName);
             i.exitWhenDone = true;
@@ -519,8 +516,8 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
             ++n;
             continue;
         }
-        if (isArg(L"copy-self-to")) {
-            i.copySelfToPath = str::Dup(param);
+        if (isArg(L"-update-self-to")) {
+            i.updateSelfTo = str::Dup(param);
             ++n;
             continue;
         }
@@ -560,6 +557,9 @@ void ParseCommandLine(const WCHAR* cmdLine, Flags& i) {
     }
 
     if (i.justExtractFiles) {
+        // silently extract files to directory given if /d
+        // or current directory if no /d given
+        i.silent = true;
         if (!i.installDir) {
             i.installDir = str::Dup(L".");
         }

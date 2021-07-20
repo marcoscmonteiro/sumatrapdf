@@ -135,15 +135,15 @@
 //#include <iostream>
 //#include <locale>
 
-typedef int8_t i8;
-typedef uint8_t u8;
-typedef int16_t i16;
-typedef uint16_t u16;
-typedef int32_t i32;
-typedef uint32_t u32;
-typedef int64_t i64;
-typedef uint64_t u64;
-typedef unsigned int uint;
+using i8 = int8_t;
+using u8 = uint8_t;
+using i16 = int16_t;
+using u16 = uint16_t;
+using i32 = int32_t;
+using u32 = uint32_t;
+using i64 = int64_t;
+using u64 = uint64_t;
+using uint = unsigned int;
 
 // TODO: don't use INT_MAX and UINT_MAX
 #ifndef INT_MAX
@@ -228,30 +228,10 @@ inline void CrashIfFunc(bool cond) {
 #endif
 }
 
-// Sometimes we want to assert only in debug build (not in pre-release)
-#if defined(DEBUG)
-inline void DebugCrashIfFunc(bool cond) {
-    if (!cond) {
-        return;
-    }
-    CrashMe();
-}
-#else
-inline void DebugCrashIfFunc(bool) {
-    // no-op
-}
-#endif
-
 // __analysis_assume is defined by msvc for prefast analysis
 #if !defined(__analysis_assume)
 #define __analysis_assume(x)
 #endif
-
-#define DebugCrashIf(cond)          \
-    do {                            \
-        __analysis_assume(!(cond)); \
-        DebugCrashIfFunc(cond);     \
-    } while (0)
 
 #define CrashAlwaysIf(cond)         \
     do {                            \
@@ -269,7 +249,7 @@ inline void DebugCrashIfFunc(bool) {
 
 void _submitDebugReportIfFunc(bool cond, __unused const char* condStr);
 
-#define SubmitBugReportIf(cond)                \
+#define ReportIf(cond)                         \
     do {                                       \
         __analysis_assume(!(cond));            \
         _submitDebugReportIfFunc(cond, #cond); \
@@ -300,7 +280,7 @@ inline void ZeroArray(T& a) {
 
 template <typename T>
 inline T limitValue(T val, T min, T max) {
-    DebugCrashIf(min > max);
+    CrashIf(min > max);
     if (val < min) {
         return min;
     }
@@ -545,7 +525,7 @@ extern Kind kindFoo;
 Kind kindFoo = "foo";
 */
 
-typedef const char* Kind;
+using Kind = const char*;
 inline bool isOfKindHelper(Kind k1, Kind k2) {
     return k1 == k2;
 }

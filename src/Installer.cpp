@@ -106,6 +106,7 @@ static void CreateButtonExit(HWND hwndParent) {
 }
 
 bool ExtractFiles(lzma::SimpleArchive* archive, const WCHAR* destDir) {
+    logf(L"ExtractFiles: extracting to dir '%s'\n", destDir);
     lzma::FileInfo* fi;
     u8* uncompressed;
 
@@ -130,7 +131,7 @@ bool ExtractFiles(lzma::SimpleArchive* archive, const WCHAR* destDir) {
         if (!ok) {
             WCHAR* msg = str::Format(_TR("Couldn't write %s to disk"), filePath.data);
             NotifyFailed(msg);
-            free(msg);
+            str::Free(msg);
             return false;
         }
         logf(L"Extracted '%s'\n", fileName.Get());
@@ -149,10 +150,10 @@ static bool CreateInstallationDirectory() {
     return ok;
 }
 
-bool CopySelfToDir(const WCHAR* destDir) {
+static bool CopySelfToDir(const WCHAR* destDir) {
     auto exePath = GetExePathTemp();
     auto exeName = GetExeNameTemp();
-    auto* dstPath = path::Join(destDir, exeName);
+    auto dstPath = path::Join(destDir, exeName);
     bool failIfExists = false;
     bool ok = file::Copy(dstPath, exePath, failIfExists);
     // strip zone identifier (if exists) to avoid windows
@@ -160,8 +161,13 @@ bool CopySelfToDir(const WCHAR* destDir) {
     // https://github.com/sumatrapdfreader/sumatrapdf/issues/1782
     auto dstPathA = ToUtf8Temp(dstPath);
     file::DeleteZoneIdentifier(dstPathA);
-    free(dstPath);
-    return ok;
+    str::Free(dstPath);
+    if (!ok) {
+        logf(L"CopySelfToDir: failed to cpoy '%s' to dir '%s'\n", exePath.Get(), destDir);
+        return false;
+    }
+    logf(L"CopySelfToDir: copied '%s' to dir '%s'\n", exePath.Get(), destDir);
+    return true;
 }
 
 static void CopySettingsFile() {
@@ -188,22 +194,7 @@ static void CopySettingsFile() {
     bool failIfExists = true;
     // don't care if it fails or not
     file::Copy(dstPath.Get(), srcPath.Get(), failIfExists);
-    log("did copy settings file\n");
-}
-
-static bool ExtractInstallerFiles() {
-    if (!CreateInstallationDirectory()) {
-        return false;
-    }
-
-    bool ok = CopySelfToDir(GetInstallDirTemp());
-    if (!ok) {
-        return false;
-    }
-    ProgressStep();
-
-    // on error, ExtractFiles() shows error message itself
-    return ExtractFiles(&gArchive, gCli->installDir);
+    logf(L"CopySettingsFile: copied '%s' to '%s'\n", srcPath.Get(), dstPath.Get());
 }
 
 // Note: doesn't handle (total) sizes above 4GB
@@ -379,12 +370,6 @@ static DWORD WINAPI InstallerThread(__unused LPVOID data) {
     }
 
     CopySettingsFile();
-
-    // all files have been extracted at this point
-    if (gCli->justExtractFiles) {
-        log("InstallerThread: finishing early because justExtractFiles\n");
-        return 0;
-    }
 
 #if ENABLE_REGISTER_DEFAULT
     if (gInstallerGlobals.registerAsDefault) {
@@ -834,6 +819,7 @@ static WCHAR* GetInstallationDir() {
             dir.Set(path::GetDir(dir));
         }
         if (!str::IsEmpty(dir.Get()) && dir::Exists(dir)) {
+            logf(L"GetInstallationDir: got '%s' from InstallLocation registry\n", dir.Get());
             return dir.StealData();
         }
     }
@@ -973,11 +959,19 @@ static int RunApp() {
 }
 
 static void ShowNoEmbeddedFiles(const WCHAR* msg) {
+    if (gCli->silent) {
+        log(msg);
+        return;
+    }
     const WCHAR* caption = L"Error";
     MessageBoxW(nullptr, msg, caption, MB_OK);
 }
 
 static bool OpenEmbeddedFilesArchive() {
+    if (gArchive.filesCount > 0) {
+        log("OpenEmbeddedFilesArchive: already opened\n");
+        return true;
+    }
     auto [data, size, res] = LockDataResource(1);
     if (data == nullptr) {
         ShowNoEmbeddedFiles(L"No embbedded files");
@@ -989,7 +983,27 @@ static bool OpenEmbeddedFilesArchive() {
         ShowNoEmbeddedFiles(L"Embedded lzsa archive is corrupted");
         return false;
     }
+    log("OpenEmbeddedFilesArchive: opened archive\n");
     return true;
+}
+
+bool ExtractInstallerFiles() {
+    if (!CreateInstallationDirectory()) {
+        return false;
+    }
+
+    bool ok = CopySelfToDir(GetInstallDirTemp());
+    if (!ok) {
+        return false;
+    }
+    ProgressStep();
+
+    ok = OpenEmbeddedFilesArchive();
+    if (!ok) {
+        return false;
+    }
+    // on error, ExtractFiles() shows error message itself
+    return ExtractFiles(&gArchive, gCli->installDir);
 }
 
 static char* PickInstallerLogPath() {
@@ -1028,14 +1042,13 @@ void RelaunchElevatedIfNotDebug() {
 }
 
 int RunInstaller() {
-    log("RunInstaller()\n");
     if (gCli->log) {
         StartInstallerLogging();
     }
     if (!gCli->installDir) {
         gCli->installDir = GetInstallationDir();
     }
-    logf(L"Starting installer from '%s'\n", gCli->installDir);
+    logf(L"RunInstaller: '%s' installing into dir '%s'\n", GetExePathTemp().Get(), gCli->installDir);
 
     RelaunchElevatedIfNotDebug();
 
@@ -1053,9 +1066,6 @@ int RunInstaller() {
         }
     }
 
-    // just when testing
-    // CrashMe();
-
     gWasSearchFilterInstalled = IsSearchFilterInstalled();
     if (gWasSearchFilterInstalled) {
         log("Search filter is installed\n");
@@ -1072,8 +1082,6 @@ int RunInstaller() {
     }
 
     gDefaultMsg = _TR("Thank you for choosing SumatraPDF!");
-
-    logf(L"Installing to '%s'\n", gCli->installDir);
 
     if (!gCli->withFilter) {
         gCli->withFilter = IsSearchFilterInstalled();

@@ -22,20 +22,20 @@ struct ChmFile {
     ChmFile() = default;
     ~ChmFile();
 
-    bool HasData(const char* fileName);
-    std::span<u8> GetData(const char* fileName);
+    bool HasData(const char* fileName) const;
+    std::span<u8> GetData(const char* fileName) const;
     char* ResolveTopicID(unsigned int id);
 
-    char* ToUtf8(const u8* text, uint overrideCP = 0);
-    WCHAR* ToStr(const char* text);
+    char* ToUtf8(const u8* text, uint overrideCP = 0) const;
+    WCHAR* ToStr(const char* text) const;
 
     WCHAR* GetProperty(DocumentProperty prop);
-    const char* GetHomePath();
-    Vec<char*>* GetAllPaths();
+    const char* GetHomePath() const;
+    Vec<char*>* GetAllPaths() const;
 
-    bool HasToc() const;
+    [[nodiscard]] bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
-    bool HasIndex() const;
+    [[nodiscard]] bool HasIndex() const;
     bool ParseIndex(EbookTocVisitor* visitor);
 
     static bool IsSupportedFileType(Kind);

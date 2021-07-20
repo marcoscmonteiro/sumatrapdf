@@ -49,7 +49,7 @@
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "TabInfo.h"
-#include "AutoUpdate.h"
+#include "UpdateCheck.h"
 #include "resource.h"
 #include "Commands.h"
 #include "Flags.h"
@@ -679,7 +679,8 @@ Learn more at https://www.sumatrapdfreader.org/docs/Corrupted-installation
     AutoFreeWstr title = str::Join(GetAppNameTemp(), L" installer");
     TASKDIALOGCONFIG dialogConfig{};
 
-    DWORD flags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS;
+    DWORD flags =
+        TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS | TDF_POSITION_RELATIVE_TO_WINDOW;
     if (trans::IsCurrLangRtl()) {
         flags |= TDF_RTL_LAYOUT;
     }
@@ -695,7 +696,8 @@ Learn more at https://www.sumatrapdfreader.org/docs/Corrupted-installation
     dialogConfig.dwCommonButtons = TDCBF_CLOSE_BUTTON;
     dialogConfig.pszMainIcon = TD_ERROR_ICON;
 
-    TaskDialogIndirect(&dialogConfig, nullptr, nullptr, nullptr);
+    auto hr = TaskDialogIndirect(&dialogConfig, nullptr, nullptr, nullptr);
+    CrashIf(hr == E_INVALIDARG);
     HandleRedirectedConsoleOnShutdown();
     ::ExitProcess(1);
 }
@@ -733,7 +735,8 @@ static void ShowInstallerHelp() {
     AutoFreeWstr title = str::Join(GetAppNameTemp(), L" installer usage");
     TASKDIALOGCONFIG dialogConfig{};
 
-    DWORD flags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS;
+    DWORD flags =
+        TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW | TDF_SIZE_TO_CONTENT | TDF_ENABLE_HYPERLINKS;
     if (trans::IsCurrLangRtl()) {
         flags |= TDF_RTL_LAYOUT;
     }
@@ -744,12 +747,12 @@ static void ShowInstallerHelp() {
         LR"(<a href="https://www.sumatrapdfreader.org/docs/Installer-cmd-line-arguments">Read more on website</a>)";
     dialogConfig.nDefaultButton = IDOK;
     dialogConfig.dwFlags = flags;
-    dialogConfig.cxWidth = 320; // TODO: TDF_SIZE_TO_CONTENT doesn't seem to work
     dialogConfig.pfCallback = TaskdialogHandleLinkscallback;
     dialogConfig.dwCommonButtons = TDCBF_OK_BUTTON;
     dialogConfig.pszMainIcon = TD_INFORMATION_ICON;
 
-    TaskDialogIndirect(&dialogConfig, nullptr, nullptr, nullptr);
+    auto hr = TaskDialogIndirect(&dialogConfig, nullptr, nullptr, nullptr);
+    CrashIf(hr == E_INVALIDARG);
 }
 
 // in Installer.cpp
@@ -779,29 +782,6 @@ static void supressThrowFromNew() {
 
 static void ShowNotValidInstallerError() {
     MessageBoxW(nullptr, L"Not a valid installer", L"Error", MB_OK | MB_ICONERROR);
-}
-
-// in Installer.cpp
-extern bool ExtractFiles(lzma::SimpleArchive* archive, const WCHAR* destDir);
-extern bool CopySelfToDir(const WCHAR* destDir);
-
-static void ExtractInstallerFiles() {
-    auto [data, size, res] = LockDataResource(1);
-    if (data == nullptr) {
-        ShowNotValidInstallerError();
-        return;
-    }
-
-    lzma::SimpleArchive archive = {};
-    bool ok = lzma::ParseSimpleArchive(data, size, &archive);
-    if (!ok) {
-        ShowNotValidInstallerError();
-        return;
-    }
-    AutoFreeWstr dir = GetExeDir();
-    if (ExtractFiles(&archive, dir.data)) {
-        CopySelfToDir(dir);
-    }
 }
 
 #if 0
@@ -922,12 +902,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, __unused HINSTANCE hPrevInstance, __un
     mui::Initialize();
     uitask::Initialize();
 
-    // StartLogToFile("C:\\Users\\kjk\\Downloads\\sumlog.txt");
-
-    {
-        TempStr cmdLineA = ToUtf8Temp(GetCommandLineW());
-        logf("CmdLine: %s\n", cmdLineA.Get());
-    }
+    gLogToConsole = true;
 
     Flags i;
     ParseCommandLine(GetCommandLineW(), i);
@@ -957,12 +932,22 @@ int APIENTRY WinMain(HINSTANCE hInstance, __unused HINSTANCE hPrevInstance, __un
 
     if (i.justExtractFiles) {
         RedirectIOToExistingConsole();
-        ExtractInstallerFiles();
+        logf("starting ExeHasInstallerResources()\n");
+        if (!ExeHasInstallerResources()) {
+            log("this is not an installer, -x option not available\n");
+            retCode = 1;
+        } else {
+            if (!ExtractInstallerFiles()) {
+                log("failed to extract files");
+                LogLastError();
+                retCode = 1;
+            }
+        }
         HandleRedirectedConsoleOnShutdown();
-        ::ExitProcess(0);
+        return retCode;
     }
 
-    if ((i.install || i.justExtractFiles) || IsInstallerAndNamedAsSuch()) {
+    if (i.install || IsInstallerAndNamedAsSuch()) {
         if (!ExeHasInstallerResources()) {
             ShowNotValidInstallerError();
             return 1;
@@ -970,7 +955,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, __unused HINSTANCE hPrevInstance, __un
         retCode = RunInstaller();
         // exit immediately. for some reason exit handlers try to
         // pull in libmupdf.dll which we don't have access to in the installer
-        ::ExitProcess(retCode);
+        return retCode;
     }
 
     if (i.uninstall) {
@@ -978,21 +963,21 @@ int APIENTRY WinMain(HINSTANCE hInstance, __unused HINSTANCE hPrevInstance, __un
         ::ExitProcess(retCode);
     }
 
-    if (i.copySelfToPath) {
+    if (i.updateSelfTo) {
         RedirectIOToExistingConsole();
-        // sleeping for a bit to make sure that the program that launched us
-        // had time to exit so that we can overwrite it
-        Sleep(3 * 1000);
-        CopySelfTo(i.copySelfToPath);
+        UpdateSelfTo(i.updateSelfTo);
         HandleRedirectedConsoleOnShutdown();
-        ::ExitProcess(0);
+        goto Exit;
     }
 
     if (i.deleteFilePath) {
         RedirectIOToExistingConsole();
         // sleeping for a bit to make sure that the program that launched us
         // had time to exit so that we can overwrite it
-        Sleep(3 * 1000);
+        if (i.sleepMs > 0) {
+            ::Sleep(i.sleepMs);
+        }
+        // TODO: retry if file busy?
         bool ok = file::Delete(i.deleteFilePath);
         if (ok) {
             logf(L"Deleted '%s'\n", i.deleteFilePath);
@@ -1237,10 +1222,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, __unused HINSTANCE hPrevInstance, __un
         fastExit = true;
     }
 
-    if (gGlobalPrefs->checkForUpdates) {
-        UpdateCheckAsync(win, true);
-    }
-
     // only hide newly missing files when showing the start page on startup
     if (showStartPage && gFileHistory.Get(0)) {
         gFileExistenceChecker = new FileExistenceChecker();
@@ -1262,6 +1243,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, __unused HINSTANCE hPrevInstance, __un
     //  c:\windows\system32 is a good directory to use
     ChangeCurrDirToSystem32();
 
+    CheckForUpdateAsync(win, UpdateCheck::Automatic);
+
     BringWindowToTop(win->hwndFrame);
 
     retCode = RunMessageLoop();
@@ -1271,7 +1254,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, __unused HINSTANCE hPrevInstance, __un
 Exit:
     prefs::UnregisterForFileChanges();
 
-    TryAutoUpdateSelf();
     HandleRedirectedConsoleOnShutdown();
 
     if (fastExit) {

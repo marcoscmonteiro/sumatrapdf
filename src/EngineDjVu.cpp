@@ -164,7 +164,7 @@ struct DjVuContext {
         DeleteCriticalSection(&lock);
     }
 
-    void SpinMessageLoop(bool wait = true) {
+    void SpinMessageLoop(bool wait = true) const {
         const ddjvu_message_t* msg = nullptr;
         if (wait) {
             ddjvu_message_wait(ctx);
@@ -261,7 +261,7 @@ class EngineDjVu : public EngineBase {
     PageDestination* GetNamedDest(const WCHAR* name) override;
     TocTree* GetToc() override;
 
-    WCHAR* GetPageLabel(int pageNo) const override;
+    [[nodiscard]] WCHAR* GetPageLabel(int pageNo) const override;
     int GetPageByLabel(const WCHAR* label) const override;
 
     static EngineBase* CreateFromFile(const WCHAR* path);

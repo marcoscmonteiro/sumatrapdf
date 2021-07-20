@@ -131,11 +131,11 @@ class RenderCache {
     bool GetNextRequest(PageRenderRequest* req);
     void Add(PageRenderRequest& req, RenderedBitmap* bmp);
 
-    USHORT GetTileRes(DisplayModel* dm, int pageNo);
+    USHORT GetTileRes(DisplayModel* dm, int pageNo) const;
     USHORT GetMaxTileRes(DisplayModel* dm, int pageNo, int rotation);
     bool ReduceTileSize();
 
-    bool IsRenderQueueFull() const {
+    [[nodiscard]] bool IsRenderQueueFull() const {
         return requestCount == MAX_PAGE_REQUESTS;
     }
     int GetRenderDelay(DisplayModel* dm, int pageNo, TilePosition tile);

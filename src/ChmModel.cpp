@@ -126,7 +126,7 @@ int ChmModel::CurrentPageNo() const {
 void ChmModel::GoToPage(int pageNo, __unused bool addNavPoint) {
     // TODO: not sure if crashing here is warranted
     // I've seen a crash with call from RestoreTabOnStartup() which doesn't validate pageNo
-    SubmitBugReportIf(!ValidPageNo(pageNo));
+    ReportIf(!ValidPageNo(pageNo));
     if (!ValidPageNo(pageNo)) {
         return;
     }
@@ -152,31 +152,31 @@ void ChmModel::RemoveParentHwnd() {
     htmlWindowCb = nullptr;
 }
 
-void ChmModel::PrintCurrentPage(bool showUI) {
+void ChmModel::PrintCurrentPage(bool showUI) const {
     if (htmlWindow) {
         htmlWindow->PrintCurrentPage(showUI);
     }
 }
 
-void ChmModel::FindInCurrentPage() {
+void ChmModel::FindInCurrentPage() const {
     if (htmlWindow) {
         htmlWindow->FindInCurrentPage();
     }
 }
 
-void ChmModel::SelectAll() {
+void ChmModel::SelectAll() const {
     if (htmlWindow) {
         htmlWindow->SelectAll();
     }
 }
 
-void ChmModel::CopySelection() {
+void ChmModel::CopySelection() const {
     if (htmlWindow) {
         htmlWindow->CopySelection();
     }
 }
 
-LRESULT ChmModel::PassUIMsg(UINT msg, WPARAM wp, LPARAM lp) {
+LRESULT ChmModel::PassUIMsg(UINT msg, WPARAM wp, LPARAM lp) const {
     if (!htmlWindow) {
         return 0;
     }
@@ -282,7 +282,7 @@ void ChmModel::SetZoomVirtual(float zoom, __unused Point* fixPt) {
     initZoom = zoom;
 }
 
-void ChmModel::ZoomTo(float zoomLevel) {
+void ChmModel::ZoomTo(float zoomLevel) const {
     if (htmlWindow) {
         htmlWindow->SetZoomPercent((int)zoomLevel);
     }
@@ -378,7 +378,7 @@ ChmCacheEntry::ChmCacheEntry(const WCHAR* url) {
     this->url = url;
 }
 
-ChmCacheEntry* ChmModel::FindDataForUrl(const WCHAR* url) {
+ChmCacheEntry* ChmModel::FindDataForUrl(const WCHAR* url) const {
     size_t n = urlDataCache.size();
     for (size_t i = 0; i < n; i++) {
         ChmCacheEntry* e = urlDataCache.at(i);

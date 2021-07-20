@@ -360,19 +360,19 @@ class Vec {
 
     // http://www.cprogramming.com/c++11/c++11-ranged-for-loop.html
     // https://stackoverflow.com/questions/16504062/how-to-make-the-for-each-loop-function-in-c-work-with-a-custom-class
-    typedef T* iterator;
-    typedef const T* const_iterator;
+    using iterator = T*;
+    using const_iterator = const T*;
 
     iterator begin() {
         return &(els[0]);
     }
-    const_iterator begin() const {
+    [[nodiscard]] const_iterator begin() const {
         return &(els[0]);
     }
     iterator end() {
         return &(els[len]);
     }
-    const_iterator end() const {
+    [[nodiscard]] const_iterator end() const {
         return &(els[len]);
     }
 };
@@ -540,15 +540,15 @@ class WStrList {
         }
     }
 
-    const WCHAR* at(size_t idx) const {
+    [[nodiscard]] const WCHAR* at(size_t idx) const {
         return items.at(idx).string;
     }
 
-    const WCHAR* Last() const {
+    [[nodiscard]] const WCHAR* Last() const {
         return items.Last().string;
     }
 
-    size_t size() const {
+    [[nodiscard]] size_t size() const {
         return count;
     }
 

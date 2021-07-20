@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/kjk/u"
@@ -134,6 +135,7 @@ func main() {
 		flgCppCheck                bool
 		flgCppCheckAll             bool
 		flgClangTidy               bool
+		flgClangTidyFix            bool
 		flgDiff                    bool
 		flgGenStructs              bool
 		flgUpdateVer               string
@@ -172,6 +174,7 @@ func main() {
 		flag.BoolVar(&flgCppCheck, "cppcheck", false, "run cppcheck (must be installed)")
 		flag.BoolVar(&flgCppCheckAll, "cppcheck-all", false, "run cppcheck with more checks (must be installed)")
 		flag.BoolVar(&flgClangTidy, "clang-tidy", false, "run clang-tidy (must be installed)")
+		flag.BoolVar(&flgClangTidyFix, "clang-tidy-fix", false, "run clang-tidy (must be installed)")
 		flag.BoolVar(&flgDiff, "diff", false, "preview diff using winmerge")
 		flag.BoolVar(&flgGenStructs, "gen-structs", false, "re-generate src/SettingsStructs.h")
 		flag.StringVar(&flgUpdateVer, "update-auto-update-ver", "", "update version used for auto-update checks")
@@ -183,7 +186,7 @@ func main() {
 
 	if false {
 		detectVersions()
-		buildPreRelease()
+		//buildPreRelease()
 		return
 	}
 
@@ -255,8 +258,8 @@ func main() {
 		return
 	}
 
-	if flgClangTidy {
-		runClangTidy()
+	if flgClangTidy || flgClangTidyFix {
+		runClangTidy(flgClangTidyFix)
 		return
 	}
 
@@ -343,16 +346,12 @@ func main() {
 		switch gev {
 		case githubEventPush:
 			// pre-release build on push
-			s3UploadBuildMust(buildTypePreRel)
-			spacesUploadBuildMust(buildTypePreRel)
+			uploadToStorage(buildTypePreRel)
 		case githubEventTypeCodeQL:
 			// do nothing
 		default:
 			panic("unkown value from getGitHubEventType()")
 		}
-
-		minioDeleteOldBuilds()
-		s3DeleteOldBuilds()
 		return
 	}
 
@@ -365,8 +364,7 @@ func main() {
 		detectVersions()
 		buildRelease(flgUpload)
 		if flgUpload {
-			s3UploadBuildMust(buildTypeRel)
-			spacesUploadBuildMust(buildTypeRel)
+			uploadToStorage(buildTypeRel)
 		}
 		return
 	}
@@ -390,8 +388,7 @@ func main() {
 		failIfNoCertPwd()
 		detectVersions()
 		buildPreRelease()
-		s3UploadBuildMust(buildTypePreRel)
-		spacesUploadBuildMust(buildTypePreRel)
+		uploadToStorage(buildTypePreRel)
 		return
 	}
 
@@ -432,4 +429,25 @@ func main() {
 	}
 
 	flag.Usage()
+}
+
+func uploadToStorage(buildType string) {
+	timeStart := time.Now()
+	defer func() {
+		logf("uploadToStorage of '%s' finished in %s\n", buildType, time.Since(timeStart))
+	}()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		s3UploadBuildMust(buildType)
+		s3DeleteOldBuilds()
+		wg.Done()
+	}()
+
+	go func() {
+		spacesUploadBuildMust(buildType)
+		spacesDeleteOldBuilds()
+		wg.Done()
+	}()
+	wg.Wait()
 }

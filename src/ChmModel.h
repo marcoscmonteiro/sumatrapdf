@@ -12,24 +12,24 @@ struct ChmModel : Controller {
     ~ChmModel() override;
 
     // meta data
-    const WCHAR* FilePath() const override;
-    const WCHAR* DefaultFileExt() const override;
-    int PageCount() const override;
+    [[nodiscard]] const WCHAR* FilePath() const override;
+    [[nodiscard]] const WCHAR* DefaultFileExt() const override;
+    [[nodiscard]] int PageCount() const override;
     WCHAR* GetProperty(DocumentProperty prop) override;
 
     // page navigation (stateful)
-    int CurrentPageNo() const override;
+    [[nodiscard]] int CurrentPageNo() const override;
     void GoToPage(int pageNo, bool addNavPoint) override;
-    bool CanNavigate(int dir) const override;
+    [[nodiscard]] bool CanNavigate(int dir) const override;
     void Navigate(int dir) override;
 
     // view settings
     void SetDisplayMode(DisplayMode mode, bool keepContinuous = false) override;
-    DisplayMode GetDisplayMode() const override;
+    [[nodiscard]] DisplayMode GetDisplayMode() const override;
     void SetPresentationMode(bool enable) override;
     void SetZoomVirtual(float zoom, Point* fixPt) override;
-    float GetZoomVirtual(bool absolute = false) const override;
-    float GetNextZoomStep(float towards) const override;
+    [[nodiscard]] float GetZoomVirtual(bool absolute = false) const override;
+    [[nodiscard]] float GetNextZoomStep(float towards) const override;
     void SetViewPortSize(Size size) override;
 
     // table of contents
@@ -51,11 +51,11 @@ struct ChmModel : Controller {
     bool SetParentHwnd(HWND hwnd);
     void RemoveParentHwnd();
 
-    void PrintCurrentPage(bool showUI);
-    void FindInCurrentPage();
-    void SelectAll();
-    void CopySelection();
-    LRESULT PassUIMsg(UINT msg, WPARAM wp, LPARAM lp);
+    void PrintCurrentPage(bool showUI) const;
+    void FindInCurrentPage() const;
+    void SelectAll() const;
+    void CopySelection() const;
+    LRESULT PassUIMsg(UINT msg, WPARAM wp, LPARAM lp) const;
 
     // for HtmlWindowCallback (called through htmlWindowCb)
     bool OnBeforeNavigate(const WCHAR* url, bool newWindow);
@@ -86,7 +86,7 @@ struct ChmModel : Controller {
     bool Load(const WCHAR* fileName);
     void DisplayPage(const WCHAR* pageUrl);
 
-    ChmCacheEntry* FindDataForUrl(const WCHAR* url);
+    ChmCacheEntry* FindDataForUrl(const WCHAR* url) const;
 
-    void ZoomTo(float zoomLevel);
+    void ZoomTo(float zoomLevel) const;
 };

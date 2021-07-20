@@ -2536,7 +2536,7 @@ void CloseWindow(WindowInfo* win, bool quitIfLast, bool forceClose) {
     for (auto& tab : win->tabs) {
         if (tab->AsFixed()) {
             tab->AsFixed()->dontRenderFlag = true;
-        } else if (win->AsEbook()) {
+        } else if (tab->AsEbook()) {
             tab->AsEbook()->EnableMessageHandling(false);
         }
     }
@@ -4820,7 +4820,7 @@ static LRESULT FrameOnCommand(WindowInfo* win, HWND hwnd, UINT msg, WPARAM wp, L
             FrameOnChar(win, 'h');
             break;
 
-#if defined(DEBUG) || defined(IS_DAILY_BUILD) || defined(PRE_RELEASE_VER)
+#if defined(DEBUG)
         case CmdDebugTestApp:
             extern void TestApp(HINSTANCE hInstance);
             TestApp(GetModuleHandle(nullptr));

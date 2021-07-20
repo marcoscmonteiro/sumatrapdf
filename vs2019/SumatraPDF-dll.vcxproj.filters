@@ -25,6 +25,12 @@
     <Filter Include="src\uia">
       <UniqueIdentifier>{1B3F30A9-871E-AF44-9036-3A1BFC9415A6}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\utils">
+      <UniqueIdentifier>{6DAA42B6-D914-F72C-2253-A8D28EFCD481}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\utils\tests">
+      <UniqueIdentifier>{0FF3B448-7B7E-220D-848F-A501F0997E0D}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\Accelerators.h">
@@ -260,6 +266,9 @@
     </ClInclude>
     <ClInclude Include="..\src\uia\TextRange.h">
       <Filter>src\uia</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\utils\UtAssert.h">
+      <Filter>src\utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\Plugin.h">
       <Filter>src</Filter>
@@ -529,9 +538,6 @@
     </ClCompile>
     <ClCompile Include="..\src\uia\TextRange.cpp">
       <Filter>src\uia</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\Plugin.cpp">
-      <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

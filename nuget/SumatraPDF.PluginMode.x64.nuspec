@@ -2,14 +2,14 @@
 <package>
   <metadata>
     <id>SumatraPDF.PluginMode.x64</id>
-    <version>1.0.6</version>
+    <version>1.0.7</version>
     <title>SumatraPDF Plugin Mode x64 compiled</title>
     <authors>Marcos C. Monteiro</authors>
     <requireLicenseAcceptance>true</requireLicenseAcceptance>
     <license type="expression">GPL-3.0-only</license>
     <projectUrl>https://github.com/marcoscmonteiro/SumatraPDF</projectUrl>    
     <description>SumatraPDF.exe (x64) modified to work in enhanced plugin mode and packaged to work with SumatraPDFControl project</description>
-    <releaseNotes>Update from SumatraPDF Release 3.3.1 (some other fixes)</releaseNotes>
+    <releaseNotes>Correct SumatraPDF.exe to be a real 64 bits executable</releaseNotes>
     <copyright>Copyright © Marcos C. Monteiro 2021</copyright>
     <tags>SumatraPDF PDF viewer windows forms windowsforms winforms GPL</tags>
     <repository type="Git" url="https://github.com/marcoscmonteiro/SumatraPDF" branch="master"/>
@@ -22,7 +22,7 @@
   </metadata>
   <files>
     <file src="..\gfx\SumatraPDF-48x48x32.png" target="images\SumatraPDF.png" />
-    <file src="..\out\rel32\SumatraPDF.exe" target="contentFiles\any\any\x64\" />
+    <file src="..\out\rel64\SumatraPDF.exe" target="contentFiles\any\any\x64\" />
     <file src=".\SumatraPDF-settings.txt" target="contentFiles\any\any\x64\" />
 	<file src=".\sumatrapdfrestrict.ini" target="contentFiles\any\any\x64\" />
     <file src="..\readme.md" target="docs\readme.md" />

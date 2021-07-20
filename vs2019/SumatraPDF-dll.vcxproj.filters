@@ -539,6 +539,66 @@
     <ClCompile Include="..\src\uia\TextRange.cpp">
       <Filter>src\uia</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\utils\UtAssert.cpp">
+      <Filter>src\utils</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\BaseUtil_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\ByteOrderDecoder_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\CmdLineParser_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\CryptoUtil_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\CssParser_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\Dict_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\FileUtil_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\HtmlPrettyPrint_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\HtmlPullParser_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\JsonParser_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\SettingsUtil_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\SimpleLog_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\SquareTreeParser_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\StrFormat_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\StrUtil_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\TrivialHtmlParser_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\Vec_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\tests\WinUtil_ut.cpp">
+      <Filter>src\utils\tests</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\Plugin.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\docs\releasenotes.txt">

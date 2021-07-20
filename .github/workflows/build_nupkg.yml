@@ -34,13 +34,13 @@ jobs:
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
       # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild ${{env.SOLUTION_FILE_PATH}} -p:Configuration=${{env.BUILD_CONFIGURATION}} -p:Plataform=x64
+      run: msbuild ${{env.SOLUTION_FILE_PATH}} -p:Configuration=${{env.BUILD_CONFIGURATION}} -p:Platform=x64
 
     - name: Build Win32
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
       # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild ${{env.SOLUTION_FILE_PATH}} -p:Configuration=${{env.BUILD_CONFIGURATION}} -p:Plataform=Win32
+      run: msbuild ${{env.SOLUTION_FILE_PATH}} -p:Configuration=${{env.BUILD_CONFIGURATION}} -p:Platform=Win32
     
     - name: Nuget Pack x64
       working-directory: ${{env.NUPKG_PATH}}

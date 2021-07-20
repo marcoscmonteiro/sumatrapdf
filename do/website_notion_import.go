@@ -373,20 +373,38 @@ func websiteImportNotion() {
 	//d.NoReadCache = flgNoCache
 	pages, err := d.DownloadPagesRecursively(startPageID, afterPageDownload)
 	must(err)
+	{
+		// delete .html files as they might be stale
+		// we are in a
+		files, err := filepath.Glob(filepath.Join("docs", "*.html"))
+		if err == nil {
+			for _, f := range files {
+				err = os.Remove(f)
+				if err != nil {
+					logf("Failed to remove file '%s'\n", f)
+				} else {
+					logf("Removed file '%s'\n", f)
+				}
+			}
+		} else {
+			logf("filepath.Glob() failed with '%s'\n", err)
+		}
+	}
 	for _, page := range pages {
 		notionToHTML(client, page, pages, d.IdToPage)
 	}
 
-	// to install prettier: npm i -g prettier
-	// TODO: automatically install if not installed
-	cmd := exec.Command("prettier", "--html-whitespace-sensitivity", "strict", "--write", `*.html`)
-	cmd.Dir = "docs" // only imported pages from notion
-	u.RunCmdLoggedMust(cmd)
+	// run formatting in background to get to preview sooner
+	go func() {
+		// to install prettier: npm i -g prettier
+		// TODO: automatically install if not installed
+		cmd := exec.Command("prettier", "--html-whitespace-sensitivity", "strict", "--write", `*.html`)
+		cmd.Dir = "docs" // only imported pages from notion
+		u.RunCmdLoggedMust(cmd)
+	}()
 
 	if true {
-		// using https://github.com/netlify/cli
-		cmd := exec.Command("netlify", "dev", "--dir", ".")
-		u.RunCmdLoggedMust(cmd)
+		websiteRunLocally(".")
 	}
 
 	if false {

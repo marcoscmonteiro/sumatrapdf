@@ -20,7 +20,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineEbook.h"
 #include "EbookBase.h"
@@ -190,11 +189,11 @@ EngineEbook::~EngineEbook() {
     DeleteCriticalSection(&pagesAccess);
 }
 
-RectF EngineEbook::PageMediabox([[maybe_unused]] int pageNo) {
+RectF EngineEbook::PageMediabox(__unused int pageNo) {
     return pageRect;
 }
 
-RectF EngineEbook::PageContentBox(int pageNo, [[maybe_unused]] RenderTarget target) {
+RectF EngineEbook::PageContentBox(int pageNo, __unused RenderTarget target) {
     RectF mbox = PageMediabox(pageNo);
     mbox.Inflate(-pageBorder, -pageBorder);
     return mbox;
@@ -208,22 +207,22 @@ std::span<u8> EngineEbook::GetFileData() {
     return file::ReadFile(fileName);
 }
 
-bool EngineEbook::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots) {
-    const WCHAR* fileName = FileName();
-    if (!fileName) {
+bool EngineEbook::SaveFileAs(const char* dstPath, __unused bool includeUserAnnots) {
+    const WCHAR* srcPath = FileName();
+    if (!srcPath) {
         return false;
     }
-    AutoFreeWstr path = strconv::Utf8ToWstr(copyFileName);
-    auto res = CopyFileW(fileName, path, FALSE);
+    auto dstPathW = ToWstrTemp(dstPath);
+    auto res = file::Copy(dstPathW, srcPath, FALSE);
     return res != 0;
 }
 
 // make RenderCache request larger tiles than per default
-bool EngineEbook::HasClipOptimizations([[maybe_unused]] int pageNo) {
+bool EngineEbook::HasClipOptimizations(__unused int pageNo) {
     return false;
 }
 
-bool EngineEbook::BenchLoadPage([[maybe_unused]] int pageNo) {
+bool EngineEbook::BenchLoadPage(__unused int pageNo) {
     return true;
 }
 
@@ -266,7 +265,7 @@ bool EngineEbook::ExtractPageAnchors() {
     return true;
 }
 
-RectF EngineEbook::Transform(const RectF& rect, [[maybe_unused]] int pageNo, float zoom, int rotation, bool inverse) {
+RectF EngineEbook::Transform(const RectF& rect, __unused int pageNo, float zoom, int rotation, bool inverse) {
     RectF rcF = rect; // TODO: un-needed conversion
     auto p1 = Gdiplus::PointF(rcF.x, rcF.y);
     auto p2 = Gdiplus::PointF(rcF.x + rcF.dx, rcF.y + rcF.dy);
@@ -431,7 +430,7 @@ PageElement* EngineEbook::CreatePageLink(DrawInstr* link, Rect rect, int pageNo)
 
     DrawInstr* baseAnchor = baseAnchors.at(pageNo - 1);
     if (baseAnchor) {
-        AutoFree basePath(str::DupN(baseAnchor->str.s, baseAnchor->str.len));
+        AutoFree basePath(str::Dup(baseAnchor->str.s, baseAnchor->str.len));
         AutoFree relPath(ResolveHtmlEntities(link->str.s, link->str.len));
         AutoFree absPath(NormalizeURL(relPath, basePath));
         url.Set(strconv::Utf8ToWstr(absPath.Get()));
@@ -511,8 +510,8 @@ IPageElement* EngineEbook::GetElementAtPos(int pageNo, PointF pt) {
 }
 
 PageDestination* EngineEbook::GetNamedDest(const WCHAR* name) {
-    AutoFree name_utf8(strconv::WstrToUtf8(name));
-    const char* id = name_utf8.Get();
+    auto nameA(ToUtf8Temp(name));
+    const char* id = nameA.Get();
     if (str::FindChar(id, '#')) {
         id = str::FindChar(id, '#') + 1;
     }
@@ -523,11 +522,11 @@ PageDestination* EngineEbook::GetNamedDest(const WCHAR* name) {
     // for the same ID to be reused on different pages
     DrawInstr* baseAnchor = nullptr;
     int basePageNo = 0;
-    if (id > name_utf8.Get() + 1) {
-        size_t base_len = id - name_utf8.Get() - 1;
+    if (id > nameA.Get() + 1) {
+        size_t base_len = id - nameA.Get() - 1;
         for (size_t i = 0; i < baseAnchors.size(); i++) {
             DrawInstr* anchor = baseAnchors.at(i);
-            if (anchor && base_len == anchor->str.len && str::EqNI(name_utf8.Get(), anchor->str.s, base_len)) {
+            if (anchor && base_len == anchor->str.len && str::EqNI(nameA.Get(), anchor->str.s, base_len)) {
                 baseAnchor = anchor;
                 basePageNo = (int)i + 1;
                 break;
@@ -759,7 +758,7 @@ bool EngineEpub::FinishLoading() {
     args.SetFontName(GetDefaultFontName());
     args.fontSize = GetDefaultFontSize();
     args.textAllocator = &allocator;
-    args.textRenderMethod = mui::TextRenderMethodGdiplusQuick;
+    args.textRenderMethod = mui::TextRenderMethod::GdiplusQuick;
 
     pages = EpubFormatter(&args, doc).FormatAllPages(false);
 
@@ -783,9 +782,8 @@ std::span<u8> EngineEpub::GetFileData() {
     return GetStreamOrFileData(stream, fileName);
 }
 
-bool EngineEpub::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots) {
-    AutoFreeWstr dstPath = strconv::Utf8ToWstr(copyFileName);
-
+bool EngineEpub::SaveFileAs(const char* copyFileName, __unused bool includeUserAnnots) {
+    auto dstPath = ToWstrTemp(copyFileName);
     if (stream) {
         AutoFree d = GetDataFromStream(stream, nullptr);
         bool ok = !d.empty() && file::WriteFile(dstPath, d.AsSpan());
@@ -797,7 +795,7 @@ bool EngineEpub::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool incl
     if (!fileName) {
         return false;
     }
-    return CopyFileW(fileName, dstPath, FALSE);
+    return file::Copy(dstPath, fileName, false);
 }
 
 TocTree* EngineEpub::GetToc() {
@@ -901,7 +899,7 @@ bool EngineFb2::FinishLoading() {
     args.SetFontName(GetDefaultFontName());
     args.fontSize = GetDefaultFontSize();
     args.textAllocator = &allocator;
-    args.textRenderMethod = mui::TextRenderMethodGdiplusQuick;
+    args.textRenderMethod = mui::TextRenderMethod::GdiplusQuick;
 
     if (doc->IsZipped()) {
         defaultFileExt = L".fb2z";
@@ -1020,7 +1018,7 @@ bool EngineMobi::FinishLoading() {
     args.SetFontName(GetDefaultFontName());
     args.fontSize = GetDefaultFontSize();
     args.textAllocator = &allocator;
-    args.textRenderMethod = mui::TextRenderMethodGdiplusQuick;
+    args.textRenderMethod = mui::TextRenderMethod::GdiplusQuick;
 
     pages = MobiFormatter(&args, doc).FormatAllPages();
     // must set pageCount before ExtractPageAnchors
@@ -1158,7 +1156,7 @@ bool EnginePdb::Load(const WCHAR* fileName) {
     args.SetFontName(GetDefaultFontName());
     args.fontSize = GetDefaultFontSize();
     args.textAllocator = &allocator;
-    args.textRenderMethod = mui::TextRenderMethodGdiplusQuick;
+    args.textRenderMethod = mui::TextRenderMethod::GdiplusQuick;
 
     pages = HtmlFormatter(&args).FormatAllPages();
     // must set pageCount before ExtractPageAnchors
@@ -1196,15 +1194,15 @@ EngineBase* CreatePdbEngineFromFile(const WCHAR* fileName) {
 
 /* formatting extensions for CHM */
 
-#include "ChmDoc.h"
+#include "ChmFile.h"
 
 class ChmDataCache {
-    ChmDoc* doc = nullptr; // owned by creator
+    ChmFile* doc = nullptr; // owned by creator
     AutoFree html;
     Vec<ImageData2> images;
 
   public:
-    ChmDataCache(ChmDoc* doc, char* html) : doc(doc), html(html) {
+    ChmDataCache(ChmFile* doc, char* html) : doc(doc), html(html) {
     }
 
     ~ChmDataCache() {
@@ -1268,7 +1266,7 @@ void ChmFormatter::HandleTagImg(HtmlToken* t) {
     bool needAlt = true;
     AttrInfo* attr = t->GetAttrByName("src");
     if (attr) {
-        AutoFree src(str::DupN(attr->val, attr->valLen));
+        AutoFree src(str::Dup(attr->val, attr->valLen));
         url::DecodeInPlace(src);
         ImageData* img = chmDoc->GetImageData(src, pagePath);
         needAlt = !img || !EmitImage(img);
@@ -1286,7 +1284,7 @@ void ChmFormatter::HandleTagPagebreak(HtmlToken* t) {
     if (attr) {
         Gdiplus::RectF bbox(0, currY, pageDx, 0);
         currPage->instructions.Append(DrawInstr::Anchor(attr->val, attr->valLen, bbox));
-        pagePath.Set(str::DupN(attr->val, attr->valLen));
+        pagePath.Set(str::Dup(attr->val, attr->valLen));
         // reset CSS style rules for the new document
         styleRules.Reset();
     }
@@ -1310,7 +1308,7 @@ void ChmFormatter::HandleTagLink(HtmlToken* t) {
         return;
     }
 
-    AutoFree src(str::DupN(attr->val, attr->valLen));
+    AutoFree src(str::Dup(attr->val, attr->valLen));
     url::DecodeInPlace(src);
     AutoFree data = chmDoc->GetFileData(src, pagePath);
     if (data.data) {
@@ -1351,7 +1349,7 @@ class EngineChm : public EngineEbook {
     static EngineBase* CreateFromFile(const WCHAR* fileName);
 
   protected:
-    ChmDoc* doc = nullptr;
+    ChmFile* doc = nullptr;
     ChmDataCache* dataCache = nullptr;
     TocTree* tocTree = nullptr;
 
@@ -1403,12 +1401,12 @@ static uint ExtractHttpCharset(const char* html, size_t htmlLen) {
 }
 
 class ChmHtmlCollector : public EbookTocVisitor {
-    ChmDoc* doc{nullptr};
+    ChmFile* doc{nullptr};
     WStrList added;
     str::Str html;
 
   public:
-    explicit ChmHtmlCollector(ChmDoc* doc) : doc(doc) {
+    explicit ChmHtmlCollector(ChmFile* doc) : doc(doc) {
         // can be big
     }
 
@@ -1439,7 +1437,7 @@ class ChmHtmlCollector : public EbookTocVisitor {
         return html.StealData();
     }
 
-    void Visit([[maybe_unused]] const WCHAR* name, const WCHAR* url, [[maybe_unused]] int level) override {
+    void Visit(__unused const WCHAR* name, const WCHAR* url, __unused int level) override {
         if (!url || url::IsAbsolute(url)) {
             return;
         }
@@ -1451,12 +1449,12 @@ class ChmHtmlCollector : public EbookTocVisitor {
         defer {
             gAllowAllocFailure--;
         };
-        AutoFree urlUtf8(strconv::WstrToUtf8(plainUrl));
-        AutoFree pageHtml = doc->GetData(urlUtf8.Get());
+        auto urlA(ToUtf8Temp(plainUrl));
+        AutoFree pageHtml = doc->GetData(urlA.Get());
         if (!pageHtml) {
             return;
         }
-        html.AppendFmt("<pagebreak page_path=\"%s\" page_marker />", urlUtf8.Get());
+        html.AppendFmt("<pagebreak page_path=\"%s\" page_marker />", urlA.Get());
         auto charset = ExtractHttpCharset((const char*)pageHtml.Get(), pageHtml.size());
         html.AppendAndFree(doc->ToUtf8((const u8*)pageHtml.data, charset));
         added.Append(plainUrl.StealData());
@@ -1465,7 +1463,7 @@ class ChmHtmlCollector : public EbookTocVisitor {
 
 bool EngineChm::Load(const WCHAR* fileName) {
     SetFileName(fileName);
-    doc = ChmDoc::CreateFromFile(fileName);
+    doc = ChmFile::CreateFromFile(fileName);
     if (!doc) {
         return false;
     }
@@ -1480,7 +1478,7 @@ bool EngineChm::Load(const WCHAR* fileName) {
     args.SetFontName(GetDefaultFontName());
     args.fontSize = GetDefaultFontSize();
     args.textAllocator = &allocator;
-    args.textRenderMethod = mui::TextRenderMethodGdiplusQuick;
+    args.textRenderMethod = mui::TextRenderMethod::GdiplusQuick;
 
     pages = ChmFormatter(&args, dataCache).FormatAllPages(false);
     // must set pageCount before ExtractPageAnchors
@@ -1499,9 +1497,9 @@ PageDestination* EngineChm::GetNamedDest(const WCHAR* name) {
     }
     unsigned int topicID;
     if (str::Parse(name, L"%u%$", &topicID)) {
-        AutoFree urlUtf8(doc->ResolveTopicID(topicID));
-        if (urlUtf8) {
-            AutoFreeWstr url = strconv::Utf8ToWstr(urlUtf8.Get());
+        AutoFree urlA(doc->ResolveTopicID(topicID));
+        if (urlA) {
+            auto url = ToWstrTemp(urlA.Get());
             dest = EngineEbook::GetNamedDest(url);
         }
     }
@@ -1533,7 +1531,7 @@ TocTree* EngineChm::GetToc() {
 static PageDestination* newChmEmbeddedDest(const char* path) {
     auto res = new PageDestination();
     res->kind = kindDestinationLaunchEmbedded;
-    res->value = strconv::Utf8ToWstr(path::GetBaseNameNoFree(path));
+    res->value = strconv::Utf8ToWstr(path::GetBaseNameTemp(path));
     return res;
 }
 
@@ -1544,8 +1542,8 @@ PageElement* EngineChm::CreatePageLink(DrawInstr* link, Rect rect, int pageNo) {
     }
 
     DrawInstr* baseAnchor = baseAnchors.at(pageNo - 1);
-    AutoFree basePath(str::DupN(baseAnchor->str.s, baseAnchor->str.len));
-    AutoFree url(str::DupN(link->str.s, link->str.len));
+    AutoFree basePath(str::Dup(baseAnchor->str.s, baseAnchor->str.len));
+    AutoFree url(str::Dup(link->str.s, link->str.len));
     url.Set(NormalizeURL(url, basePath));
     if (!doc->HasData(url)) {
         return nullptr;
@@ -1618,7 +1616,7 @@ bool EngineHtml::Load(const WCHAR* fileName) {
     args.SetFontName(GetDefaultFontName());
     args.fontSize = GetDefaultFontSize();
     args.textAllocator = &allocator;
-    args.textRenderMethod = mui::TextRenderMethodGdiplus;
+    args.textRenderMethod = mui::TextRenderMethod::Gdiplus;
 
     pages = HtmlFileFormatter(&args, doc).FormatAllPages(false);
     // must set pageCount before ExtractPageAnchors
@@ -1634,7 +1632,7 @@ static PageDestination* newRemoteHtmlDest(const WCHAR* relativeURL) {
     auto* res = new PageDestination();
     const WCHAR* id = str::FindChar(relativeURL, '#');
     if (id) {
-        res->value = str::DupN(relativeURL, id - relativeURL);
+        res->value = str::Dup(relativeURL, id - relativeURL);
         res->name = str::Dup(id);
     } else {
         res->value = str::Dup(relativeURL);
@@ -1714,7 +1712,7 @@ bool EngineTxt::Load(const WCHAR* fileName) {
 
     SetFileName(fileName);
 
-    defaultFileExt = path::GetExtNoFree(fileName);
+    defaultFileExt = path::GetExtNoFreeTemp(fileName);
 
     doc = TxtDoc::CreateFromFile(fileName);
     if (!doc) {
@@ -1733,7 +1731,7 @@ bool EngineTxt::Load(const WCHAR* fileName) {
     args.SetFontName(GetDefaultFontName());
     args.fontSize = GetDefaultFontSize();
     args.textAllocator = &allocator;
-    args.textRenderMethod = mui::TextRenderMethodGdiplus;
+    args.textRenderMethod = mui::TextRenderMethod::Gdiplus;
 
     pages = TxtFormatter(&args).FormatAllPages(false);
     // must set pageCount before ExtractPageAnchors

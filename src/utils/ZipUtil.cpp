@@ -45,7 +45,7 @@ class FileWriteStream : public ISequentialStream {
         return newCount;
     }
     // ISequentialStream
-    IFACEMETHODIMP Read([[maybe_unused]] void* buffer, [[maybe_unused]] ULONG size, [[maybe_unused]] ULONG* read) {
+    IFACEMETHODIMP Read(__unused void* buffer, __unused ULONG size, __unused ULONG* read) {
         return E_NOTIMPL;
     }
     IFACEMETHODIMP Write(const void* data, ULONG size, ULONG* written) {
@@ -192,13 +192,13 @@ bool ZipCreator::AddFile(const WCHAR* filePath, const WCHAR* nameInZip) {
     }
 
     if (!nameInZip) {
-        nameInZip = path::IsAbsolute(filePath) ? path::GetBaseNameNoFree(filePath) : filePath;
+        nameInZip = path::IsAbsolute(filePath) ? path::GetBaseNameTemp(filePath) : filePath;
     }
 
-    AutoFree nameUtf8 = strconv::WstrToUtf8(nameInZip);
-    str::TransChars(nameUtf8.Get(), "\\", "/");
+    auto nameA = ToUtf8Temp(nameInZip);
+    str::TransCharsInPlace(nameA.Get(), "\\", "/");
 
-    return AddFileData(nameUtf8.Get(), fileData.Get(), fileData.size(), dosdatetime);
+    return AddFileData(nameA.Get(), fileData.Get(), fileData.size(), dosdatetime);
 }
 
 // we use the filePath relative to dir as the zip name

@@ -17,6 +17,7 @@
   <ItemGroup>
     <ClInclude Include="..\src\AppUtil.h" />
     <ClInclude Include="..\src\DisplayMode.h" />
+    <ClInclude Include="..\src\EngineBase.h" />
     <ClInclude Include="..\src\Flags.h" />
     <ClInclude Include="..\src\SettingsStructs.h" />
     <ClInclude Include="..\src\SumatraConfig.h" />
@@ -92,6 +93,9 @@
     <ClInclude Include="..\src\utils\StringViewUtil.h">
       <Filter>utils</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\utils\TempAllocator.h">
+      <Filter>utils</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\utils\TrivialHtmlParser.h">
       <Filter>utils</Filter>
     </ClInclude>
@@ -111,9 +115,10 @@
   <ItemGroup>
     <ClCompile Include="..\src\AppUtil.cpp" />
     <ClCompile Include="..\src\DisplayMode.cpp" />
+    <ClCompile Include="..\src\EngineBase.cpp" />
     <ClCompile Include="..\src\Flags.cpp" />
     <ClCompile Include="..\src\SumatraConfig.cpp" />
-    <ClCompile Include="..\src\UnitTests.cpp" />
+    <ClCompile Include="..\src\SumatraUnitTests.cpp" />
     <ClCompile Include="..\src\mui\SvgPath.cpp">
       <Filter>mui</Filter>
     </ClCompile>
@@ -180,13 +185,13 @@
     <ClCompile Include="..\src\utils\StrUtil.cpp">
       <Filter>utils</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\utils\StrUtil_win.cpp">
-      <Filter>utils</Filter>
-    </ClCompile>
     <ClCompile Include="..\src\utils\StrconvUtil.cpp">
       <Filter>utils</Filter>
     </ClCompile>
     <ClCompile Include="..\src\utils\StringViewUtil.cpp">
+      <Filter>utils</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\TempAllocator.cpp">
       <Filter>utils</Filter>
     </ClCompile>
     <ClCompile Include="..\src\utils\TrivialHtmlParser.cpp">

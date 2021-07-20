@@ -9,7 +9,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 #include "DisplayMode.h"
@@ -26,7 +25,6 @@
 #include "AppUtil.h"
 #include "Selection.h"
 #include "Translations.h"
-#include "ParseBKM.h"
 #include "EditAnnotations.h"
 
 TabInfo::TabInfo(WindowInfo* win, const WCHAR* filePath) {
@@ -41,7 +39,6 @@ TabInfo::~TabInfo() {
     }
     delete selectionOnPage;
     delete ctrl;
-    delete tocSorted;
     CloseAndDeleteEditAnnotationsWindow(editAnnotsWindow);
 }
 
@@ -79,7 +76,7 @@ const WCHAR* TabInfo::GetTabTitle() const {
     if (gGlobalPrefs->fullPathInTitle) {
         return filePath;
     }
-    return path::GetBaseNameNoFree(filePath);
+    return path::GetBaseNameTemp(filePath);
 }
 
 void TabInfo::MoveDocBy(int dx, int dy) {
@@ -129,7 +126,7 @@ LinkSaver::LinkSaver(TabInfo* tab, HWND parentHwnd, const WCHAR* fileName) {
 #endif
 
 bool SaveDataToFile(HWND hwndParent, WCHAR* fileName, std::span<u8> data) {
-    if (!HasPermission(Perm_DiskAccess)) {
+    if (!HasPermission(Perm::DiskAccess)) {
         return false;
     }
 
@@ -143,7 +140,7 @@ bool SaveDataToFile(HWND hwndParent, WCHAR* fileName, std::span<u8> data) {
     // double-zero terminated string isn't cut by the string handling
     // methods too early on)
     AutoFreeWstr fileFilter = str::Format(L"%s\1*.*\1", _TR("All files"));
-    str::TransChars(fileFilter, L"\1", L"\0");
+    str::TransCharsInPlace(fileFilter, L"\1", L"\0");
 
     OPENFILENAME ofn = {0};
     ofn.lStructSize = sizeof(ofn);

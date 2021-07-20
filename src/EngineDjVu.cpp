@@ -18,7 +18,6 @@
 #include "SumatraConfig.h"
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineDjVu.h"
 
@@ -120,7 +119,7 @@ static PageElement* newDjVuLink(int pageNo, Rect rect, const char* link, const c
 }
 
 static TocItem* newDjVuTocItem(TocItem* parent, const char* title, const char* link) {
-    AutoFreeWstr s = strconv::Utf8ToWstr(title);
+    auto s = ToWstrTemp(title);
     auto res = new TocItem(parent, s, 0);
     res->dest = newDjVuDestination(link);
     res->pageNo = res->dest->GetPageNo();
@@ -185,10 +184,10 @@ struct DjVuContext {
 
     ddjvu_document_t* OpenFile(const WCHAR* fileName) {
         ScopedCritSec scope(&lock);
-        AutoFree fileNameUtf8(strconv::WstrToUtf8(fileName));
+        auto fileNameA(ToUtf8Temp(fileName));
         // TODO: libdjvu sooner or later crashes inside its caching code; cf.
         //       http://code.google.com/p/sumatrapdf/issues/detail?id=1434
-        return ddjvu_document_create_by_filename_utf8(ctx, fileNameUtf8.Get(), /* cache */ FALSE);
+        return ddjvu_document_create_by_filename_utf8(ctx, fileNameA.Get(), /* cache */ FALSE);
     }
 
     ddjvu_document_t* OpenStream(IStream* stream) {
@@ -339,16 +338,16 @@ RectF EngineDjVu::PageMediabox(int pageNo) {
     return mediaboxes[pageNo - 1];
 }
 
-bool EngineDjVu::HasClipOptimizations([[maybe_unused]] int pageNo) {
+bool EngineDjVu::HasClipOptimizations(__unused int pageNo) {
     return false;
 }
 
-WCHAR* EngineDjVu::GetProperty([[maybe_unused]] DocumentProperty prop) {
+WCHAR* EngineDjVu::GetProperty(__unused DocumentProperty prop) {
     return nullptr;
 }
 
 // we currently don't load pages lazily, so there's nothing to do here
-bool EngineDjVu::BenchLoadPage([[maybe_unused]] int pageNo) {
+bool EngineDjVu::BenchLoadPage(__unused int pageNo) {
     return true;
 }
 
@@ -367,10 +366,10 @@ static bool ReadBytes(HANDLE h, DWORD offset, void* buffer, DWORD count) {
 }
 
 #define DJVU_MARK_MAGIC 0x41542654L /* AT&T */
-#define DJVU_MARK_FORM 0x464F524DL /* FORM */
-#define DJVU_MARK_DJVM 0x444A564DL /* DJVM */
-#define DJVU_MARK_DJVU 0x444A5655L /* DJVU */
-#define DJVU_MARK_INFO 0x494E464FL /* INFO */
+#define DJVU_MARK_FORM 0x464F524DL  /* FORM */
+#define DJVU_MARK_DJVM 0x444A564DL  /* DJVM */
+#define DJVU_MARK_DJVU 0x444A5655L  /* DJVU */
+#define DJVU_MARK_INFO 0x494E464FL  /* INFO */
 
 #include <pshpack1.h>
 
@@ -629,7 +628,7 @@ RenderedBitmap* EngineDjVu::RenderPage(RenderPageArgs& args) {
     return bmp;
 }
 
-RectF EngineDjVu::PageContentBox(int pageNo, [[maybe_unused]] RenderTarget target) {
+RectF EngineDjVu::PageContentBox(int pageNo, __unused RenderTarget target) {
     ScopedCritSec scope(&gDjVuContext->lock);
 
     RectF pageRc = PageMediabox(pageNo);
@@ -754,11 +753,11 @@ std::span<u8> EngineDjVu::GetFileData() {
     return GetStreamOrFileData(stream, FileName());
 }
 
-bool EngineDjVu::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots) {
-    AutoFreeWstr path = strconv::Utf8ToWstr(copyFileName);
+bool EngineDjVu::SaveFileAs(const char* copyFileName, __unused bool includeUserAnnots) {
+    auto dstPath = ToWstrTemp(copyFileName);
     if (stream) {
         AutoFree d = GetDataFromStream(stream, nullptr);
-        bool ok = !d.empty() && file::WriteFile(path, d.AsSpan());
+        bool ok = !d.empty() && file::WriteFile(dstPath, d.AsSpan());
         if (ok) {
             return true;
         }
@@ -767,7 +766,7 @@ bool EngineDjVu::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool incl
     if (!fileName) {
         return false;
     }
-    return CopyFile(fileName, path, FALSE);
+    return file::Copy(dstPath, fileName, FALSE);
 }
 
 static void AppendNewline(str::WStr& extracted, Vec<Rect>& coords, const WCHAR* lineSep) {
@@ -929,14 +928,14 @@ Vec<IPageElement*>* EngineDjVu::GetElements(int pageNo) {
         miniexp_t anno = miniexp_cdr(links[i]);
 
         miniexp_t url = miniexp_car(anno);
-        const char* urlUtf8 = nullptr;
+        const char* urlA = nullptr;
         if (miniexp_stringp(url)) {
-            urlUtf8 = miniexp_to_str(url);
+            urlA = miniexp_to_str(url);
         } else if (miniexp_consp(url) && miniexp_car(url) == miniexp_symbol("url") &&
                    miniexp_stringp(miniexp_cadr(url)) && miniexp_stringp(miniexp_caddr(url))) {
-            urlUtf8 = miniexp_to_str(miniexp_cadr(url));
+            urlA = miniexp_to_str(miniexp_cadr(url));
         }
-        if (!urlUtf8) {
+        if (!urlA) {
             continue;
         }
 
@@ -983,10 +982,10 @@ Vec<IPageElement*>* EngineDjVu::GetElements(int pageNo) {
         }
         Rect rect(x, page.dy - y - h, w, h);
 
-        AutoFree link = ResolveNamedDest(urlUtf8);
+        AutoFree link = ResolveNamedDest(urlA);
         const char* tmp = link.Get();
         if (!tmp) {
-            tmp = urlUtf8;
+            tmp = urlA;
         }
         auto el = newDjVuLink(pageNo, rect, tmp, commentUtf8);
         els->Append(el);
@@ -1038,12 +1037,12 @@ char* EngineDjVu::ResolveNamedDest(const char* name) {
 }
 
 PageDestination* EngineDjVu::GetNamedDest(const WCHAR* name) {
-    AutoFree nameUtf8 = strconv::WstrToUtf8(name);
-    if (!str::StartsWith(nameUtf8.Get(), "#")) {
-        nameUtf8.TakeOwnershipOf(str::Join("#", nameUtf8.Get()));
+    AutoFree nameA = strconv::WstrToUtf8(name);
+    if (!str::StartsWith(nameA.Get(), "#")) {
+        nameA.TakeOwnershipOf(str::Join("#", nameA.Get()));
     }
 
-    AutoFree link = ResolveNamedDest(nameUtf8.Get());
+    AutoFree link = ResolveNamedDest(nameA.Get());
     if (link) {
         return newDjVuDestination(link);
     }
@@ -1120,10 +1119,10 @@ WCHAR* EngineDjVu::GetPageLabel(int pageNo) const {
 }
 
 int EngineDjVu::GetPageByLabel(const WCHAR* label) const {
-    AutoFree labelUtf8(strconv::WstrToUtf8(label));
+    auto labelA(ToUtf8Temp(label));
     for (size_t i = 0; i < fileInfos.size(); i++) {
         ddjvu_fileinfo_t& info = fileInfos.at(i);
-        if (str::EqI(info.title, labelUtf8.Get()) && !str::Eq(info.title, info.id)) {
+        if (str::EqI(info.title, labelA.Get()) && !str::Eq(info.title, info.id)) {
             return info.pageno + 1;
         }
     }

@@ -30,7 +30,7 @@
 #include "CrashHandler.h"
 #include "Translations.h"
 
-#include "ifilter/PdfFilter.h"
+#include "ifilter/PdfFilterClsid.h"
 #include "previewer/PdfPreview.h"
 
 #include "SumatraConfig.h"
@@ -132,13 +132,9 @@ const WCHAR* gSupportedExtsSumatra[] = {
     L".fb2", L".fb2z", L".prc",  L".tif", L".tiff", L".jp2",  L".png",
     L".jpg",  L".jpeg", L".tga", L".gif",  nullptr
 };
-const WCHAR* gSupportedExtsRaMicro[] = { L".pdf", nullptr };
 // clang-format on
 
 const WCHAR** GetSupportedExts() {
-    if (gIsRaMicroBuild) {
-        return gSupportedExtsRaMicro;
-    }
     return gSupportedExtsSumatra;
 }
 
@@ -174,7 +170,7 @@ void InitInstallerUninstaller() {
 }
 
 WCHAR* GetExistingInstallationDir() {
-    AutoFreeWstr REG_PATH_UNINST = GetRegPathUninst(GetAppName());
+    AutoFreeWstr REG_PATH_UNINST = GetRegPathUninst(GetAppNameTemp());
     AutoFreeWstr dir = ReadRegStr2(REG_PATH_UNINST, L"InstallLocation");
     if (!dir) {
         return nullptr;
@@ -196,7 +192,7 @@ WCHAR* GetExistingInstallationFilePath(const WCHAR* name) {
     return path::Join(dir, name);
 }
 
-WCHAR* GetInstallDirNoFree() {
+WCHAR* GetInstallDirTemp() {
     return gCli->installDir;
 }
 
@@ -205,16 +201,16 @@ WCHAR* GetInstallationFilePath(const WCHAR* name) {
 }
 
 WCHAR* GetInstalledExePath() {
-    WCHAR* dir = GetInstallDirNoFree();
-    return path::Join(dir, GetExeName());
+    WCHAR* dir = GetInstallDirTemp();
+    return path::Join(dir, GetExeNameTemp());
 }
 
 WCHAR* GetShortcutPath(int csidl) {
-    AutoFreeWstr dir = GetSpecialFolder(csidl, false);
-    if (!dir) {
+    TempWstr dir = GetSpecialFolderTemp(csidl, false);
+    if (!dir.Get()) {
         return nullptr;
     }
-    const WCHAR* appName = GetAppName();
+    const WCHAR* appName = GetAppNameTemp();
     AutoFreeWstr lnkName = str::Join(appName, L".lnk");
     return path::Join(dir, lnkName);
 }
@@ -422,7 +418,8 @@ static bool KillProcWithIdAndModule(DWORD processId, const WCHAR* modulePath, bo
 // modulePath
 // returns -1 on error, 0 if no matching processes
 int KillProcessesWithModule(const WCHAR* modulePath, bool waitUntilTerminated) {
-    logf("KillProcessesWithModule: '%s'\n", modulePath);
+    auto modulePathA = ToUtf8Temp(modulePath);
+    logf("KillProcessesWithModule: '%s'\n", modulePathA.Get());
     AutoCloseHandle hProcSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (INVALID_HANDLE_VALUE == hProcSnapshot) {
         return -1;
@@ -530,11 +527,11 @@ static const WCHAR* readableProcessNames[] = {
 // clang-format on
 
 static const WCHAR* ReadableProcName(const WCHAR* procPath) {
-    const WCHAR* exeName = GetExeName();
-    const WCHAR* appName = GetAppName();
+    const WCHAR* exeName = GetExeNameTemp();
+    const WCHAR* appName = GetAppNameTemp();
     readableProcessNames[0] = exeName;
     readableProcessNames[1] = appName;
-    const WCHAR* procName = path::GetBaseNameNoFree(procPath);
+    const WCHAR* procName = path::GetBaseNameTemp(procPath);
     for (size_t i = 0; i < dimof(readableProcessNames); i += 2) {
         if (str::EqI(procName, readableProcessNames[i])) {
             return readableProcessNames[i + 1];

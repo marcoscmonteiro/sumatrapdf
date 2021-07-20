@@ -108,7 +108,7 @@ void GetOsVersion(OSVERSIONINFOEX& ver) {
     ZeroMemory(&ver, sizeof(ver));
     ver.dwOSVersionInfoSize = sizeof(ver);
 #pragma warning(push)
-#pragma warning(disable : 4996) // 'GetVersionEx': was declared deprecated
+#pragma warning(disable : 4996)  // 'GetVersionEx': was declared deprecated
 #pragma warning(disable : 28159) // Consider using 'IsWindows*' instead of 'GetVersionExW'
     // see: https://msdn.microsoft.com/en-us/library/windows/desktop/dn424972(v=vs.85).aspx
     // starting with Windows 8.1, GetVersionEx will report a wrong version number
@@ -234,7 +234,7 @@ TryAgainWOW64:
             val = AllocArray<WCHAR>(valLen / sizeof(WCHAR) + 1);
             res = RegQueryValueEx(hKey, valName, nullptr, nullptr, (LPBYTE)val, &valLen);
             if (ERROR_SUCCESS != res) {
-                str::ReplacePtr(&val, nullptr);
+                str::ReplaceWithCopy(&val, nullptr);
             }
         }
         RegCloseKey(hKey);
@@ -260,7 +260,7 @@ char* ReadRegStrUtf8(HKEY keySub, const WCHAR* keyName, const WCHAR* valName) {
     }
     auto s = strconv::WstrToUtf8(ws);
     str::Free(ws);
-    return (char*)s.data();
+    return s;
 }
 
 WCHAR* ReadRegStr2(const WCHAR* keyName, const WCHAR* valName) {
@@ -328,16 +328,16 @@ bool DeleteRegKey(HKEY keySub, const WCHAR* keyName, bool resetACLFirst) {
     return ERROR_SUCCESS == res || ERROR_FILE_NOT_FOUND == res;
 }
 
-WCHAR* GetSpecialFolder(int csidl, bool createIfMissing) {
+TempWstr GetSpecialFolderTemp(int csidl, bool createIfMissing) {
     if (createIfMissing) {
         csidl = csidl | CSIDL_FLAG_CREATE;
     }
     WCHAR path[MAX_PATH] = {0};
     HRESULT res = SHGetFolderPath(nullptr, csidl, nullptr, 0, path);
     if (S_OK != res) {
-        return nullptr;
+        return TempWstr(); // TODO: why {} doesn't work?
     }
-    return str::Dup(path);
+    return str::DupTemp(path);
 }
 
 void DisableDataExecution() {
@@ -355,55 +355,122 @@ void DisableDataExecution() {
     }
 }
 
-// Code from http://www.halcyon.com/~ast/dload/guicon.htm
-// See https://github.com/benvanik/xenia/issues/228 for the VS2015 fix
-void RedirectIOToConsole() {
-    CONSOLE_SCREEN_BUFFER_INFO coninfo;
+enum class ConsoleRedirectStatus {
+    NotRedirected,
+    RedirectedToExistingConsole,
+    RedirectedToAllocatedConsole,
+};
 
-    AllocConsole();
+static ConsoleRedirectStatus gConsoleRedirectStatus{ConsoleRedirectStatus::NotRedirected};
 
-    // make buffer big enough to allow scrolling
-    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &coninfo);
-    coninfo.dwSize.Y = 500;
-    SetConsoleScreenBufferSize(GetStdHandle(STD_OUTPUT_HANDLE), coninfo.dwSize);
-
-// redirect STDIN, STDOUT and STDERR to the console
-#if _MSC_VER < 1900
-    int hConHandle = _open_osfhandle((intptr_t)GetStdHandle(STD_OUTPUT_HANDLE), _O_TEXT);
-    *stdout = *_fdopen(hConHandle, "w");
-
-    hConHandle = _open_osfhandle((intptr_t)GetStdHandle(STD_ERROR_HANDLE), _O_TEXT);
-    *stderr = *_fdopen(hConHandle, "w");
-
-    hConHandle = _open_osfhandle((intptr_t)GetStdHandle(STD_INPUT_HANDLE), _O_TEXT);
-    *stdin = *_fdopen(hConHandle, "r");
-#else
-    FILE* con;
-    freopen_s(&con, "CONOUT$", "w", stdout);
-    freopen_s(&con, "CONOUT$", "w", stderr);
+// https://www.tillett.info/2013/05/13/how-to-create-a-windows-program-that-works-as-both-as-a-gui-and-console-application/
+static void redirectIOToConsole() {
+    FILE* con{nullptr};
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h != INVALID_HANDLE_VALUE) {
+        freopen_s(&con, "CONOUT$", "w", stdout);
+        // make them unbuffered
+        setvbuf(stdin, nullptr, _IONBF, 0);
+    }
+    h = GetStdHandle(STD_ERROR_HANDLE);
+    if (h != INVALID_HANDLE_VALUE) {
+        freopen_s(&con, "CONOUT$", "w", stderr);
+        setvbuf(stderr, nullptr, _IONBF, 0);
+    }
+#if 0 // probably don't need stdin
     freopen_s(&con, "CONIN$", "r", stdin);
-#endif
-
-    // make them unbuffered
-    setvbuf(stdin, nullptr, _IONBF, 0);
     setvbuf(stdout, nullptr, _IONBF, 0);
-    setvbuf(stderr, nullptr, _IONBF, 0);
+#endif
+}
+
+bool RedirectIOToExistingConsole() {
+    if (gConsoleRedirectStatus != ConsoleRedirectStatus::NotRedirected) {
+        return true;
+    }
+    BOOL ok = AttachConsole(ATTACH_PARENT_PROCESS);
+    if (!ok) {
+        return false;
+    }
+    gConsoleRedirectStatus = ConsoleRedirectStatus::RedirectedToExistingConsole;
+    redirectIOToConsole();
+    return true;
+}
+// returns true if had to allocate new console (i.e. show console window)
+// false if redirected to existing console, which means it was launched from a shell
+bool RedirectIOToConsole() {
+    if (gConsoleRedirectStatus != ConsoleRedirectStatus::NotRedirected) {
+        return gConsoleRedirectStatus == ConsoleRedirectStatus::RedirectedToAllocatedConsole;
+    }
+
+    // first we try to attach to the console of the parent process
+    // which could be a cmd shell. If that succeeds, we'll print to
+    // shell's console like non-gui program
+    // if that fails, assume we were not launched from a shell and
+    // will allocate a console of our own
+    // TODO: this is not perfect because after Sumatra finishes,
+    // the cursor is not at end of text. Could be unsolvable
+    gConsoleRedirectStatus = ConsoleRedirectStatus::RedirectedToExistingConsole;
+    BOOL ok = AttachConsole(ATTACH_PARENT_PROCESS);
+    if (!ok) {
+        AllocConsole();
+        gConsoleRedirectStatus = ConsoleRedirectStatus::RedirectedToAllocatedConsole;
+        // make buffer big enough to allow scrolling
+        CONSOLE_SCREEN_BUFFER_INFO coninfo;
+        GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &coninfo);
+        coninfo.dwSize.Y = 500;
+        SetConsoleScreenBufferSize(GetStdHandle(STD_OUTPUT_HANDLE), coninfo.dwSize);
+    }
+    redirectIOToConsole();
+    return gConsoleRedirectStatus == ConsoleRedirectStatus::RedirectedToAllocatedConsole;
+}
+
+static void SendEnterKeyToConsole() {
+    INPUT ip;
+    // Set up a generic keyboard event.
+    ip.type = INPUT_KEYBOARD;
+    ip.ki.wScan = 0; // hardware scan code for key
+    ip.ki.time = 0;
+    ip.ki.dwExtraInfo = 0;
+
+    // Send the "Enter" key
+    ip.ki.wVk = 0x0D;  // virtual-key code for the "Enter" key
+    ip.ki.dwFlags = 0; // 0 for key press
+    SendInput(1, &ip, sizeof(INPUT));
+
+    // Release the "Enter" key
+    ip.ki.dwFlags = KEYEVENTF_KEYUP; // KEYEVENTF_KEYUP for key release
+    SendInput(1, &ip, sizeof(INPUT));
+}
+
+void HandleRedirectedConsoleOnShutdown() {
+    switch (gConsoleRedirectStatus) {
+        case ConsoleRedirectStatus::NotRedirected:
+            return;
+        case ConsoleRedirectStatus::RedirectedToAllocatedConsole:
+            // wait for user to press any key to close the console window
+            system("pause");
+            break;
+        case ConsoleRedirectStatus::RedirectedToExistingConsole:
+            // simulate releasing console. the cursor still doesn't show up
+            // at the end of output, but it's better than nothing
+            SendEnterKeyToConsole();
+            break;
+    }
 }
 
 /* Return the full exe path of my own executable.
    Caller needs to free() the result. */
-WCHAR* GetExePath() {
+TempWstr GetExePathTemp() {
     WCHAR buf[MAX_PATH] = {0};
-    GetModuleFileName(nullptr, buf, dimof(buf));
-    // TODO: is normalization needed here at all?
-    return path::Normalize(buf);
+    GetModuleFileNameW(nullptr, buf, dimof(buf) - 1);
+    return str::DupTemp(buf);
 }
 
 /* Return directory where this executable is located.
 Caller needs to free()
 */
 WCHAR* GetExeDir() {
-    AutoFreeWstr path = GetExePath();
+    auto path = GetExePathTemp();
     WCHAR* dir = path::GetDir(path);
     return dir;
 }
@@ -596,7 +663,7 @@ DWORD GetFileVersion(const WCHAR* path) {
 }
 
 bool LaunchFile(const WCHAR* path, const WCHAR* params, const WCHAR* verb, bool hidden) {
-    if (!path) {
+    if (str::IsEmpty(path)) {
         return false;
     }
 
@@ -607,7 +674,14 @@ bool LaunchFile(const WCHAR* path, const WCHAR* params, const WCHAR* verb, bool 
     sei.lpFile = path;
     sei.lpParameters = params;
     sei.nShow = hidden ? SW_HIDE : SW_SHOWNORMAL;
-    return !!ShellExecuteExW(&sei);
+    BOOL ok = ShellExecuteExW(&sei);
+    if (!ok) {
+        DWORD err = GetLastError();
+        logf(L"LaunchFile: ShellExecuteExW path: '%s' params: '%s' verb: '%s'\n", path, params, verb);
+        LogLastError(err);
+        return false;
+    }
+    return true;
 }
 
 bool LaunchBrowser(const WCHAR* url) {
@@ -687,8 +761,8 @@ bool LaunchElevated(const WCHAR* path, const WCHAR* cmdline) {
 
 /* Ensure that the rectangle is at least partially in the work area on a
    monitor. The rectangle is shifted into the work area if necessary. */
-Rect ShiftRectToWorkArea(Rect rect, bool bFully) {
-    Rect monitor = GetWorkAreaRect(rect);
+Rect ShiftRectToWorkArea(Rect rect, HWND hwnd, bool bFully) {
+    Rect monitor = GetWorkAreaRect(rect, hwnd);
 
     if (rect.y + rect.dy <= monitor.y || bFully && rect.y < monitor.y) {
         /* Rectangle is too far above work area */
@@ -729,9 +803,12 @@ void LimitWindowSizeToScreen(HWND hwnd, SIZE& size) {
 }
 
 // returns available area of the screen i.e. screen minus taskbar area
-Rect GetWorkAreaRect(Rect rect) {
+Rect GetWorkAreaRect(Rect rect, HWND hwnd) {
     RECT tmpRect = ToRECT(rect);
     HMONITOR hmon = MonitorFromRect(&tmpRect, MONITOR_DEFAULTTONEAREST);
+    if (hwnd) {
+        hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
+    }
     MONITORINFO mi = {0};
     mi.cbSize = sizeof mi;
     BOOL ok = GetMonitorInfo(hmon, &mi);
@@ -752,8 +829,7 @@ Rect GetFullscreenRect(HWND hwnd) {
     return Rect(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
 }
 
-static BOOL CALLBACK GetMonitorRectProc([[maybe_unused]] HMONITOR hMonitor, [[maybe_unused]] HDC hdc, LPRECT rcMonitor,
-                                        LPARAM data) {
+static BOOL CALLBACK GetMonitorRectProc(__unused HMONITOR hMonitor, __unused HDC hdc, LPRECT rcMonitor, LPARAM data) {
     Rect* rcAll = (Rect*)data;
     *rcAll = rcAll->Union(Rect::FromRECT(*rcMonitor));
     return TRUE;
@@ -878,7 +954,7 @@ void CenterDialog(HWND hDlg, HWND hParent) {
     rcDialog.Offset(rcOwner.x + (rcRect.x - rcDialog.x + rcRect.dx - rcDialog.dx) / 2,
                     rcOwner.y + (rcRect.y - rcDialog.y + rcRect.dy - rcDialog.dy) / 2);
     // ensure that the dialog is fully visible on one monitor
-    rcDialog = ShiftRectToWorkArea(rcDialog, true);
+    rcDialog = ShiftRectToWorkArea(rcDialog, hDlg, true);
 
     SetWindowPos(hDlg, 0, rcDialog.x, rcDialog.y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
 }
@@ -1182,7 +1258,11 @@ void SetText(HMENU m, int id, const WCHAR* s) {
     mii.dwTypeData = (WCHAR*)s;
     mii.cch = (uint)str::Len(s);
     BOOL ok = SetMenuItemInfoW(m, id, FALSE, &mii);
-    CrashIf(!ok);
+    if (!ok) {
+        logf(L"SetText(): id=%d, s='%s'\n", id, s ? s : L"(null)");
+        LogLastError();
+        SubmitBugReportIf(true);
+    }
 }
 
 /* Make a string safe to be displayed as a menu item
@@ -1435,28 +1515,15 @@ void ToForeground(HWND hwnd) {
 
 /* return text of window or edit control, nullptr in case of an error.
 caller needs to free() the result */
-WCHAR* GetText(HWND hwnd) {
-    size_t cchTxtLen = GetTextLen(hwnd);
-    WCHAR* txt = AllocArray<WCHAR>(cchTxtLen + 1);
+TempWstr GetTextTemp(HWND hwnd) {
+    size_t cch = GetTextLen(hwnd);
+    size_t nBytes = (cch + 2) * sizeof(WCHAR);
+    WCHAR* txt = (WCHAR*)Allocator::AllocZero(GetTempAllocator(), nBytes);
     if (nullptr == txt) {
-        return nullptr;
+        return TempWstr();
     }
-    SendMessageW(hwnd, WM_GETTEXT, cchTxtLen + 1, (LPARAM)txt);
-    txt[cchTxtLen] = 0;
-    return txt;
-}
-
-str::Str GetTextUtf8(HWND hwnd) {
-    size_t cchTxtLen = GetTextLen(hwnd);
-    WCHAR* txt = AllocArray<WCHAR>(cchTxtLen + 1);
-    if (nullptr == txt) {
-        return str::Str();
-    }
-    SendMessageW(hwnd, WM_GETTEXT, cchTxtLen + 1, (LPARAM)txt);
-    txt[cchTxtLen] = 0;
-    AutoFreeStr od = strconv::WstrToUtf8(txt, cchTxtLen);
-    free(txt);
-    return {od.AsView()};
+    SendMessageW(hwnd, WM_GETTEXT, cch + 1, (LPARAM)txt);
+    return TempWstr(txt, cch);
 }
 
 size_t GetTextLen(HWND hwnd) {
@@ -1774,15 +1841,22 @@ double GetProcessRunningTime() {
     return timeInMs;
 }
 
+bool IsValidHandle(HANDLE h) {
+    if (h == nullptr || h == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    return true;
+}
+
 // This is just to satisfy /analyze. CloseHandle(nullptr) works perfectly fine
 // but /analyze complains anyway
-BOOL SafeCloseHandle(HANDLE* h) {
+bool SafeCloseHandle(HANDLE* h) {
     if (!*h) {
-        return TRUE;
+        return true;
     }
     BOOL ok = CloseHandle(*h);
     *h = nullptr;
-    return ok;
+    return !!ok;
 }
 
 // based on http://mdb-blog.blogspot.com/2013/01/nsis-lunch-program-as-user-from-uac.html
@@ -1893,15 +1967,14 @@ std::span<u8> LoadDataResource(int resId) {
     if (!resData) {
         return {};
     }
-    char* s = str::DupN(resData, size);
+    char* s = str::Dup(resData, size);
     UnlockResource(res);
     return {(u8*)s, size};
 }
 
-static HDDEDATA CALLBACK DdeCallback([[maybe_unused]] UINT uType, [[maybe_unused]] UINT uFmt,
-                                     [[maybe_unused]] HCONV hconv, [[maybe_unused]] HSZ hsz1, [[maybe_unused]] HSZ hsz2,
-                                     [[maybe_unused]] HDDEDATA hdata, [[maybe_unused]] ULONG_PTR dwData1,
-                                     [[maybe_unused]] ULONG_PTR dwData2) {
+static HDDEDATA CALLBACK DdeCallback(__unused UINT uType, __unused UINT uFmt, __unused HCONV hconv, __unused HSZ hsz1,
+                                     __unused HSZ hsz2, __unused HDDEDATA hdata, __unused ULONG_PTR dwData1,
+                                     __unused ULONG_PTR dwData2) {
     return 0;
 }
 
@@ -2174,7 +2247,7 @@ void HwndSetText(HWND hwnd, std::string_view sv) {
         SendMessageW(hwnd, WM_SETTEXT, 0, (LPARAM)L"");
         return;
     }
-    AutoFreeWstr ws = strconv::Utf8ToWstr(sv);
+    auto ws = ToWstrTemp(sv);
     SendMessageW(hwnd, WM_SETTEXT, 0, (LPARAM)ws.Get());
 }
 
@@ -2247,7 +2320,7 @@ void HwndPositionToTheRightOf(HWND hwnd, HWND hwndRelative) {
     if (dyDiff > 0) {
         rHwnd.y += dyDiff / 2;
     }
-    Rect r = ShiftRectToWorkArea(rHwnd, true);
+    Rect r = ShiftRectToWorkArea(rHwnd, hwnd, true);
     SetWindowPos(hwnd, 0, r.x, r.y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
 }
 
@@ -2256,7 +2329,9 @@ void HwndPositionInCenterOf(HWND hwnd, HWND hwndRelative) {
     Rect rHwnd = WindowRect(hwnd);
     int x = rHwndRelative.x + (rHwndRelative.dx / 2) - (rHwnd.dx / 2);
     int y = rHwndRelative.y + (rHwndRelative.dy / 2) - (rHwnd.dy / 2);
-    SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+
+    Rect r = ShiftRectToWorkArea(Rect{x, y, rHwnd.dx, rHwnd.dy}, hwnd, true);
+    SetWindowPos(hwnd, 0, r.x, r.y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
 }
 
 void HwndSendCommand(HWND hwnd, int cmdId) {

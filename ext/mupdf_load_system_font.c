@@ -422,7 +422,7 @@ static void extend_system_font_list(fz_context* ctx, const WCHAR* path) {
     WIN32_FIND_DATA FileData;
     HANDLE hList;
 
-    GetFullPathName(path, nelem(szPath), szPath, &lpFileName);
+    GetFullPathNameW(path, nelem(szPath), szPath, &lpFileName);
 
     hList = FindFirstFile(szPath, &FileData);
     if (hList == INVALID_HANDLE_VALUE) {
@@ -481,7 +481,7 @@ static void create_system_font_list(fz_context* ctx) {
         szFile[0] = '\0';
         GetModuleFileName(CURRENT_HMODULE, szFontDir, MAX_PATH);
         szFontDir[nelem(szFontDir) - 1] = '\0';
-        GetFullPathName(szFontDir, MAX_PATH, szFile, &lpFileName);
+        GetFullPathNameW(szFontDir, MAX_PATH, szFile, &lpFileName);
         lstrcpyn(lpFileName, L"DroidSansFallback.ttf", szFile + MAX_PATH - lpFileName);
         extend_system_font_list(ctx, szFile);
     }
@@ -653,6 +653,9 @@ static fz_font* pdf_load_windows_font_by_name(fz_context* ctx, const char* orig_
             return NULL;
         }
         cached_font* f = (cached_font*)malloc(sizeof(cached_font));
+        if (!f) {
+            return NULL;
+        }
         f->fi = found;
         f->ctx = ctx;
         f->buffer = buffer;
@@ -696,14 +699,13 @@ static fz_font* pdf_load_windows_font(fz_context* ctx, const char* fontname, int
 }
 
 static fz_font* pdf_load_windows_cjk_font(fz_context* ctx, const char* fontname, int ros, int serif) {
-    fz_font* font;
+    fz_font* font = NULL;
 
     /* try to find a matching system font before falling back to an approximate one */
     fz_try(ctx) {
         font = pdf_load_windows_font_by_name(ctx, fontname);
     }
     fz_catch(ctx) {
-        font = NULL;
     }
     if (font)
         return font;
@@ -784,4 +786,11 @@ void pdf_install_load_system_font_funcs(fz_context* ctx) {
     init_system_font_list();
     fz_install_load_system_font_funcs(ctx, pdf_load_windows_font, pdf_load_windows_cjk_font, NULL);
 #endif
+}
+
+void version_check_3_4() {
+    // this is just to mark libmupdf.dll with a symbol so that we can check
+    // that version of SumatraPDF.exe and libmupdf.dll match
+    // this needs to be update when we update version in Version.h
+    // also must update libmupdf.def
 }

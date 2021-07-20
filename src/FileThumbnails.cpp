@@ -10,7 +10,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "DisplayMode.h"
 #include "SettingsStructs.h"
@@ -32,21 +31,21 @@ static WCHAR* GetThumbnailPath(const WCHAR* filePath) {
     if (!filePath) {
         return nullptr;
     }
-    AutoFree pathU(strconv::WstrToUtf8(filePath));
-    if (!pathU.Get()) {
+    auto pathA(ToUtf8Temp(filePath));
+    if (!pathA.Get()) {
         return nullptr;
     }
     if (path::HasVariableDriveLetter(filePath)) {
-        pathU.Get()[0] = '?'; // ignore the drive letter, if it might change
+        pathA.Get()[0] = '?'; // ignore the drive letter, if it might change
     }
-    CalcMD5Digest((u8*)pathU.Get(), str::Len(pathU.Get()), digest);
+    CalcMD5Digest((u8*)pathA.Get(), str::Len(pathA.Get()), digest);
     AutoFree fingerPrint(_MemToHex(&digest));
 
     AutoFreeWstr thumbsPath(AppGenDataFilename(THUMBNAILS_DIR_NAME));
     if (!thumbsPath) {
         return nullptr;
     }
-    AutoFreeWstr fname(strconv::FromAnsi(fingerPrint));
+    AutoFreeWstr fname(strconv::AnsiToWstr(fingerPrint));
 
     return str::Format(L"%s\\%s.png", thumbsPath.Get(), fname.Get());
 }
@@ -73,14 +72,14 @@ void CleanUpThumbnailCache(const FileHistory& fileHistory) {
     } while (FindNextFile(hfind, &fdata));
     FindClose(hfind);
 
-    Vec<DisplayState*> list;
+    Vec<FileState*> list;
     fileHistory.GetFrequencyOrder(list);
     for (size_t i = 0; i < list.size() && i < FILE_HISTORY_MAX_FREQUENT * 2; i++) {
         AutoFreeWstr bmpPath(GetThumbnailPath(list.at(i)->filePath));
         if (!bmpPath) {
             continue;
         }
-        int idx = files.Find(path::GetBaseNameNoFree(bmpPath));
+        int idx = files.Find(path::GetBaseNameTemp(bmpPath));
         if (idx != -1) {
             CrashIf(idx < 0 || files.size() <= (size_t)idx);
             free(files.PopAt(idx));
@@ -144,7 +143,7 @@ static RenderedBitmap* LoadRenderedBitmap(const WCHAR* filePath) {
     return rendered;
 }
 
-bool LoadThumbnail(DisplayState& ds) {
+bool LoadThumbnail(FileState& ds) {
     delete ds.thumbnail;
     ds.thumbnail = nullptr;
 
@@ -163,7 +162,7 @@ bool LoadThumbnail(DisplayState& ds) {
     return true;
 }
 
-bool HasThumbnail(DisplayState& ds) {
+bool HasThumbnail(FileState& ds) {
     if (!ds.thumbnail && !LoadThumbnail(ds)) {
         return false;
     }
@@ -183,7 +182,7 @@ bool HasThumbnail(DisplayState& ds) {
     return ds.thumbnail != nullptr;
 }
 
-void SetThumbnail(DisplayState* ds, RenderedBitmap* bmp) {
+void SetThumbnail(FileState* ds, RenderedBitmap* bmp) {
     CrashIf(bmp && bmp->Size().IsEmpty());
     if (!ds || !bmp || bmp->Size().IsEmpty()) {
         delete bmp;
@@ -194,7 +193,7 @@ void SetThumbnail(DisplayState* ds, RenderedBitmap* bmp) {
     SaveThumbnail(*ds);
 }
 
-void SaveThumbnail(DisplayState& ds) {
+void SaveThumbnail(FileState& ds) {
     if (!ds.thumbnail) {
         return;
     }
@@ -212,7 +211,7 @@ void SaveThumbnail(DisplayState& ds) {
     }
 }
 
-void RemoveThumbnail(DisplayState& ds) {
+void RemoveThumbnail(FileState& ds) {
     if (!HasThumbnail(ds)) {
         return;
     }

@@ -9,7 +9,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 
 void FreePageText(PageText* pageText) {
@@ -105,6 +104,11 @@ int PageDestination::GetPageNo() const {
 // rectangle of the destination on the above returned page
 RectF PageDestination::GetRect() const {
     return rect;
+}
+
+// optional zoom level on the above returned page
+float PageDestination::GetZoom() const {
+    return zoom;
 }
 
 // string value associated with the destination (e.g. a path or a URL)
@@ -478,11 +482,11 @@ int EngineBase::PageCount() const {
     return pageCount;
 }
 
-RectF EngineBase::PageContentBox(int pageNo, [[maybe_unused]] RenderTarget target) {
+RectF EngineBase::PageContentBox(int pageNo, __unused RenderTarget target) {
     return PageMediabox(pageNo);
 }
 
-bool EngineBase::SaveFileAsPDF([[maybe_unused]] const char* pdfFileName, [[maybe_unused]] bool includeUserAnnots) {
+bool EngineBase::SaveFileAsPDF(__unused const char* pdfFileName, __unused bool includeUserAnnots) {
     return false;
 }
 
@@ -502,7 +506,7 @@ float EngineBase::GetFileDPI() const {
     return fileDPI;
 }
 
-PageDestination* EngineBase::GetNamedDest([[maybe_unused]] const WCHAR* name) {
+PageDestination* EngineBase::GetNamedDest(__unused const WCHAR* name) {
     return nullptr;
 }
 
@@ -580,4 +584,30 @@ WCHAR* CleanupFileURL(const WCHAR* s) {
         *s3 = 0;
     }
     return s2;
+}
+
+// copy of pdf_resolve_link in pdf-link.c without ctx and doc
+// returns page number and location on the page
+int resolve_link(const char* uri, float* xp, float* yp, float* zoomp) {
+    if (!uri || uri[0] != '#') {
+        return -1;
+    }
+    int page = atoi(uri + 1) - 1;
+    if (xp || yp) {
+        const char *x, *y, *zoom = NULL;
+        x = strchr(uri, ',');
+        y = x ? strchr(x + 1, ',') : NULL;
+        if (x && y) {
+            if (xp)
+                *xp = (float)atof(x + 1);
+            if (yp)
+                *yp = (float)atof(y + 1);
+            zoom = strchr(y + 1, ',');
+            if (zoom && zoomp)
+                *zoomp = (float)atof(zoom + 1);
+        }
+        // logf("resolve_link OUT: page=%d x=%f y=%f zoom=%f\n", page, (xp && x) ? (*xp) : INFINITY, (yp && y) ? (*yp) :
+        // INFINITY, (zoomp && zoom) ? (*zoomp) : INFINITY);
+    }
+    return page;
 }

@@ -26,6 +26,8 @@ struct TreeCtrl;
 struct TooltipCtrl;
 struct DropDownCtrl;
 
+struct Annotation;
+
 /* Describes actions which can be performed by mouse */
 // clang-format off
 enum class MouseAction {
@@ -95,8 +97,8 @@ struct WindowInfo {
 
     HWND hwndFrame{nullptr};
     HWND hwndCanvas{nullptr};
-    HWND hwndToolbar{nullptr};
     HWND hwndReBar{nullptr};
+    HWND hwndToolbar{nullptr};
     HWND hwndFindText{nullptr};
     HWND hwndFindBox{nullptr};
     HWND hwndFindBg{nullptr};
@@ -124,7 +126,7 @@ struct WindowInfo {
     HWND hwndFavBox{nullptr};
     LabelWithCloseWnd* favLabelWithClose{nullptr};
     TreeCtrl* favTreeCtrl{nullptr};
-    Vec<DisplayState*> expandedFavorites;
+    Vec<FileState*> expandedFavorites;
 
     // vertical splitter for resizing left side panel
     SplitterCtrl* sidebarSplitter{nullptr};

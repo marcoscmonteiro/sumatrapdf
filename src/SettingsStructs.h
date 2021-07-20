@@ -3,7 +3,7 @@
 /* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 (see COPYING) */
 
-class RenderedBitmap;
+struct RenderedBitmap;
 
 // top, right, bottom and left margin (in that order) between window and
 // document
@@ -21,12 +21,15 @@ struct WindowMargin {
 // customization options for PDF, XPS, DjVu and PostScript UI
 struct FixedPageUI {
     // color value with which black (text) will be substituted
-    COLORREF textColor;
+    char* textColor;
+    ParsedColor textColorParsed;
     // color value with which white (background) will be substituted
-    COLORREF backgroundColor;
+    char* backgroundColor;
+    ParsedColor backgroundColorParsed;
     // color value for the text selection rectangle (also used to highlight
     // found text)
-    COLORREF selectionColor;
+    char* selectionColor;
+    ParsedColor selectionColorParsed;
     // top, right, bottom and left margin (in that order) between window
     // and document
     WindowMargin windowMargin;
@@ -39,7 +42,7 @@ struct FixedPageUI {
     // experimental feature is that the background might allow to
     // subconsciously determine reading progress; suggested values: #2828aa
     // #28aa28 #aa2828
-    Vec<COLORREF>* gradientColors;
+    Vec<char*>* gradientColors;
     // if true, TextColor and BackgroundColor will be temporarily swapped
     bool invertColors;
     // if true, hides the scrollbars but retains ability to scroll
@@ -50,13 +53,15 @@ struct FixedPageUI {
 // UseFixedPageUI is true, FixedPageUI settings apply instead
 struct EbookUI {
     // name of the font. takes effect after re-opening the document
-    WCHAR* fontName;
+    char* fontName;
     // size of the font. takes effect after re-opening the document
     float fontSize;
     // color for text
-    COLORREF textColor;
+    char* textColor;
+    ParsedColor textColorParsed;
     // color of the background (page)
-    COLORREF backgroundColor;
+    char* backgroundColor;
+    ParsedColor backgroundColorParsed;
     // if true, the UI used for PDF documents will be used for ebooks as
     // well (enables printing and searching, disables automatic reflow)
     bool useFixedPageUI;
@@ -89,14 +94,14 @@ struct ExternalViewer {
     // command line with which to call the external viewer, may contain %p
     // for page number and "%1" for the file name (add quotation marks
     // around paths containing spaces)
-    WCHAR* commandLine;
+    char* commandLine;
     // name of the external viewer to be shown in the menu (implied by
     // CommandLine if missing)
-    WCHAR* name;
+    char* name;
     // optional filter for which file types the menu item is to be shown;
     // separate multiple entries using ';' and don't include any spaces
     // (e.g. *.pdf;*.xps for all PDF and XPS documents)
-    WCHAR* filter;
+    char* filter;
 };
 
 // these override the default settings in the Print dialog
@@ -115,7 +120,8 @@ struct ForwardSearch {
     // width of the highlight rectangle (if HighlightOffset is > 0)
     int highlightWidth;
     // color used for the forward search highlight
-    COLORREF highlightColor;
+    char* highlightColor;
+    ParsedColor highlightColorParsed;
     // if true, highlight remains visible until the next mouse click
     // (instead of fading away immediately)
     bool highlightPermanent;
@@ -124,7 +130,14 @@ struct ForwardSearch {
 // default values for annotations in PDF documents
 struct Annotations {
     // color used for highlight annotations
-    COLORREF highlightColor;
+    char* highlightColor;
+    ParsedColor highlightColorParsed;
+    // color used for text icon annotation
+    char* textIconColor;
+    ParsedColor textIconColorParsed;
+    // type of text annotation icon: comment, help, insert, key, new
+    // paragraph, note, paragraph. If not set: note.
+    char* textIconType;
 };
 
 // Values which are persisted for bookmarks/favorites
@@ -247,7 +260,8 @@ struct SessionData {
 // persisted in SumatraPDF-settings.txt
 struct GlobalPrefs {
     // background color of the non-document windows, traditionally yellow
-    COLORREF mainWindowBackground;
+    char* mainWindowBackground;
+    ParsedColor mainWindowBackgroundParsed;
     // if true, Esc key closes SumatraPDF
     bool escToExit;
     // if true, we'll always open files using existing SumatraPDF process
@@ -296,7 +310,7 @@ struct GlobalPrefs {
     // default values for annotations in PDF documents
     Annotations annotations;
     // passwords to try when opening a password protected document
-    Vec<WCHAR*>* defaultPasswords;
+    Vec<char*>* defaultPasswords;
     // actual resolution of the main screen in DPI (if this value isn't
     // positive, the system's UI setting is used)
     int customScreenDPI;
@@ -312,14 +326,14 @@ struct GlobalPrefs {
     // a list of extensions that SumatraPDF has associated itself with and
     // will reassociate if a different application takes over (e.g. ".pdf
     // .xps .epub")
-    WCHAR* associatedExtensions;
+    char* associatedExtensions;
     // whether file associations should be fixed silently or only after
     // user feedback
     bool associateSilently;
     // if true, we check once a day if an update is available
     bool checkForUpdates;
     // we won't ask again to update to this version
-    WCHAR* versionToSkip;
+    char* versionToSkip;
     // if true, we remember which files we opened and their display
     // settings
     bool rememberOpenedFiles;
@@ -362,7 +376,7 @@ struct GlobalPrefs {
     // a list of paths for files to be reopened at the next start or the
     // string "SessionData" if this data is saved in SessionData (needed
     // for auto-updating)
-    Vec<WCHAR*>* reopenOnce;
+    Vec<char*>* reopenOnce;
     // timestamp of the last update check
     FILETIME timeOfLastUpdateCheck;
     // week count since 2011-01-01 needed to "age" openCount values in file
@@ -393,9 +407,9 @@ static const FieldInfo gSizeFields[] = {
 static const StructInfo gSizeInfo = {sizeof(Size), 2, gSizeFields, "Dx\0Dy"};
 
 static const FieldInfo gFixedPageUIFields[] = {
-    {offsetof(FixedPageUI, textColor), SettingType::Color, 0x000000},
-    {offsetof(FixedPageUI, backgroundColor), SettingType::Color, 0xffffff},
-    {offsetof(FixedPageUI, selectionColor), SettingType::Color, 0x0cfcf5},
+    {offsetof(FixedPageUI, textColor), SettingType::Color, (intptr_t) "#000000"},
+    {offsetof(FixedPageUI, backgroundColor), SettingType::Color, (intptr_t) "#ffffff"},
+    {offsetof(FixedPageUI, selectionColor), SettingType::Color, (intptr_t) "#f5fc0c"},
     {offsetof(FixedPageUI, windowMargin), SettingType::Compact, (intptr_t)&gWindowMarginInfo},
     {offsetof(FixedPageUI, pageSpacing), SettingType::Compact, (intptr_t)&gSizeInfo},
     {offsetof(FixedPageUI, gradientColors), SettingType::ColorArray, 0},
@@ -406,10 +420,10 @@ static const StructInfo gFixedPageUIInfo = {
     "TextColor\0BackgroundColor\0SelectionColor\0WindowMargin\0PageSpacing\0GradientColors\0HideScrollbars"};
 
 static const FieldInfo gEbookUIFields[] = {
-    {offsetof(EbookUI, fontName), SettingType::String, (intptr_t)L"Georgia"},
+    {offsetof(EbookUI, fontName), SettingType::Utf8String, (intptr_t) "Georgia"},
     {offsetof(EbookUI, fontSize), SettingType::Float, (intptr_t) "12.5"},
-    {offsetof(EbookUI, textColor), SettingType::Color, 0x324b5f},
-    {offsetof(EbookUI, backgroundColor), SettingType::Color, 0xd9f0fb},
+    {offsetof(EbookUI, textColor), SettingType::Color, (intptr_t) "#5f4b32"},
+    {offsetof(EbookUI, backgroundColor), SettingType::Color, (intptr_t) "#fbf0d9"},
     {offsetof(EbookUI, useFixedPageUI), SettingType::Bool, false},
 };
 static const StructInfo gEbookUIInfo = {sizeof(EbookUI), 5, gEbookUIFields,
@@ -444,9 +458,9 @@ static const FieldInfo gChmUIFields[] = {
 static const StructInfo gChmUIInfo = {sizeof(ChmUI), 1, gChmUIFields, "UseFixedPageUI"};
 
 static const FieldInfo gExternalViewerFields[] = {
-    {offsetof(ExternalViewer, commandLine), SettingType::String, 0},
-    {offsetof(ExternalViewer, name), SettingType::String, 0},
-    {offsetof(ExternalViewer, filter), SettingType::String, 0},
+    {offsetof(ExternalViewer, commandLine), SettingType::Utf8String, 0},
+    {offsetof(ExternalViewer, name), SettingType::Utf8String, 0},
+    {offsetof(ExternalViewer, filter), SettingType::Utf8String, 0},
 };
 static const StructInfo gExternalViewerInfo = {sizeof(ExternalViewer), 3, gExternalViewerFields,
                                                "CommandLine\0Name\0Filter"};
@@ -459,16 +473,19 @@ static const StructInfo gPrinterDefaultsInfo = {sizeof(PrinterDefaults), 1, gPri
 static const FieldInfo gForwardSearchFields[] = {
     {offsetof(ForwardSearch, highlightOffset), SettingType::Int, 0},
     {offsetof(ForwardSearch, highlightWidth), SettingType::Int, 15},
-    {offsetof(ForwardSearch, highlightColor), SettingType::Color, 0xff8165},
+    {offsetof(ForwardSearch, highlightColor), SettingType::Color, (intptr_t) "#6581ff"},
     {offsetof(ForwardSearch, highlightPermanent), SettingType::Bool, false},
 };
 static const StructInfo gForwardSearchInfo = {sizeof(ForwardSearch), 4, gForwardSearchFields,
                                               "HighlightOffset\0HighlightWidth\0HighlightColor\0HighlightPermanent"};
 
 static const FieldInfo gAnnotationsFields[] = {
-    {offsetof(Annotations, highlightColor), SettingType::Color, 0x00ffff},
+    {offsetof(Annotations, highlightColor), SettingType::Color, (intptr_t) "#ffff00"},
+    {offsetof(Annotations, textIconColor), SettingType::Color, (intptr_t) "#ffff00"},
+    {offsetof(Annotations, textIconType), SettingType::Utf8String, (intptr_t) ""},
 };
-static const StructInfo gAnnotationsInfo = {sizeof(Annotations), 1, gAnnotationsFields, "HighlightColor"};
+static const StructInfo gAnnotationsInfo = {sizeof(Annotations), 3, gAnnotationsFields,
+                                            "HighlightColor\0TextIconColor\0TextIconType"};
 
 static const FieldInfo gRectFields[] = {
     {offsetof(Rect, x), SettingType::Int, 0},
@@ -570,9 +587,9 @@ static const StructInfo gFILETIMEInfo = {sizeof(FILETIME), 2, gFILETIMEFields, "
 
 static const FieldInfo gGlobalPrefsFields[] = {
     {(size_t)-1, SettingType::Comment,
-     (intptr_t) "For documentation, see https://www.sumatrapdfreader.org/settings/settings3-3-1.html"},
+     (intptr_t) "For documentation, see https://www.sumatrapdfreader.org/settings/settings3-4.html"},
     {(size_t)-1, SettingType::Comment, 0},
-    {offsetof(GlobalPrefs, mainWindowBackground), SettingType::Color, 0x8000f2ff},
+    {offsetof(GlobalPrefs, mainWindowBackground), SettingType::Color, (intptr_t) "#80fff200"},
     {offsetof(GlobalPrefs, escToExit), SettingType::Bool, false},
     {offsetof(GlobalPrefs, reuseInstance), SettingType::Bool, false},
     {offsetof(GlobalPrefs, useSysColors), SettingType::Bool, false},
@@ -595,17 +612,17 @@ static const FieldInfo gGlobalPrefsFields[] = {
     {offsetof(GlobalPrefs, printerDefaults), SettingType::Struct, (intptr_t)&gPrinterDefaultsInfo},
     {offsetof(GlobalPrefs, forwardSearch), SettingType::Struct, (intptr_t)&gForwardSearchInfo},
     {offsetof(GlobalPrefs, annotations), SettingType::Struct, (intptr_t)&gAnnotationsInfo},
-    {offsetof(GlobalPrefs, defaultPasswords), SettingType::StringArray, 0},
+    {offsetof(GlobalPrefs, defaultPasswords), SettingType::Utf8StringArray, 0},
     {offsetof(GlobalPrefs, customScreenDPI), SettingType::Int, 0},
     {(size_t)-1, SettingType::Comment, 0},
     {offsetof(GlobalPrefs, rememberStatePerDocument), SettingType::Bool, true},
     {offsetof(GlobalPrefs, uiLanguage), SettingType::Utf8String, 0},
     {offsetof(GlobalPrefs, showToolbar), SettingType::Bool, true},
     {offsetof(GlobalPrefs, showFavorites), SettingType::Bool, false},
-    {offsetof(GlobalPrefs, associatedExtensions), SettingType::String, 0},
+    {offsetof(GlobalPrefs, associatedExtensions), SettingType::Utf8String, 0},
     {offsetof(GlobalPrefs, associateSilently), SettingType::Bool, false},
     {offsetof(GlobalPrefs, checkForUpdates), SettingType::Bool, true},
-    {offsetof(GlobalPrefs, versionToSkip), SettingType::String, 0},
+    {offsetof(GlobalPrefs, versionToSkip), SettingType::Utf8String, 0},
     {offsetof(GlobalPrefs, rememberOpenedFiles), SettingType::Bool, true},
     {offsetof(GlobalPrefs, inverseSearchCmdLine), SettingType::String, 0},
     {offsetof(GlobalPrefs, enableTeXEnhancements), SettingType::Bool, false},
@@ -622,7 +639,7 @@ static const FieldInfo gGlobalPrefsFields[] = {
     {(size_t)-1, SettingType::Comment, 0},
     {offsetof(GlobalPrefs, fileStates), SettingType::Array, (intptr_t)&gFileStateInfo},
     {offsetof(GlobalPrefs, sessionData), SettingType::Array, (intptr_t)&gSessionDataInfo},
-    {offsetof(GlobalPrefs, reopenOnce), SettingType::StringArray, 0},
+    {offsetof(GlobalPrefs, reopenOnce), SettingType::Utf8StringArray, 0},
     {offsetof(GlobalPrefs, timeOfLastUpdateCheck), SettingType::Compact, (intptr_t)&gFILETIMEInfo},
     {offsetof(GlobalPrefs, openCountWeek), SettingType::Int, 0},
     {(size_t)-1, SettingType::Comment, 0},

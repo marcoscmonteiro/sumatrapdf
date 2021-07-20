@@ -1,14 +1,6 @@
 /* Copyright 2021 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-// the following are only defined if _WIN32_WINNT >= 0x0600 and we use 0x0500
-#ifndef USER_DEFAULT_SCREEN_DPI
-#define USER_DEFAULT_SCREEN_DPI 96
-#endif
-#ifndef WM_MOUSEHWHEEL
-#define WM_MOUSEHWHEEL 0x020E
-#endif
-
 #define NO_COLOR (COLORREF) - 1
 
 #define WIN_COL_WHITE RGB(0xff, 0xff, 0xff)
@@ -30,7 +22,8 @@ Rect MapRectToWindow(Rect rect, HWND hwndFrom, HWND hwndTo);
 void Edit_SelectAll(HWND hwnd);
 void ListBox_AppendString_NoSort(HWND hwnd, WCHAR* txt);
 
-BOOL SafeCloseHandle(HANDLE* h);
+bool IsValidHandle(HANDLE);
+bool SafeCloseHandle(HANDLE*);
 void FillWndClassEx(WNDCLASSEX& wcex, const WCHAR* clsName, WNDPROC wndproc);
 void MoveWindow(HWND hwnd, Rect rect);
 void MoveWindow(HWND hwnd, RECT* r);
@@ -55,11 +48,14 @@ bool ReadRegDWORD(HKEY keySub, const WCHAR* keyName, const WCHAR* valName, DWORD
 bool WriteRegDWORD(HKEY keySub, const WCHAR* keyName, const WCHAR* valName, DWORD value);
 bool CreateRegKey(HKEY keySub, const WCHAR* keyName);
 bool DeleteRegKey(HKEY keySub, const WCHAR* keyName, bool resetACLFirst = false);
-WCHAR* GetSpecialFolder(int csidl, bool createIfMissing = false);
+TempWstr GetSpecialFolderTemp(int csidl, bool createIfMissing = false);
 
 void DisableDataExecution();
-void RedirectIOToConsole();
-WCHAR* GetExePath();
+bool RedirectIOToConsole();
+bool RedirectIOToExistingConsole();
+void HandleRedirectedConsoleOnShutdown();
+
+TempWstr GetExePathTemp();
 WCHAR* GetExeDir();
 WCHAR* GetSystem32Dir();
 WCHAR* GetCurrentDir();
@@ -79,8 +75,8 @@ bool IsCtrlPressed();
 
 HFONT CreateSimpleFont(HDC hdc, const WCHAR* fontName, int fontSize);
 
-Rect ShiftRectToWorkArea(Rect rect, bool bFully = false);
-Rect GetWorkAreaRect(Rect rect);
+Rect ShiftRectToWorkArea(Rect rect, HWND hwnd = nullptr, bool bFully = false);
+Rect GetWorkAreaRect(Rect rect, HWND hwnd);
 void LimitWindowSizeToScreen(HWND hwnd, SIZE& size);
 Rect GetFullscreenRect(HWND);
 Rect GetVirtualScreenRect();
@@ -164,8 +160,7 @@ namespace win {
 void ToForeground(HWND hwnd);
 
 size_t GetTextLen(HWND hwnd);
-WCHAR* GetText(HWND hwnd);
-str::Str GetTextUtf8(HWND hwnd);
+TempWstr GetTextTemp(HWND hwnd);
 
 void SetText(HWND hwnd, const WCHAR* txt);
 void SetVisibility(HWND hwnd, bool visible);

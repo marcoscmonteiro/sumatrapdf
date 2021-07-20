@@ -9,7 +9,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "DisplayMode.h"
 #define INCLUDE_SETTINGSSTRUCTS_METADATA
@@ -18,13 +17,13 @@
 
 GlobalPrefs* gGlobalPrefs = nullptr;
 
-DisplayState* NewDisplayState(const WCHAR* filePath) {
-    DisplayState* ds = (DisplayState*)DeserializeStruct(&gFileStateInfo, nullptr);
-    str::ReplacePtr(&ds->filePath, filePath);
+FileState* NewDisplayState(const WCHAR* filePath) {
+    FileState* ds = (FileState*)DeserializeStruct(&gFileStateInfo, nullptr);
+    str::ReplaceWithCopy(&ds->filePath, filePath);
     return ds;
 }
 
-void DeleteDisplayState(DisplayState* ds) {
+void DeleteDisplayState(FileState* ds) {
     delete ds->thumbnail;
     FreeStruct(&gFileStateInfo, ds);
 }
@@ -48,7 +47,7 @@ GlobalPrefs* NewGlobalPrefs(const char* data) {
 // prevData is used to preserve fields that exists in prevField but not in GlobalPrefs
 std::span<u8> SerializeGlobalPrefs(GlobalPrefs* prefs, const char* prevData) {
     if (!prefs->rememberStatePerDocument || !prefs->rememberOpenedFiles) {
-        for (DisplayState* ds : *prefs->fileStates) {
+        for (FileState* ds : *prefs->fileStates) {
             ds->useDefaultState = true;
         }
         // prevent unnecessary settings from being written out
@@ -77,7 +76,7 @@ void DeleteGlobalPrefs(GlobalPrefs* gp) {
         return;
     }
 
-    for (DisplayState* ds : *gp->fileStates) {
+    for (FileState* ds : *gp->fileStates) {
         delete ds->thumbnail;
     }
     FreeStruct(&gGlobalPrefsInfo, gp);
@@ -87,13 +86,13 @@ SessionData* NewSessionData() {
     return (SessionData*)DeserializeStruct(&gSessionDataInfo, nullptr);
 }
 
-TabState* NewTabState(DisplayState* ds) {
+TabState* NewTabState(FileState* ds) {
     TabState* state = (TabState*)DeserializeStruct(&gTabStateInfo, nullptr);
-    AutoFreeStr dsFilePathA = strconv::WstrToUtf8(ds->filePath);
-    str::ReplacePtr(&state->filePath, dsFilePathA.Get());
-    str::ReplacePtr(&state->displayMode, ds->displayMode);
+    auto dsFilePathA = ToUtf8Temp(ds->filePath);
+    str::ReplaceWithCopy(&state->filePath, dsFilePathA);
+    str::ReplaceWithCopy(&state->displayMode, ds->displayMode);
     state->pageNo = ds->pageNo;
-    str::ReplacePtr(&state->zoom, ds->zoom);
+    str::ReplaceWithCopy(&state->zoom, ds->zoom);
     state->rotation = ds->rotation;
     state->scrollPos = ds->scrollPos;
     state->showToc = ds->showToc;
@@ -110,4 +109,12 @@ void ResetSessionState(Vec<SessionData*>* sessionData) {
         FreeStruct(&gSessionDataInfo, data);
     }
     sessionData->Reset();
+}
+
+ParsedColor* GetParsedColor(const char* s, ParsedColor& parsed) {
+    if (parsed.wasParsed) {
+        return &parsed;
+    }
+    ParseColor(parsed, s);
+    return &parsed;
 }

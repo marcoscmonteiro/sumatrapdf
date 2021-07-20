@@ -15,7 +15,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EbookBase.h"
 #include "MobiDoc.h"
@@ -545,7 +544,7 @@ bool MobiDoc::ParseHeader() {
         compressionType = COMPRESSION_UNSUPPORTED_DRM;
         Metadata prop;
         prop.prop = DocumentProperty::UnsupportedFeatures;
-        auto tmp = strconv::WstrToCodePage(L"DRM", mobiHdr.textEncoding);
+        auto tmp = strconv::WstrToCodePageV(mobiHdr.textEncoding, L"DRM");
         prop.value = (char*)tmp.data();
         props.Append(prop);
     }
@@ -560,7 +559,7 @@ bool MobiDoc::ParseHeader() {
             imagesCount = pdbReader->GetRecordCount() - imageFirstRec;
         }
     }
-    if (kPalmDocHeaderLen + mobiHdr.hdrLen > recSize) {
+    if (kPalmDocHeaderLen + (size_t)mobiHdr.hdrLen > recSize) {
         logf("MobiHeader too big\n");
         return false;
     }
@@ -673,7 +672,7 @@ bool MobiDoc::DecodeExthHeader(const u8* data, size_t dataLen) {
             default:
                 continue;
         }
-        prop.value = str::DupN((char*)(data + d.Offset() - length + 8), length - 8);
+        prop.value = str::Dup((char*)(data + d.Offset() - length + 8), length - 8);
         if (prop.value) {
             props.Append(prop);
         }
@@ -857,7 +856,6 @@ bool MobiDoc::LoadDocRecordIntoBuffer(size_t recNo, str::Str& strOut) {
 }
 
 bool MobiDoc::LoadDocument(PdbReader* pdbReader) {
-    logToDebugger = true;
     this->pdbReader = pdbReader;
     if (!ParseHeader()) {
         return false;
@@ -888,7 +886,7 @@ bool MobiDoc::LoadDocument(PdbReader* pdbReader) {
         *s = ' ';
     }
     if (textEncoding != CP_UTF8) {
-        const char* docUtf8 = strconv::ToMultiByte(doc->Get(), textEncoding, CP_UTF8).data();
+        const char* docUtf8 = strconv::ToMultiByteV(doc->Get(), textEncoding, CP_UTF8).data();
         if (docUtf8) {
             doc->Reset();
             doc->AppendAndFree(docUtf8);
@@ -907,7 +905,7 @@ std::span<u8> MobiDoc::GetHtmlData() const {
 WCHAR* MobiDoc::GetProperty(DocumentProperty prop) {
     for (size_t i = 0; i < props.size(); i++) {
         if (props.at(i).prop == prop) {
-            return strconv::FromCodePage(props.at(i).value, textEncoding);
+            return strconv::StrToWstr(props.at(i).value, textEncoding);
         }
     }
     return nullptr;

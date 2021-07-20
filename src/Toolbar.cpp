@@ -10,7 +10,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 #include "DisplayMode.h"
@@ -55,7 +54,6 @@ struct ToolbarButtonInfo {
     TbIcon bmpIndex;
     int cmdId;
     const char* toolTip;
-    int flags;
 };
 
 // thos are not real commands but we have to refer to toolbar buttons
@@ -65,23 +63,23 @@ constexpr int CmdPageInfo = (int)CmdLast + 16;
 constexpr int CmdInfoText = (int)CmdLast + 17;
 
 static ToolbarButtonInfo gToolbarButtons[] = {
-    {TbIcon::Open, CmdOpen, _TRN("Open"), MF_REQ_DISK_ACCESS},
-    {TbIcon::Print, CmdPrint, _TRN("Print"), MF_REQ_PRINTER_ACCESS},
-    {TbIcon::None, CmdPageInfo, nullptr, 0}, // text box for page number + show current page / no of pages
-    {TbIcon::PagePrev, CmdGoToPrevPage, _TRN("Previous Page"), 0},
-    {TbIcon::PageNext, CmdGoToNextPage, _TRN("Next Page"), 0},
-    {TbIcon::None, 0, nullptr, 0}, // separator
-    {TbIcon::LayoutContinuous, CmdZoomFitWidthAndContinuous, _TRN("Fit Width and Show Pages Continuously"), 0},
-    {TbIcon::LayoutSinglePage, CmdZoomFitPageAndSinglePage, _TRN("Fit a Single Page"), 0},
-    {TbIcon::RotateLeft, CmdViewRotateLeft, _TRN("Rotate &Left\tCtrl+Shift+-"), 0},
-    {TbIcon::RotateRight, CmdViewRotateRight, _TRN("Rotate &Right\tCtrl+Shift++"), 0},
-    {TbIcon::ZoomOut, CmdZoomOut, _TRN("Zoom Out"), 0},
-    {TbIcon::ZoomIn, CmdZoomIn, _TRN("Zoom In"), 0},
-    {TbIcon::None, CmdFindFirst, nullptr, 0},
-    {TbIcon::SearchPrev, CmdFindPrev, _TRN("Find Previous"), 0},
-    {TbIcon::SearchNext, CmdFindNext, _TRN("Find Next"), 0},
-    {TbIcon::MatchCase, CmdFindMatch, _TRN("Match Case"), 0},
-    {TbIcon::None, CmdInfoText, nullptr, 0}, // info text
+    {TbIcon::Open, CmdOpen, _TRN("Open")},
+    {TbIcon::Print, CmdPrint, _TRN("Print")},
+    {TbIcon::None, CmdPageInfo, nullptr}, // text box for page number + show current page / no of pages
+    {TbIcon::PagePrev, CmdGoToPrevPage, _TRN("Previous Page")},
+    {TbIcon::PageNext, CmdGoToNextPage, _TRN("Next Page")},
+    {TbIcon::None, 0, nullptr}, // separator
+    {TbIcon::LayoutContinuous, CmdZoomFitWidthAndContinuous, _TRN("Fit Width and Show Pages Continuously")},
+    {TbIcon::LayoutSinglePage, CmdZoomFitPageAndSinglePage, _TRN("Fit a Single Page")},
+    {TbIcon::RotateLeft, CmdViewRotateLeft, _TRN("Rotate &Left\tCtrl+Shift+-")},
+    {TbIcon::RotateRight, CmdViewRotateRight, _TRN("Rotate &Right\tCtrl+Shift++")},
+    {TbIcon::ZoomOut, CmdZoomOut, _TRN("Zoom Out")},
+    {TbIcon::ZoomIn, CmdZoomIn, _TRN("Zoom In")},
+    {TbIcon::None, CmdFindFirst, nullptr},
+    {TbIcon::SearchPrev, CmdFindPrev, _TRN("Find Previous")},
+    {TbIcon::SearchNext, CmdFindNext, _TRN("Find Next")},
+    {TbIcon::MatchCase, CmdFindMatch, _TRN("Match Case")},
+    {TbIcon::None, CmdInfoText, nullptr}, // info text
 };
 
 constexpr int kButtonsCount = dimof(gToolbarButtons);
@@ -110,9 +108,8 @@ static bool NeedsRotateUI(WindowInfo* win) {
 }
 
 static bool NeedsInfo(WindowInfo* win) {
-    WCHAR* s = win::GetText(win->hwndTbInfoText);
+    WCHAR* s = win::GetTextTemp(win->hwndTbInfoText);
     bool show = str::Len(s) > 0;
-    str::Free(s);
     return show;
 }
 
@@ -139,8 +136,16 @@ static bool IsVisibleToolbarButton(WindowInfo* win, int buttonNo) {
 static bool IsToolbarButtonEnabled(WindowInfo* win, int buttonNo) {
     int cmdId = gToolbarButtons[buttonNo].cmdId;
 
-    // If restricted, disable
-    if (!HasPermission(gToolbarButtons[buttonNo].flags >> PERM_FLAG_OFFSET)) {
+    bool isAllowed = true;
+    switch (cmdId) {
+        case CmdOpen:
+            isAllowed = HasPermission(Perm::DiskAccess);
+            break;
+        case CmdPrint:
+            isAllowed = HasPermission(Perm::PrinterAccess);
+            break;
+    }
+    if (!isAllowed) {
         return false;
     }
 
@@ -184,7 +189,7 @@ static TBBUTTON TbButtonFromButtonInfo(int i) {
         info.iBitmap = (int)btInfo.bmpIndex;
         info.fsState = TBSTATE_ENABLED;
         info.fsStyle = TBSTYLE_BUTTON;
-        info.iString = (INT_PTR)trans::GetTranslation(btInfo.toolTip);
+        info.iString = (INT_PTR)trans::GetTranslationTemp(btInfo.toolTip);
     }
     return info;
 }
@@ -199,7 +204,7 @@ void UpdateToolbarButtonsToolTipsForWindow(WindowInfo* win) {
         if (nullptr == txt) {
             continue;
         }
-        const WCHAR* translation = trans::GetTranslation(txt);
+        const WCHAR* translation = trans::GetTranslationTemp(txt);
         binfo.cbSize = sizeof(TBBUTTONINFO);
         binfo.dwMask = TBIF_TEXT | TBIF_BYINDEX;
         binfo.pszText = (WCHAR*)translation;
@@ -538,7 +543,7 @@ static LRESULT CALLBACK WndProcPageBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
     } else if (WM_CHAR == msg) {
         switch (wp) {
             case VK_RETURN: {
-                AutoFreeWstr buf(win::GetText(win->hwndPageBox));
+                auto buf = win::GetTextTemp(win->hwndPageBox);
                 int newPageNo = win->ctrl->GetPageByLabel(buf);
                 if (win->ctrl->ValidPageNo(newPageNo)) {
                     win->ctrl->GoToPage(newPageNo, true);
@@ -593,7 +598,8 @@ void UpdateToolbarPageText(WindowInfo* win, int pageCount, bool updateOnly) {
     Size size2;
     if (-1 == pageCount) {
         // preserve hwndPageTotal's text and size
-        buf = win::GetText(win->hwndPageTotal);
+        auto tmp = win::GetTextTemp(win->hwndPageTotal);
+        buf = str::Dup(tmp.AsView());
         size2 = ClientRect(win->hwndPageTotal).Size();
         size2.dx -= DpiScale(win->hwndFrame, kTextPaddingRight);
         size2.dx -= DpiScale(win->hwndFrame, kButtonSpacingX);
@@ -613,7 +619,7 @@ void UpdateToolbarPageText(WindowInfo* win, int pageCount, bool updateOnly) {
     }
     size2.dx += DpiScale(win->hwndFrame, kTextPaddingRight);
     size2.dx += DpiScale(win->hwndFrame, kButtonSpacingX);
-    free(buf);
+    str::Free(buf);
 
     int padding = GetSystemMetrics(SM_CXEDGE);
     int x = currX;
@@ -709,10 +715,9 @@ void LogBitmapInfo(HBITMAP hbmp) {
     }
 }
 
+// https://docs.microsoft.com/en-us/windows/win32/controls/toolbar-control-reference
 void CreateToolbar(WindowInfo* win) {
-    if (!gIsRaMicroBuild) {
-        kButtonSpacingX = 0;
-    }
+    kButtonSpacingX = 0;
     HINSTANCE hinst = GetModuleHandle(nullptr);
     HWND hwndParent = win->hwndFrame;
     DWORD style = WS_CHILD | WS_CLIPSIBLINGS | TBSTYLE_TOOLTIPS | TBSTYLE_FLAT;
@@ -723,25 +728,19 @@ void CreateToolbar(WindowInfo* win) {
     win->hwndToolbar = hwndToolbar;
     SendMessageW(hwndToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
 
-    ShowWindow(hwndToolbar, SW_SHOW);
-    TBBUTTON tbButtons[kButtonsCount];
-
-    int dpi = DpiGet(win->hwndFrame);
-
-    HBITMAP hbmp = nullptr;
-
-    Size size{-1, -1};
-    // TODO: bitmap is skewed for dxDpi of 20, 24 etc.
-    int dxDpi = 16;
-    int scale = (int)ceilf((float)dpi / 96.f);
-    int dx = dxDpi * scale;
-    size.dx = dx;
-    size.dy = dx;
-    hbmp = BuildIconsBitmap(dx, dx);
+    int dx = DpiScale(18);
+    // icon sizes must be multiple of 4 or else they are sheared
+    // TODO: I must be doing something wrong, any size should be ok
+    // it might be about size of buttons / bitmaps
+    dx = RoundUp(dx, 4);
+    // this doesn't seem to be required and doesn't help with wierd sizes like 22
+    // but the docs say to do it
+    SendMessage(hwndToolbar, TB_SETBITMAPSIZE, 0, (LPARAM)MAKELONG(dx, dx));
 
     // assume square icons
-    HIMAGELIST himl = ImageList_Create(size.dy, size.dy, ILC_COLORDDB | ILC_MASK, 0, 0);
+    HIMAGELIST himl = ImageList_Create(dx, dx, ILC_COLORDDB | ILC_MASK, kButtonsCount, 0);
     COLORREF mask = RGB(0xff, 0xff, 0xff);
+    HBITMAP hbmp = BuildIconsBitmap(dx, dx);
     if (true) {
         ImageList_AddMasked(himl, hbmp, mask);
     } else {
@@ -751,23 +750,6 @@ void CreateToolbar(WindowInfo* win) {
         LogBitmapInfo(hbmp);
     }
     DeleteObject(hbmp);
-
-#if 0 // we no longer have an icon for save as
-    // in Plugin mode, replace the Open with a Save As button
-    if (gPluginMode && size.dx / size.dy == 13) {
-        gToolbarButtons[0].bmpIndex = TbIcon::MatchCase2;
-        gToolbarButtons[0].cmdId = CmdSaveAs;
-        gToolbarButtons[0].toolTip = _TRN("Save As");
-        gToolbarButtons[0].flags = MF_REQ_DISK_ACCESS;
-    }
-#endif
-
-    for (int i = 0; i < kButtonsCount; i++) {
-        tbButtons[i] = TbButtonFromButtonInfo(i);
-        if (gToolbarButtons[i].cmdId == CmdFindMatch) {
-            tbButtons[i].fsStyle = BTNS_CHECK;
-        }
-    }
     SendMessageW(hwndToolbar, TB_SETIMAGELIST, 0, (LPARAM)himl);
 
     TBMETRICS tbMetrics{};
@@ -784,8 +766,18 @@ void CreateToolbar(WindowInfo* win) {
     LRESULT exstyle = SendMessageW(hwndToolbar, TB_GETEXTENDEDSTYLE, 0, 0);
     exstyle |= TBSTYLE_EX_MIXEDBUTTONS;
     SendMessageW(hwndToolbar, TB_SETEXTENDEDSTYLE, 0, exstyle);
+
+    TBBUTTON tbButtons[kButtonsCount];
+    for (int i = 0; i < kButtonsCount; i++) {
+        tbButtons[i] = TbButtonFromButtonInfo(i);
+        if (gToolbarButtons[i].cmdId == CmdFindMatch) {
+            tbButtons[i].fsStyle = BTNS_CHECK;
+        }
+    }
     BOOL ok = SendMessageW(hwndToolbar, TB_ADDBUTTONS, kButtonsCount, (LPARAM)tbButtons);
     CrashIf(!ok);
+
+    SendMessageW(hwndToolbar, TB_SETBUTTONSIZE, 0, MAKELONG(dx, dx));
 
     RECT rc;
     LRESULT res = SendMessageW(hwndToolbar, TB_GETITEMRECT, 0, (LPARAM)&rc);
@@ -793,6 +785,7 @@ void CreateToolbar(WindowInfo* win) {
         rc.left = rc.right = rc.top = rc.bottom = 0;
     }
 
+    ShowWindow(hwndToolbar, SW_SHOW);
     DWORD dwStyle = WS_CHILD | WS_CLIPCHILDREN | WS_BORDER | RBS_VARHEIGHT | RBS_BANDBORDERS;
     dwStyle |= CCS_NODIVIDER | CCS_NOPARENTALIGN | WS_VISIBLE;
     win->hwndReBar = CreateWindowExW(WS_EX_TOOLWINDOW, REBARCLASSNAME, nullptr, dwStyle, 0, 0, 0, 0, hwndParent,

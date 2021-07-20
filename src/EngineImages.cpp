@@ -18,7 +18,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineImages.h"
 #include "PdfCreator.h"
@@ -98,10 +97,10 @@ class EngineImages : public EngineBase {
 
     std::span<u8> GetFileData() override;
     bool SaveFileAs(const char* copyFileName, bool includeUserAnnots = false) override;
-    PageText ExtractPageText([[maybe_unused]] int pageNo) override {
+    PageText ExtractPageText(__unused int pageNo) override {
         return {};
     }
-    bool HasClipOptimizations([[maybe_unused]] int pageNo) override {
+    bool HasClipOptimizations(__unused int pageNo) override {
         return false;
     }
 
@@ -288,6 +287,9 @@ RenderedBitmap* EngineImages::GetImageForPageElement(IPageElement* ipel) {
     PageElement* pel = (PageElement*)ipel;
     int pageNo = pel->imageID;
     auto page = GetPage(pageNo);
+    if (!page) {
+        return nullptr;
+    }
 
     HBITMAP hbmp;
     auto bmp = page->bmp;
@@ -306,11 +308,11 @@ std::span<u8> EngineImages::GetFileData() {
     return GetStreamOrFileData(fileStream.Get(), FileName());
 }
 
-bool EngineImages::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots) {
+bool EngineImages::SaveFileAs(const char* copyFileName, __unused bool includeUserAnnots) {
     const WCHAR* srcPath = FileName();
-    AutoFreeWstr dstPath = strconv::Utf8ToWstr(copyFileName);
+    auto dstPath = ToWstrTemp(copyFileName);
     if (srcPath) {
-        BOOL ok = CopyFileW(srcPath, dstPath, FALSE);
+        bool ok = file::Copy(dstPath, srcPath, false);
         if (ok) {
             return true;
         }
@@ -514,7 +516,7 @@ static WCHAR* GetImageProperty(Bitmap* bmp, PROPID id, PROPID altId = 0) {
     if (Ok != ok) {
         /* property didn't exist */;
     } else if (PropertyTagTypeASCII == item->type) {
-        value = strconv::FromAnsi((char*)item->value);
+        value = strconv::AnsiToWstr((char*)item->value);
     } else if (PropertyTagTypeByte == item->type && item->length > 0 && 0 == (item->length % 2) &&
                !((WCHAR*)item->value)[item->length / 2 - 1]) {
         value = str::Dup((WCHAR*)item->value);
@@ -597,7 +599,7 @@ RectF EngineImage::LoadMediabox(int pageNo) {
     return mbox;
 }
 
-bool EngineImage::SaveFileAsPDF(const char* pdfFileName, [[maybe_unused]] bool includeUserAnnots) {
+bool EngineImage::SaveFileAsPDF(const char* pdfFileName, __unused bool includeUserAnnots) {
     bool ok = true;
     PdfCreator* c = new PdfCreator();
     auto dpi = GetFileDPI();
@@ -686,7 +688,7 @@ class EngineImageDir : public EngineImages {
     }
     bool SaveFileAs(const char* copyFileName, bool includeUserAnnots = false) override;
 
-    WCHAR* GetProperty([[maybe_unused]] DocumentProperty prop) override {
+    WCHAR* GetProperty(__unused DocumentProperty prop) override {
         return nullptr;
     }
 
@@ -743,15 +745,15 @@ WCHAR* EngineImageDir::GetPageLabel(int pageNo) const {
     }
 
     const WCHAR* path = pageFileNames.at(pageNo - 1);
-    const WCHAR* fileName = path::GetBaseNameNoFree(path);
-    size_t n = path::GetExtNoFree(fileName) - fileName;
-    return str::DupN(fileName, n);
+    const WCHAR* fileName = path::GetBaseNameTemp(path);
+    size_t n = path::GetExtNoFreeTemp(fileName) - fileName;
+    return str::Dup(fileName, n);
 }
 
 int EngineImageDir::GetPageByLabel(const WCHAR* label) const {
     for (size_t i = 0; i < pageFileNames.size(); i++) {
-        const WCHAR* fileName = path::GetBaseNameNoFree(pageFileNames.at(i));
-        const WCHAR* fileExt = path::GetExtNoFree(fileName);
+        const WCHAR* fileName = path::GetBaseNameTemp(pageFileNames.at(i));
+        const WCHAR* fileExt = path::GetExtNoFreeTemp(fileName);
         if (str::StartsWithI(fileName, label) &&
             (fileName + str::Len(label) == fileExt || fileName[str::Len(label)] == '\0')) {
             return (int)i + 1;
@@ -782,17 +784,17 @@ TocTree* EngineImageDir::GetToc() {
     return tocTree;
 }
 
-bool EngineImageDir::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots) {
+bool EngineImageDir::SaveFileAs(const char* copyFileName, __unused bool includeUserAnnots) {
     // only copy the files if the target directory doesn't exist yet
-    AutoFreeWstr dstPath = strconv::Utf8ToWstr(copyFileName);
+    auto dstPath = ToWstrTemp(copyFileName);
     if (!CreateDirectoryW(dstPath, nullptr)) {
         return false;
     }
     bool ok = true;
     for (size_t i = 0; i < pageFileNames.size(); i++) {
         const WCHAR* filePathOld = pageFileNames.at(i);
-        AutoFreeWstr filePathNew(path::Join(dstPath, path::GetBaseNameNoFree(filePathOld)));
-        ok = ok && CopyFileW(filePathOld, filePathNew, TRUE);
+        AutoFreeWstr filePathNew(path::Join(dstPath, path::GetBaseNameTemp(filePathOld)));
+        ok = ok && file::Copy(filePathNew, filePathOld, true);
     }
     return ok;
 }
@@ -816,7 +818,7 @@ RectF EngineImageDir::LoadMediabox(int pageNo) {
     return RectF();
 }
 
-bool EngineImageDir::SaveFileAsPDF(const char* pdfFileName, [[maybe_unused]] bool includeUserAnnots) {
+bool EngineImageDir::SaveFileAsPDF(const char* pdfFileName, __unused bool includeUserAnnots) {
     bool ok = true;
     PdfCreator* c = new PdfCreator();
     for (int i = 1; i <= PageCount() && ok; i++) {
@@ -840,7 +842,7 @@ EngineBase* EngineImageDir::CreateFromFile(const WCHAR* fileName) {
     return engine;
 }
 
-bool IsImageDirEngineSupportedFile(const WCHAR* fileName, [[maybe_unused]] bool sniff) {
+bool IsImageDirEngineSupportedFile(const WCHAR* fileName, __unused bool sniff) {
     // whether it actually contains images will be checked in LoadImageDir
     return dir::Exists(fileName);
 }
@@ -1012,11 +1014,11 @@ bool EngineCbx::FinishLoading() {
             return false;
         }
 
-        AutoFreeWstr fileNameW = strconv::Utf8ToWstr(fileName);
+        auto fileNameW = ToWstrTemp(fileName);
         Kind kind = GuessFileTypeFromName(fileNameW);
         if (IsImageEngineSupportedFileType(kind) &&
             // OS X occasionally leaves metadata with image extensions
-            !str::StartsWith(path::GetBaseNameNoFree(fileName), ".")) {
+            !str::StartsWith(path::GetBaseNameTemp(fileName), ".")) {
             pageFiles.Append(fileInfo);
         }
     }
@@ -1050,8 +1052,8 @@ bool EngineCbx::FinishLoading() {
     TocItem* curr = nullptr;
     for (int i = 0; i < pageCount; i++) {
         std::string_view fname = pageFiles[i]->name;
-        AutoFreeWstr name = strconv::Utf8ToWstr(fname);
-        const WCHAR* baseName = path::GetBaseNameNoFree(name.Get());
+        auto name = ToWstrTemp(fname);
+        const WCHAR* baseName = path::GetBaseNameTemp(name.Get());
         TocItem* ti = new TocItem(nullptr, baseName, i + 1);
         if (root == nullptr) {
             root = ti;
@@ -1174,7 +1176,7 @@ bool EngineCbx::Visit(const char* path, const char* value, json::Type type) {
            str::FindChar(propDate, '/') <= propDate;
 }
 
-bool EngineCbx::SaveFileAsPDF(const char* pdfFileName, [[maybe_unused]] bool includeUserAnnots) {
+bool EngineCbx::SaveFileAsPDF(const char* pdfFileName, __unused bool includeUserAnnots) {
     bool ok = true;
     PdfCreator* c = new PdfCreator();
     for (int i = 1; i <= PageCount() && ok; i++) {

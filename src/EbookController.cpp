@@ -16,7 +16,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EbookBase.h"
 #include "EbookDoc.h"
@@ -33,7 +32,7 @@
 #include "EbookControls.h"
 #include "Translations.h"
 
-static const WCHAR* GetFontName() {
+static const char* GetFontName() {
     // TODO: validate the name?
     return gGlobalPrefs->ebookUI.fontName;
 }
@@ -49,7 +48,8 @@ static float GetFontSize() {
 HtmlFormatterArgs* CreateFormatterArgsDoc(const Doc& doc, int dx, int dy, Allocator* textAllocator) {
     HtmlFormatterArgs* args = CreateFormatterDefaultArgs(dx, dy, textAllocator);
     args->htmlStr = doc.GetHtmlData();
-    args->SetFontName(GetFontName());
+    auto fontName = ToWstrTemp(GetFontName());
+    args->SetFontName(fontName.Get());
     args->fontSize = GetFontSize();
     return args;
 }
@@ -371,7 +371,7 @@ void EbookController::TriggerLayout() {
     UpdateStatus();
 }
 
-void EbookController::SizeChangedPage(Control* c, [[maybe_unused]] int dx, [[maybe_unused]] int dy) {
+void EbookController::SizeChangedPage(Control* c, __unused int dx, __unused int dy) {
     CrashIf(!(c == ctrls->pagesLayout->GetPage1() || c == ctrls->pagesLayout->GetPage2()));
     // delay re-layout so that we don't unnecessarily do the
     // work as long as the user is still resizing the window
@@ -380,18 +380,18 @@ void EbookController::SizeChangedPage(Control* c, [[maybe_unused]] int dx, [[may
     cb->RequestDelayedLayout(200);
 }
 
-void EbookController::ClickedNext([[maybe_unused]] Control* c, [[maybe_unused]] int x, [[maybe_unused]] int y) {
+void EbookController::ClickedNext(__unused Control* c, __unused int x, __unused int y) {
     // CrashIf(c != ctrls->next);
     GoToNextPage();
 }
 
-void EbookController::ClickedPrev([[maybe_unused]] Control* c, [[maybe_unused]] int x, [[maybe_unused]] int y) {
+void EbookController::ClickedPrev(__unused Control* c, __unused int x, __unused int y) {
     // CrashIf(c != ctrls->prev);
     GoToPrevPage();
 }
 
 // (x, y) is in the coordinates of c
-void EbookController::ClickedProgress([[maybe_unused]] Control* c, [[maybe_unused]] int x, [[maybe_unused]] int y) {
+void EbookController::ClickedProgress(__unused Control* c, __unused int x, __unused int y) {
     CrashIf(c != ctrls->progress);
     float perc = ctrls->progress->GetPercAt(x);
     int pageCount = (int)GetPages()->size();
@@ -417,7 +417,7 @@ void EbookController::OnClickedLink(int pageNo, DrawInstr* link) {
             for (size_t k = 0; k < std::min((size_t)2, p->instructions.size()); k++) {
                 DrawInstr& di = p->instructions.at(k);
                 if (DrawInstrType::Anchor == di.type && str::StartsWith(di.str.s + di.str.len, "\" page_marker />")) {
-                    AutoFree basePath(str::DupN(di.str.s, di.str.len));
+                    AutoFree basePath(str::Dup(di.str.s, di.str.len));
                     AutoFree relPath(ResolveHtmlEntities(link->str.s, link->str.len));
                     AutoFree absPath(NormalizeURL(relPath, basePath));
                     url.Set(strconv::Utf8ToWstr(absPath.Get()));
@@ -507,7 +507,7 @@ void EbookController::GoToPage(int pageNo, bool addNavPoint) {
     if (!pages) {
         // TODO: remove when we figure out why this happens
         logf("EbookController::GoToPage(): pageNo: %d, currentPageNo: %d\n", pageNo, this->currPageNo);
-        SubmitCrashIf(!pages);
+        SubmitBugReportIf(!pages);
         return;
     }
 
@@ -549,7 +549,7 @@ bool EbookController::GoToNextPage() {
     return true;
 }
 
-bool EbookController::GoToPrevPage([[maybe_unused]] bool toBottom) {
+bool EbookController::GoToPrevPage(__unused bool toBottom) {
     int dist = IsDoublePage() ? 2 : 1;
     if (currPageNo <= dist) {
         // seen a crash were currPageNo here was 0
@@ -670,7 +670,7 @@ void EbookController::CreateThumbnail(Size size, const onBitmapRenderedCb& saveT
     saveThumbnail(bmp);
 }
 
-void EbookController::SetDisplayMode(DisplayMode mode, [[maybe_unused]] bool keepContinuous) {
+void EbookController::SetDisplayMode(DisplayMode mode, __unused bool keepContinuous) {
     bool newDouble = !IsSingle(mode);
     if (IsDoublePage() == newDouble) {
         return;
@@ -707,7 +707,7 @@ void EbookController::ExtractPageAnchors() {
             attr = tok->GetAttrByName("name");
         }
         if (attr) {
-            AutoFreeWstr id = strconv::Utf8ToWstr({attr->val, attr->valLen});
+            auto id = ToWstrTemp({attr->val, attr->valLen});
             pageAnchorIds->Append(str::Format(L"%s#%s", epubPagePath ? epubPagePath.Get() : L"", id.Get()));
             pageAnchorIdxs->Append((int)(tok->GetReparsePoint() - parser.Start()));
         }
@@ -759,7 +759,7 @@ int EbookController::ResolvePageAnchor(const WCHAR* id) {
         return -1;
     }
 
-    AutoFreeWstr chapterPath(str::DupN(id, str::FindChar(id, '#') - id));
+    AutoFreeWstr chapterPath(str::Dup(id, str::FindChar(id, '#') - id));
     idx = pageAnchorIds->Find(chapterPath);
     if (idx != -1) {
         return pageAnchorIdxs->at(idx);
@@ -872,22 +872,22 @@ int EbookController::CurrentTocPageNo() const {
     return currPageReparseIdx + 1;
 }
 
-void EbookController::GetDisplayState(DisplayState* ds) {
+void EbookController::GetDisplayState(FileState* ds) {
     if (!ds->filePath || !str::EqI(ds->filePath, doc.GetFilePath())) {
-        str::ReplacePtr(&ds->filePath, doc.GetFilePath());
+        str::ReplaceWithCopy(&ds->filePath, doc.GetFilePath());
     }
 
     ds->useDefaultState = !gGlobalPrefs->rememberStatePerDocument;
 
-    // don't modify any of the other DisplayState values
+    // don't modify any of the other FileState values
     // as long as they're not used, so that the same
-    // DisplayState settings can also be used for EngineEbook;
-    // we get reasonable defaults from DisplayState's constructor anyway
+    // FileState settings can also be used for EngineEbook;
+    // we get reasonable defaults from FileState's constructor anyway
     ds->reparseIdx = currPageReparseIdx;
-    str::ReplacePtr(&ds->displayMode, DisplayModeToString(GetDisplayMode()));
+    str::ReplaceWithCopy(&ds->displayMode, DisplayModeToString(GetDisplayMode()));
 }
 
-void EbookController::SetViewPortSize([[maybe_unused]] Size size) {
+void EbookController::SetViewPortSize(__unused Size size) {
     // relayouting gets the size from the canvas hwnd
     ctrls->mainWnd->RequestLayout();
 }

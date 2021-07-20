@@ -62,7 +62,7 @@ static WCHAR IntToChar(int codepoint) {
 
 // caller needs to free() the result
 WCHAR* DecodeHtmlEntitites(const char* string, uint codepage) {
-    WCHAR* fixed = strconv::FromCodePage(string, codepage);
+    WCHAR* fixed = strconv::StrToWstr(string, codepage);
     WCHAR* dst = fixed;
     const WCHAR* src = fixed;
 
@@ -291,7 +291,7 @@ HtmlElement* HtmlParser::ParseInPlace(std::span<u8> d, uint codepage) {
 }
 
 HtmlElement* HtmlParser::Parse(std::span<u8> d, uint codepage) {
-    char* s = str::DupN(d);
+    char* s = str::Dup(d);
     HtmlElement* root = ParseInPlace(str::ToSpan(s), codepage);
     freeHtml = true;
     return root;

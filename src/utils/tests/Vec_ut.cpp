@@ -81,7 +81,9 @@ static void WStrVecTest() {
         WStrVec v2;
         size_t count = v2.Split(L"a,b,,c,", L",");
         utassert(count == 5 && v2.Find(L"c") == 3);
-        utassert(v2.Find(L"") == 2 && v2.Find(L"", 3) == 4 && v2.Find(L"", 5) == -1);
+        utassert(v2.Find(L"") == 2);
+        utassert(v2.Find(L"", 3) == 4);
+        utassert(v2.Find(L"", 5) == -1);
         utassert(v2.Find(L"B") == -1 && v2.FindI(L"B") == 1);
         AutoFreeWstr joined(v2.Join(L";"));
         utassert(str::Eq(joined, L"a;b;;c;"));
@@ -295,7 +297,12 @@ void VecTest() {
     {
         Vec<int> v;
         v.InsertAt(2, 2);
-        utassert(v.size() == 3 && v.at(0) == 0 && v.at(2) == 2);
+        auto size = v.size();
+        utassert(size == 3);
+        auto el0 = v.at(0);
+        utassert(el0 == 0);
+        auto el2 = v.at(2);
+        utassert(el2 == 2);
     }
 
     {

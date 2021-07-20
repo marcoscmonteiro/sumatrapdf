@@ -9,7 +9,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 
@@ -132,7 +131,7 @@ static ExternalViewerInfo* FindExternalViewerInfoByCmd(int cmd) {
 }
 
 static bool CanViewExternally(TabInfo* tab) {
-    if (!HasPermission(Perm_DiskAccess)) {
+    if (!HasPermission(Perm::DiskAccess)) {
         return false;
     }
     // if tab is nullptr, we're queried for the
@@ -144,9 +143,14 @@ static bool CanViewExternally(TabInfo* tab) {
 }
 
 static bool DetectExternalViewer(ExternalViewerInfo* info) {
+    const WCHAR* partialPath = info->exePartialPath;
+    if (!partialPath || !*partialPath) {
+        return false;
+    }
+
     {
-        AutoFreeWstr dir = GetSpecialFolder(CSIDL_PROGRAM_FILES);
-        WCHAR* path = path::Join(dir, info->exePartialPath);
+        TempWstr dir = GetSpecialFolderTemp(CSIDL_PROGRAM_FILES);
+        WCHAR* path = path::Join(dir, partialPath);
         if (file::Exists(path)) {
             info->exeFullPath = path;
             return true;
@@ -154,8 +158,8 @@ static bool DetectExternalViewer(ExternalViewerInfo* info) {
         str::Free(path);
     }
     {
-        AutoFreeWstr dir = GetSpecialFolder(CSIDL_PROGRAM_FILESX86);
-        WCHAR* path = path::Join(dir, info->exePartialPath);
+        TempWstr dir = GetSpecialFolderTemp(CSIDL_PROGRAM_FILESX86);
+        WCHAR* path = path::Join(dir, partialPath);
         if (file::Exists(path)) {
             info->exeFullPath = path;
             return true;
@@ -163,8 +167,8 @@ static bool DetectExternalViewer(ExternalViewerInfo* info) {
         str::Free(path);
     }
     {
-        AutoFreeWstr dir = GetSpecialFolder(CSIDL_WINDOWS);
-        WCHAR* path = path::Join(dir, info->exePartialPath);
+        TempWstr dir = GetSpecialFolderTemp(CSIDL_WINDOWS);
+        WCHAR* path = path::Join(dir, partialPath);
         if (file::Exists(path)) {
             info->exeFullPath = path;
             return true;
@@ -172,8 +176,8 @@ static bool DetectExternalViewer(ExternalViewerInfo* info) {
         str::Free(path);
     }
     {
-        AutoFreeWstr dir = GetSpecialFolder(CSIDL_SYSTEM);
-        WCHAR* path = path::Join(dir, info->exePartialPath);
+        TempWstr dir = GetSpecialFolderTemp(CSIDL_SYSTEM);
+        WCHAR* path = path::Join(dir, partialPath);
         if (file::Exists(path)) {
             info->exeFullPath = path;
             return true;
@@ -283,7 +287,7 @@ bool CanViewWithKnownExternalViewer(TabInfo* tab, int cmd) {
     }
     // must match file extension
     const WCHAR* filePath = tab->filePath.Get();
-    const WCHAR* ext = path::GetExtNoFree(filePath);
+    const WCHAR* ext = path::GetExtNoFreeTemp(filePath);
     const WCHAR* pos = str::FindI(info->exts, ext);
     if (!pos) {
         return false;
@@ -335,15 +339,28 @@ bool ViewWithKnownExternalViewer(TabInfo* tab, int cmd) {
     return LaunchFile(info->exeFullPath, params);
 }
 
+bool PathMatchFilter(const WCHAR* path, char* filter) {
+    // no filter means matches everything
+    if (str::IsEmpty(filter)) {
+        return true;
+    }
+    if (str::Eq(filter, "*")) {
+        return true;
+    }
+    auto s = ToWstrTemp(filter);
+    bool matches = path::Match(path, s.Get());
+    return matches;
+}
+
 bool ViewWithExternalViewer(TabInfo* tab, size_t idx) {
-    if (!HasPermission(Perm_DiskAccess) || !tab || !file::Exists(tab->filePath)) {
+    if (!HasPermission(Perm::DiskAccess) || !tab || !file::Exists(tab->filePath)) {
         return false;
     }
 
     for (size_t i = 0; i < gGlobalPrefs->externalViewers->size() && i <= idx; i++) {
         ExternalViewer* ev = gGlobalPrefs->externalViewers->at(i);
         // see AppendExternalViewersToMenu in Menu.cpp
-        if (!ev->commandLine || ev->filter && !str::Eq(ev->filter, L"*") && !path::Match(tab->filePath, ev->filter)) {
+        if (!ev->commandLine || !PathMatchFilter(tab->filePath, ev->filter)) {
             idx++;
         }
     }
@@ -353,6 +370,7 @@ bool ViewWithExternalViewer(TabInfo* tab, size_t idx) {
 
     ExternalViewer* ev = gGlobalPrefs->externalViewers->at(idx);
     WStrVec args;
+
     ParseCmdLine(ev->commandLine, args, 2);
     if (args.size() == 0 || !file::Exists(args.at(0))) {
         return false;

@@ -8,7 +8,7 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
+#include "AppTools.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 #include "DisplayMode.h"
@@ -22,6 +22,7 @@
 #include "WindowInfo.h"
 #include "resource.h"
 #include "Commands.h"
+#include "SumatraAbout.h"
 #include "SumatraProperties.h"
 #include "Translations.h"
 
@@ -29,10 +30,6 @@
 #define PROPERTIES_RECT_PADDING 8
 #define PROPERTIES_TXT_DY_PADDING 2
 #define PROPERTIES_WIN_TITLE _TR("Document Properties")
-
-constexpr double KB = 1024;
-constexpr double MB = 1024 * 1024;
-constexpr double GB = 1024 * 1024 * 1024;
 
 class PropertyEl {
   public:
@@ -184,41 +181,6 @@ static void ConvDateToDisplay(WCHAR** s, bool (*DateParse)(const WCHAR* date, SY
         free(*s);
         *s = formatted;
     }
-}
-
-// Format the file size in a short form that rounds to the largest size unit
-// e.g. "3.48 GB", "12.38 MB", "23 KB"
-// Caller needs to free the result.
-static WCHAR* FormatSizeSuccint(size_t size) {
-    const WCHAR* unit = nullptr;
-    double s = (double)size;
-
-    if (s > GB) {
-        s = s / GB;
-        unit = _TR("GB");
-    } else if (s > MB) {
-        s = s / MB;
-        unit = _TR("MB");
-    } else {
-        s = s / KB;
-        unit = _TR("KB");
-    }
-
-    AutoFreeWstr sizestr = str::FormatFloatWithThousandSep(s);
-    if (!unit) {
-        return sizestr.StealData();
-    }
-    return str::Format(L"%s %s", sizestr.Get(), unit);
-}
-
-// format file size in a readable way e.g. 1348258 is shown
-// as "1.29 MB (1,348,258 Bytes)"
-// Caller needs to free the result
-static WCHAR* FormatFileSize(size_t size) {
-    AutoFreeWstr n1(FormatSizeSuccint(size));
-    AutoFreeWstr n2(str::FormatNumWithThousandSep(size));
-
-    return str::Format(L"%s (%s %s)", n1.Get(), n2.Get(), _TR("Bytes"));
 }
 
 struct PaperSizeDesc {
@@ -406,8 +368,8 @@ static WCHAR* FormatPermissions(Controller* ctrl) {
 }
 
 static void UpdatePropertiesLayout(PropertiesLayout* layoutData, HDC hdc, Rect* rect) {
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, LEFT_TXT_FONT, LEFT_TXT_FONT_SIZE));
-    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, RIGHT_TXT_FONT, RIGHT_TXT_FONT_SIZE));
+    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize));
+    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize));
     HGDIOBJ origFont = SelectObject(hdc, fontLeftTxt);
 
     /* calculate text dimensions for the left side */
@@ -472,9 +434,12 @@ static void UpdatePropertiesLayout(PropertiesLayout* layoutData, HDC hdc, Rect* 
 
 static bool CreatePropertiesWindow(HWND hParent, PropertiesLayout* layoutData) {
     CrashIf(layoutData->hwnd);
-    HWND hwnd = CreateWindow(PROPERTIES_CLASS_NAME, PROPERTIES_WIN_TITLE, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-                             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr,
-                             GetModuleHandle(nullptr), nullptr);
+    auto h = GetModuleHandleW(nullptr);
+    DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    auto clsName = PROPERTIES_CLASS_NAME;
+    auto title = PROPERTIES_WIN_TITLE;
+    HWND hwnd = CreateWindowW(clsName, title, dwStyle, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                              nullptr, nullptr, h, nullptr);
     if (!hwnd) {
         return false;
     }
@@ -494,7 +459,7 @@ static bool CreatePropertiesWindow(HWND hParent, PropertiesLayout* layoutData) {
     // (as long as they fit into the current monitor's work area)
     Rect wRc = WindowRect(hwnd);
     Rect cRc = ClientRect(hwnd);
-    Rect work = GetWorkAreaRect(WindowRect(hParent));
+    Rect work = GetWorkAreaRect(WindowRect(hParent), hwnd);
     wRc.dx = std::min(rc.dx + wRc.dx - cRc.dx, work.dx);
     wRc.dy = std::min(rc.dy + wRc.dy - cRc.dy, work.dy);
     MoveWindow(hwnd, wRc.x, wRc.y, wRc.dx, wRc.dy, FALSE);
@@ -504,7 +469,7 @@ static bool CreatePropertiesWindow(HWND hParent, PropertiesLayout* layoutData) {
     return true;
 }
 
-static void GetProps(Controller* ctrl, PropertiesLayout* layoutData, [[maybe_unused]] bool extended) {
+static void GetProps(Controller* ctrl, PropertiesLayout* layoutData, __unused bool extended) {
     CrashIf(!ctrl);
 
     WCHAR* str = str::Dup(gPluginMode ? gPluginURL : ctrl->FilePath());
@@ -551,7 +516,7 @@ static void GetProps(Controller* ctrl, PropertiesLayout* layoutData, [[maybe_unu
     str = FormatPdfFileStructure(ctrl);
     layoutData->AddProperty(_TR("PDF Optimizations:"), str);
 
-    AutoFreeStr path = strconv::WstrToUtf8(ctrl->FilePath());
+    auto path = ToUtf8Temp(ctrl->FilePath());
     i64 fileSize = file::GetSize(path.AsView());
     if (-1 == fileSize && dm) {
         EngineBase* engine = dm->GetEngine();
@@ -625,8 +590,8 @@ void OnMenuProperties(WindowInfo* win) {
 static void DrawProperties(HWND hwnd, HDC hdc) {
     PropertiesLayout* layoutData = FindPropertyWindowByHwnd(hwnd);
 
-    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, LEFT_TXT_FONT, LEFT_TXT_FONT_SIZE));
-    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, RIGHT_TXT_FONT, RIGHT_TXT_FONT_SIZE));
+    AutoDeleteFont fontLeftTxt(CreateSimpleFont(hdc, kLeftTextFont, kLeftTextFontSize));
+    AutoDeleteFont fontRightTxt(CreateSimpleFont(hdc, kRightTextFont, kRightTextFontSize));
 
     HGDIOBJ origFont = SelectObject(hdc, fontLeftTxt); /* Just to remember the orig font */
 

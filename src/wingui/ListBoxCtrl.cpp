@@ -21,7 +21,7 @@ int ListBoxModelStrings::ItemsCount() {
     return strings.Size();
 }
 
-Size ListBoxModelStrings::Draw([[maybe_unused]] bool measure) {
+Size ListBoxModelStrings::Draw(__unused bool measure) {
     CrashIf(true);
     return Size{};
 }
@@ -47,7 +47,7 @@ static void FillWithItems(ListBoxCtrl* w, ListBoxModel* model) {
     ListBox_ResetContent(hwnd);
     for (int i = 0; i < model->ItemsCount(); i++) {
         auto sv = model->Item(i);
-        AutoFreeWstr ws = strconv::Utf8ToWstr(sv);
+        auto ws = ToWstrTemp(sv);
         ListBox_AddString(hwnd, ws.Get());
     }
 }

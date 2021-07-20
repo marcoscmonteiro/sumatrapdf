@@ -7,19 +7,18 @@ bool IsSep(char c);
 
 std::string_view GetBaseName(std::string_view path);
 
-const char* GetBaseNameNoFree(const char* path);
-const char* GetExtNoFree(const char* path);
+const char* GetBaseNameTemp(const char* path);
+const char* GetExtNoFreeTemp(const char* path);
 
-char* JoinUtf(const char* path, const char* fileName, Allocator* allocator);
+char* Join(const char* path, const char* fileName, Allocator* allocator);
 
 std::string_view GetDir(std::string_view path);
 bool IsDirectory(std::string_view);
 bool IsDirectory(std::wstring_view);
 
-#if OS_WIN
 bool IsSep(WCHAR c);
-const WCHAR* GetBaseNameNoFree(const WCHAR* path);
-const WCHAR* GetExtNoFree(const WCHAR* path);
+const WCHAR* GetBaseNameTemp(const WCHAR* path);
+const WCHAR* GetExtNoFreeTemp(const WCHAR* path);
 
 WCHAR* Normalize(const WCHAR* path);
 WCHAR* ShortPath(const WCHAR* path);
@@ -32,9 +31,8 @@ bool IsAbsolute(const WCHAR* path);
 WCHAR* GetDir(const WCHAR* path);
 WCHAR* Join(const WCHAR* path, const WCHAR* fileName, const WCHAR* fileName2 = nullptr);
 
-WCHAR* GetTempPath(const WCHAR* filePrefix = nullptr);
+WCHAR* GetTempFilePath(const WCHAR* filePrefix = nullptr);
 WCHAR* GetPathOfFileInAppDir(const WCHAR* fileName = nullptr);
-#endif
 } // namespace path
 
 namespace file {
@@ -47,7 +45,6 @@ std::span<u8> ReadFile(std::string_view path);
 
 bool Exists(std::string_view path);
 
-#if OS_WIN
 FILE* OpenFILE(const WCHAR* path);
 bool Exists(const WCHAR* path);
 std::span<u8> ReadFileWithAllocator(const WCHAR* filePath, Allocator* allocator);
@@ -63,24 +60,22 @@ bool SetModificationTime(const WCHAR* path, FILETIME lastMod);
 bool StartsWithN(const WCHAR* path, const char* magicNumber, size_t len);
 bool StartsWith(const WCHAR* path, const char* magicNumber);
 
-int GetZoneIdentifier(const WCHAR* path);
-bool SetZoneIdentifier(const WCHAR* path, int zoneId = URLZONE_INTERNET);
-bool DeleteZoneIdentifier(const WCHAR* path);
+int GetZoneIdentifier(const char* path);
+bool SetZoneIdentifier(const char* path, int zoneId = URLZONE_INTERNET);
+bool DeleteZoneIdentifier(const char* path);
 
 HANDLE OpenReadOnly(const WCHAR* path);
-#endif
+
+bool Copy(const WCHAR* dst, const WCHAR* src, bool dontOverwrite);
+
 } // namespace file
 
 namespace dir {
 
-#if OS_WIN
 bool Exists(const WCHAR* dir);
 bool Create(const WCHAR* dir);
 bool CreateAll(const WCHAR* dir);
 bool RemoveAll(const WCHAR* dir);
-#endif
 } // namespace dir
 
-#if OS_WIN
 bool FileTimeEq(const FILETIME& a, const FILETIME& b);
-#endif

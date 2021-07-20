@@ -14,14 +14,39 @@ namespace str {
 
 enum class TrimOpt { Left, Right, Both };
 
+size_t Len(const WCHAR*);
 size_t Len(const char* s);
-char* Dup(const char* s);
+
+void Free(const char*);
+void Free(const u8*);
+void Free(std::string_view);
+
+void Free(const WCHAR* s);
+void Free(std::wstring_view);
+
+void FreePtr(const char** s);
+void FreePtr(char** s);
+void FreePtr(const WCHAR** s);
+void FreePtr(WCHAR** s);
+
+char* Dup(Allocator*, const char* str, size_t strLen = (size_t)-1);
+char* Dup(const char* s, size_t cch = (size_t)-1);
+char* Dup(Allocator*, std::string_view);
+char* Dup(const std::string_view);
+char* Dup(const std::span<u8> d);
+
+WCHAR* Dup(Allocator*, const WCHAR* str, size_t strLen = (size_t)-1);
+WCHAR* Dup(const WCHAR* s, size_t cch = (size_t)-1);
+WCHAR* Dup(const std::wstring_view);
 
 void ReplacePtr(char** s, const char* snew);
-void ReplacePtr(const char** s, const char* snew);
+void ReplaceWithCopy(char** s, const char* snew);
+void ReplaceWithCopy(const char** s, const char* snew);
 
 char* Join(const char* s1, const char* s2, const char* s3 = nullptr);
+WCHAR* Join(const WCHAR*, const WCHAR*, const WCHAR* s3 = nullptr);
 char* Join(const char* s1, const char* s2, const char* s3, Allocator* allocator);
+WCHAR* Join(const WCHAR*, const WCHAR*, const WCHAR* s3, Allocator* allocator);
 
 bool Eq(const char* s1, const char* s2);
 bool Eq(std::string_view s1, const char* s2);
@@ -37,11 +62,7 @@ bool StartsWith(const u8* str, const char* prefix);
 bool StartsWith(std::string_view s, const char* prefix);
 std::span<u8> ToSpan(const char* s);
 
-#if OS_WIN
-size_t Len(const WCHAR*);
-WCHAR* Dup(const WCHAR*);
-void ReplacePtr(WCHAR** s, const WCHAR* snew);
-WCHAR* Join(const WCHAR*, const WCHAR*, const WCHAR* s3 = nullptr);
+void ReplaceWithCopy(WCHAR** s, const WCHAR* snew);
 bool Eq(const WCHAR*, const WCHAR*);
 bool EqI(const WCHAR*, const WCHAR*);
 bool EqIS(const WCHAR*, const WCHAR*);
@@ -49,34 +70,22 @@ bool EqN(const WCHAR*, const WCHAR*, size_t);
 bool EqNI(const WCHAR*, const WCHAR*, size_t);
 bool IsEmpty(const WCHAR*);
 bool StartsWith(const WCHAR* str, const WCHAR* prefix);
-#endif
 
 bool StartsWithI(const char* str, const char* prefix);
 bool EndsWith(const char* txt, const char* end);
 bool EndsWithI(const char* txt, const char* end);
 bool EqNIx(const char* s, size_t len, const char* s2);
 
-char* DupN(const char* s, size_t lenCch);
-char* Dup(const std::string_view);
-char* DupN(const std::span<u8> d);
 char* ToLowerInPlace(char*);
 char* ToLower(const char*);
 
-void Free(const char*);
-void Free(const u8*);
-
-#if OS_WIN
 bool StartsWithI(const WCHAR* str, const WCHAR* txt);
 bool EndsWith(const WCHAR* txt, const WCHAR* end);
 bool EndsWithI(const WCHAR* txt, const WCHAR* end);
-WCHAR* DupN(const WCHAR* s, size_t lenCch);
-void Free(const WCHAR* s);
-void FreePtr(const WCHAR** s);
 WCHAR* ToLowerInPlace(WCHAR* s);
 WCHAR* ToLower(const WCHAR* s);
 
 void Utf8Encode(char*& dst, int c);
-#endif
 
 bool IsDigit(char c);
 bool IsWs(char c);
@@ -95,7 +104,6 @@ bool BufFmtV(char* buf, size_t bufCchSize, const char* fmt, va_list args);
 char* FmtV(const char* fmt, va_list args);
 char* Format(const char* fmt, ...);
 
-#if OS_WIN
 const WCHAR* FindChar(const WCHAR* str, WCHAR c);
 WCHAR* FindChar(WCHAR* str, WCHAR c);
 const WCHAR* FindCharLast(const WCHAR* str, WCHAR c);
@@ -111,61 +119,53 @@ bool IsWs(WCHAR c);
 bool IsDigit(WCHAR c);
 bool IsNonCharacter(WCHAR c);
 
-size_t TrimWS(WCHAR* s, TrimOpt opt);
-#endif
-
-size_t TrimWS(char* s, TrimOpt opt);
+size_t TrimWSInPlace(char* s, TrimOpt opt);
+size_t TrimWSInPlace(WCHAR* s, TrimOpt opt);
 void TrimWsEnd(char* s, char*& e);
 
-size_t TransChars(char* str, const char* oldChars, const char* newChars);
-char* Replace(const char* s, const char* toReplace, const char* replaceWith);
+size_t TransCharsInPlace(char* str, const char* oldChars, const char* newChars);
+size_t TransCharsInPlace(WCHAR* str, const WCHAR* oldChars, const WCHAR* newChars);
 
-size_t NormalizeWS(char* str);
+char* Replace(const char* s, const char* toReplace, const char* replaceWith);
+WCHAR* Replace(const WCHAR* s, const WCHAR* toReplace, const WCHAR* replaceWith);
+
+size_t NormalizeWSInPlace(char* str);
+size_t NormalizeWSInPlace(WCHAR* str);
 size_t NormalizeNewlinesInPlace(char* s, char* e);
 size_t NormalizeNewlinesInPlace(char* s);
-size_t RemoveChars(char* str, const char* toRemove);
+size_t RemoveCharsInPlace(char* str, const char* toRemove);
+size_t RemoveCharsInPlace(WCHAR* str, const WCHAR* toRemove);
 
 size_t BufSet(char* dst, size_t dstCchSize, const char* src);
+size_t BufSet(WCHAR* dst, size_t dstCchSize, const WCHAR* src);
 size_t BufAppend(char* dst, size_t dstCchSize, const char* s);
+size_t BufAppend(WCHAR* dst, size_t dstCchSize, const WCHAR* s);
 
 char* MemToHex(const u8* buf, size_t len);
 bool HexToMem(const char* s, u8* buf, size_t bufLen);
 
 const char* Parse(const char* str, const char* format, ...);
 const char* Parse(const char* str, size_t len, const char* format, ...);
+const WCHAR* Parse(const WCHAR* str, const WCHAR* format, ...);
 
 int CmpNatural(const char*, const char*);
-
-#if OS_WIN
-size_t TransChars(WCHAR* str, const WCHAR* oldChars, const WCHAR* newChars);
-WCHAR* Replace(const WCHAR* s, const WCHAR* toReplace, const WCHAR* replaceWith);
-size_t NormalizeWS(WCHAR* str);
-size_t RemoveChars(WCHAR* str, const WCHAR* toRemove);
-size_t BufSet(WCHAR* dst, size_t dstCchSize, const WCHAR* src);
-size_t BufAppend(WCHAR* dst, size_t dstCchSize, const WCHAR* s);
-
-WCHAR* FormatFloatWithThousandSep(double number, LCID locale = LOCALE_USER_DEFAULT);
-WCHAR* FormatNumWithThousandSep(size_t num, LCID locale = LOCALE_USER_DEFAULT);
-WCHAR* FormatRomanNumeral(int number);
-
 int CmpNatural(const WCHAR*, const WCHAR*);
 
-const WCHAR* Parse(const WCHAR* str, const WCHAR* format, ...);
-bool IsStringEmptyOrWhiteSpaceOnly(std::string_view sv);
+WCHAR* FormatFloatWithThousandSep(double number, LCID locale = LOCALE_USER_DEFAULT);
+WCHAR* FormatNumWithThousandSep(i64 num, LCID locale = LOCALE_USER_DEFAULT);
+WCHAR* FormatRomanNumeral(int number);
 
-#endif
+bool EmptyOrWhiteSpaceOnly(std::string_view sv);
 } // namespace str
 
 namespace url {
 
-void DecodeInPlace(char* urlUtf8);
+void DecodeInPlace(char* urlA);
 
-#if OS_WIN
 bool IsAbsolute(const WCHAR* url);
 void DecodeInPlace(WCHAR* url);
 WCHAR* GetFullPath(const WCHAR* url);
 WCHAR* GetFileName(const WCHAR* url);
-#endif
 
 } // namespace url
 
@@ -176,10 +176,8 @@ int StrToIdx(const char* strs, const char* toFind);
 int StrToIdxIS(const char* strs, const char* toFind);
 const char* IdxToStr(const char* strs, int idx);
 
-#if OS_WIN
 int StrToIdx(const char* strs, const WCHAR* toFind);
 const WCHAR* IdxToStr(const WCHAR* strs, int idx);
-#endif
 } // namespace seqstrings
 
 #define _MemToHex(ptr) str::MemToHex((const u8*)(ptr), sizeof(*ptr))
@@ -236,14 +234,12 @@ struct Str {
     std::string_view AsView() const;
     std::span<u8> AsSpan() const;
     std::string_view StealAsView();
-    std::span<u8> StealAsSpan();
     bool AppendChar(char c);
     bool Append(const u8* src, size_t size = -1);
     bool AppendView(const std::string_view sv);
     bool AppendSpan(std::span<u8> d);
     void AppendFmt(const char* fmt, ...);
     bool AppendAndFree(const char* s);
-    bool Replace(const char* toReplace, const char* replaceWith);
     void Set(std::string_view sv);
     char* Get() const;
     char LastChar() const;
@@ -266,6 +262,8 @@ struct Str {
         return &(els[len]);
     }
 };
+
+bool Replace(Str& s, const char* toReplace, const char* replaceWith);
 
 struct WStr {
     // allocator is not owned by Vec and must outlive it
@@ -314,13 +312,11 @@ struct WStr {
     std::wstring_view AsView() const;
     std::span<WCHAR> AsSpan() const;
     std::wstring_view StealAsView();
-    std::span<WCHAR> StealAsSpan();
     bool AppendChar(WCHAR c);
     bool AppendSpan(std::span<WCHAR> d);
     bool AppendView(const std::wstring_view sv);
     void AppendFmt(const WCHAR* fmt, ...);
     bool AppendAndFree(const WCHAR* s);
-    bool Replace(const WCHAR* toReplace, const WCHAR* replaceWith);
     void Set(std::wstring_view sv);
     WCHAR* Get() const;
     WCHAR LastChar() const;
@@ -343,4 +339,9 @@ struct WStr {
         return &(els[len]);
     }
 };
+
+bool Replace(WStr& s, const WCHAR* toReplace, const WCHAR* replaceWith);
+
 } // namespace str
+
+std::span<u8> ToSpanU8(std::string_view sv);

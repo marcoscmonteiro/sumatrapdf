@@ -113,7 +113,7 @@ static void GetFileState(const WCHAR* filePath, FileWatcherState* fs) {
     // copy f.pdf f2.pdf will change lastAccessTime of f.pdf)
     // So I'm sticking with lastWriteTime
     fs->time = file::GetModificationTime(filePath);
-    AutoFreeStr path = strconv::WstrToUtf8(filePath);
+    auto path = ToUtf8Temp(filePath);
     fs->size = file::GetSize(path.AsView());
 }
 
@@ -154,7 +154,7 @@ static void NotifyAboutFile(WatchedDir* d, const WCHAR* fileName) {
         if (wf->watchedDir != d) {
             continue;
         }
-        const WCHAR* wfFileName = path::GetBaseNameNoFree(wf->filePath);
+        const WCHAR* wfFileName = path::GetBaseNameTemp(wf->filePath);
 
         if (!str::EqI(fileName, wfFileName)) {
             continue;
@@ -200,7 +200,7 @@ static void CALLBACK ReadDirectoryChangesNotification(DWORD errCode, DWORD bytes
     // collect files that changed, removing duplicates
     WStrVec changedFiles;
     for (;;) {
-        AutoFreeWstr fileName(str::DupN(notify->FileName, notify->FileNameLength / sizeof(WCHAR)));
+        AutoFreeWstr fileName(str::Dup(notify->FileName, notify->FileNameLength / sizeof(WCHAR)));
         // files can get updated either by writing to them directly or
         // by writing to a .tmp file first and then moving that file in place
         // (the latter only yields a RENAMED action with the expected file name)
@@ -286,7 +286,7 @@ static void RunManualChecks() {
     }
 }
 
-static DWORD WINAPI FileWatcherThread([[maybe_unused]] void* param) {
+static DWORD WINAPI FileWatcherThread(__unused void* param) {
     HANDLE handles[1];
     // must be alertable to receive ReadDirectoryChangesW() callbacks and APCs
     BOOL alertable = TRUE;

@@ -137,7 +137,7 @@ static Rect ExtractDSCPageSize(const WCHAR* path) {
 static EngineBase* ps2pdf(const WCHAR* path) {
     // TODO: read from gswin32c's stdout instead of using a TEMP file
     AutoFreeWstr shortPath(path::ShortPath(path));
-    AutoFreeWstr tmpFile(path::GetTempPath(L"PsE"));
+    AutoFreeWstr tmpFile(path::GetTempFilePath(L"PsE"));
     ScopedFile tmpFileScope(tmpFile);
     AutoFreeWstr gswin32c(GetGhostscriptPath());
     if (!shortPath || !tmpFile || !gswin32c) {
@@ -159,9 +159,9 @@ static EngineBase* ps2pdf(const WCHAR* path) {
         gswin32c.Get(), tmpFile.Get(), shortPath.Get());
 
     {
-        const char* fileName = path::GetBaseNameNoFree(__FILE__);
-        AutoFree gswin = strconv::WstrToUtf8(gswin32c.Get());
-        AutoFree tmpFileName = strconv::WstrToUtf8(path::GetBaseNameNoFree(tmpFile));
+        const char* fileName = path::GetBaseNameTemp(__FILE__);
+        auto gswin = ToUtf8Temp(gswin32c.Get());
+        auto tmpFileName = ToUtf8Temp(path::GetBaseNameTemp(tmpFile));
         logf("- %s:%d: using '%s' for creating '%%TEMP%%\\%s'\n", fileName, __LINE__, gswin.Get(), tmpFileName.Get());
     }
 
@@ -201,7 +201,7 @@ static EngineBase* ps2pdf(const WCHAR* path) {
 }
 
 static EngineBase* psgz2pdf(const WCHAR* fileName) {
-    AutoFreeWstr tmpFile(path::GetTempPath(L"PsE"));
+    AutoFreeWstr tmpFile(path::GetTempFilePath(L"PsE"));
     ScopedFile tmpFileScope(tmpFile);
     if (!tmpFile) {
         return nullptr;
@@ -279,12 +279,12 @@ class EnginePs : public EngineBase {
         return file::ReadFile(fileName);
     }
 
-    bool SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots = false) override {
+    bool SaveFileAs(const char* copyFileName, __unused bool includeUserAnnots = false) override {
         if (!FileName()) {
             return false;
         }
-        AutoFreeWstr dstPath = strconv::Utf8ToWstr(copyFileName);
-        return CopyFileW(FileName(), dstPath, FALSE);
+        auto dstPath = ToWstrTemp(copyFileName);
+        return file::Copy(dstPath, FileName(), false);
     }
 
     bool SaveFileAsPDF(const char* pdfFileName, bool includeUserAnnots = false) override {

@@ -9,8 +9,8 @@
 #include "utils/Timer.h"
 #include "utils/UITask.h"
 #include "utils/WinUtil.h"
-#include "AppColors.h"
 #include "utils/ScopedWin.h"
+#include "utils/Log.h"
 
 #include "wingui/WinGui.h"
 #include "wingui/Layout.h"
@@ -19,6 +19,7 @@
 #include "wingui/TreeCtrl.h"
 #include "wingui/FrameRateWnd.h"
 
+#include "AppColors.h"
 #include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
@@ -297,7 +298,7 @@ bool IsDrag(int x1, int x2, int y1, int y2) {
     return false;
 }
 
-static void OnMouseMove(WindowInfo* win, int x, int y, [[maybe_unused]] WPARAM flags) {
+static void OnMouseMove(WindowInfo* win, int x, int y, __unused WPARAM flags) {
     CrashIf(!win->AsFixed());
 
     if (win->presentation != PM_DISABLED) {
@@ -421,7 +422,7 @@ static void SetObjectUnderMouse(WindowInfo* win, int x, int y) {
         }
     }
 
-    IPageElement* pageEl = dm->GetElementAtPos(pt);
+    IPageElement* pageEl = dm->GetElementAtPos(pt, nullptr);
     if (pageEl) {
         if (pageEl->Is(kindPageElementDest)) {
             win->linkOnLastButtonDown = pageEl;
@@ -462,7 +463,7 @@ static void OnMouseLeftButtonDown(WindowInfo* win, int x, int y, WPARAM key) {
     // - not having CopySelection permission forces dragging
     bool isShift = IsShiftPressed();
     bool isCtrl = IsCtrlPressed();
-    bool canCopy = HasPermission(Perm_CopySelection);
+    bool canCopy = HasPermission(Perm::CopySelection);
     bool isOverText = win->AsFixed()->IsOverText(pt);
     Annotation* annot = win->annotationOnLastButtonDown;
     if (annot || !canCopy || (isShift || !isOverText) && !isCtrl) {
@@ -584,7 +585,7 @@ static void OnMouseLeftButtonDblClk(WindowInfo* win, int x, int y, WPARAM key) {
         return;
     }
 
-    IPageElement* pageEl = dm->GetElementAtPos(Point(x, y));
+    IPageElement* pageEl = dm->GetElementAtPos(Point(x, y), nullptr);
     if (pageEl && pageEl->Is(kindPageElementDest)) {
         // speed up navigation in a file where navigation links are in a fixed position
         OnMouseLeftButtonDown(win, x, y, key);
@@ -600,7 +601,7 @@ static void OnMouseLeftButtonDblClk(WindowInfo* win, int x, int y, WPARAM key) {
     delete pageEl;
 }
 
-static void OnMouseMiddleButtonDown(WindowInfo* win, int x, int y, [[maybe_unused]] WPARAM key) {
+static void OnMouseMiddleButtonDown(WindowInfo* win, int x, int y, __unused WPARAM key) {
     // Handle message by recording placement then moving document as mouse moves.
 
     switch (win->mouseAction) {
@@ -714,8 +715,7 @@ static void PaintPageFrameAndShadow(HDC hdc, Rect& bounds, Rect& pageRect, bool 
     Rectangle(hdc, frame.x, frame.y, frame.x + frame.dx, frame.y + frame.dy);
 }
 #else
-static void PaintPageFrameAndShadow(HDC hdc, Rect& bounds, [[maybe_unused]] Rect& pageRect,
-                                    [[maybe_unused]] bool presentation) {
+static void PaintPageFrameAndShadow(HDC hdc, Rect& bounds, __unused Rect& pageRect, __unused bool presentation) {
     AutoDeletePen pen(CreatePen(PS_NULL, 0, 0));
     auto col = GetAppColor(AppColor::MainWindowBg);
     AutoDeleteBrush brush(CreateSolidBrush(col));
@@ -817,17 +817,17 @@ static void DrawDocument(WindowInfo* win, HDC hdc, RECT* rcArea) {
         FillRect(hdc, rcArea, brush);
     } else {
         COLORREF colors[3];
-        colors[0] = gcols->at(0);
+        colors[0] = ParseColor(gcols->at(0), WIN_COL_WHITE);
         if (nGCols == 1) {
             colors[1] = colors[2] = colors[0];
         } else if (nGCols == 2) {
-            colors[2] = gcols->at(1);
+            colors[2] = ParseColor(gcols->at(1), WIN_COL_WHITE);
             colors[1] =
                 RGB((GetRed(colors[0]) + GetRed(colors[2])) / 2, (GetGreen(colors[0]) + GetGreen(colors[2])) / 2,
                     (GetBlue(colors[0]) + GetBlue(colors[2])) / 2);
         } else {
-            colors[1] = gcols->at(1);
-            colors[2] = gcols->at(2);
+            colors[1] = ParseColor(gcols->at(1), WIN_COL_WHITE);
+            colors[2] = ParseColor(gcols->at(2), WIN_COL_WHITE);
         }
         Size size = dm->GetCanvasSize();
         float percTop = 1.0f * dm->GetViewPort().y / size.dy;
@@ -992,14 +992,21 @@ static LRESULT OnSetCursorMouseIdle(WindowInfo* win, HWND hwnd) {
         return TRUE;
     }
 
-    IPageElement* pageEl = dm->GetElementAtPos(pt);
+    int pageNo{0};
+    IPageElement* pageEl = dm->GetElementAtPos(pt, &pageNo);
     if (!pageEl) {
         SetTextOrArrorCursor(dm, pt);
         win->HideToolTip();
         return TRUE;
     }
     WCHAR* text = pageEl->GetValue();
-    int pageNo = pageEl->GetPageNo();
+    if (!dm->ValidPageNo(pageNo)) {
+        const char* kind = pageEl->GetKind();
+        logf("OnSetCursorMouseIdle: page element '%s' of kind '%s' on invalid page %d\n", ToUtf8Temp(text).Get(), kind,
+             pageNo);
+        SubmitBugReportIf(true);
+        return TRUE;
+    }
     auto r = pageEl->GetRect();
     Rect rc = dm->CvtToScreen(pageNo, r);
     win->ShowToolTip(text, rc, true);

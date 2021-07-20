@@ -69,19 +69,19 @@
 #define COMPILER_MINGW 0
 #endif
 
-#if OS_WIN
 #ifndef UNICODE
 #define UNICODE
-#endif
 #endif
 
 #ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+// Windows headers use _unused
+#define __unused [[maybe_unused]]
+
 #include "BuildConfig.h"
 
-#if OS_WIN
 #define NOMINMAX
 #include <windows.h>
 #include <unknwn.h>
@@ -104,7 +104,6 @@
 #undef max
 
 #include <io.h>
-#endif // OS_WIN
 
 // Most common C includes
 #include <stdlib.h>
@@ -224,22 +223,8 @@ inline void CrashIfFunc(bool cond) {
     if (!cond) {
         return;
     }
-#if defined(PRE_RELEASE_VER) || defined(DEBUG)
+#if defined(PRE_RELEASE_VER)
     CrashMe();
-#endif
-}
-
-// must be provided somewhere else
-// could be a dummy implementation
-// For sumatra, it's in CrashHandler.cpp
-extern void SendCrashReport(const char*);
-
-inline void SendCrashIfFunc(bool cond, [[maybe_unused]] const char* condStr) {
-    if (!cond) {
-        return;
-    }
-#if defined(PRE_RELEASE_VER) || defined(DEBUG)
-    SendCrashReport(condStr);
 #endif
 }
 
@@ -282,15 +267,13 @@ inline void DebugCrashIfFunc(bool) {
         CrashIfFunc(cond);          \
     } while (0)
 
-#define SubmitCrashIf(cond)           \
-    do {                              \
-        __analysis_assume(!(cond));   \
-        SendCrashIfFunc(cond, #cond); \
-    } while (0)
+void _submitDebugReportIfFunc(bool cond, __unused const char* condStr);
 
-#if !OS_WIN
-void ZeroMemory(void* p, size_t len);
-#endif
+#define SubmitBugReportIf(cond)                \
+    do {                                       \
+        __analysis_assume(!(cond));            \
+        _submitDebugReportIfFunc(cond, #cond); \
+    } while (0)
 
 void* AllocZero(size_t count, size_t size);
 
@@ -335,13 +318,13 @@ inline bool addOverflows(T val, T n) {
     return val > res;
 }
 
-void* memdup(const void* data, size_t len);
+void* memdup(const void* data, size_t len, size_t extraBytes = 0);
 bool memeq(const void* s1, const void* s2, size_t len);
 
 size_t RoundToPowerOf2(size_t size);
 u32 MurmurHash2(const void* key, size_t len);
 
-size_t RoundUp(size_t n, size_t rounding);
+constexpr size_t RoundUp(size_t n, size_t rounding);
 int RoundUp(int n, int rounding);
 char* RoundUp(char*, int rounding);
 
@@ -393,13 +376,7 @@ struct Allocator {
     static void* AllocZero(Allocator* a, size_t size);
     static void Free(Allocator* a, void* p);
     static void* Realloc(Allocator* a, void* mem, size_t size);
-    static void* MemDup(Allocator* a, const void* mem, size_t size, size_t padding = 0);
-    static char* StrDup(Allocator* a, const char* str);
-    static std::string_view AllocString(Allocator* a, std::string_view str);
-
-#if OS_WIN
-    static WCHAR* StrDup(Allocator* a, const WCHAR* str);
-#endif
+    static void* MemDup(Allocator* a, const void* mem, size_t size, size_t extraBytes = 0);
 };
 
 // PoolAllocator is for the cases where we need to allocate pieces of memory
@@ -413,19 +390,15 @@ struct Allocator {
 struct PoolAllocator : Allocator {
     // we'll allocate block of the minBlockSize unless
     // asked for a block of bigger size
-    int minBlockSize = 4096;
-    // alignment of allocations, must be 2^N or <= 1 to disable
-    // We might apply padding so that allocated memory starts at
-    // multiply of allocAlign. This is sometimes needed to satisfy ABI
-    // requirements or to ensure CPU operations (like SSE) are fast
-    int allocAlign = 8;
+    size_t minBlockSize = 4096;
 
     // contains allocated data and index of each allocation
     struct Block {
         struct Block* next;
-        int dataSize; // for debugging, not used
-        int nAllocs;
-        char* curr;
+        size_t dataSize; // size of data in block
+        size_t nAllocs;
+        // curr points to free space
+        char* freeSpace;
         // from the end, we store index of each allocation relative
         // to start of the block. <end> points at the current
         // reverse end of i32 array of indexes
@@ -433,11 +406,12 @@ struct PoolAllocator : Allocator {
         // data follows here
     };
 
-    Block* currBlock = nullptr;
-    Block* firstBlock = nullptr;
-    int nAllocs = 0;
+    Block* currBlock{nullptr};
+    Block* firstBlock{nullptr};
+    int nAllocs{0};
+    CRITICAL_SECTION cs{};
 
-    PoolAllocator() = default;
+    PoolAllocator();
 
     // Allocator methods
     ~PoolAllocator() override;
@@ -446,7 +420,7 @@ struct PoolAllocator : Allocator {
     void* Alloc(size_t size) override;
 
     void FreeAll();
-    void Reset();
+    void Reset(bool poisonFreedMemory = false);
     void* At(int i);
 
     // only valid for structs, could alloc objects with
@@ -459,7 +433,7 @@ struct PoolAllocator : Allocator {
     // Iterator for easily traversing allocated memory as array
     // of values of type T. The caller has to enforce the fact
     // that the values stored are indeed values of T
-    // cf. http://www.cprogramming.com/c++11/c++11-ranged-for-loop.html
+    // see http://www.cprogramming.com/c++11/c++11-ranged-for-loop.html
     template <typename T>
     class Iter {
         PoolAllocator* self;
@@ -625,6 +599,7 @@ defer { instance->Release(); };
 #include "Vec.h"
 #include "StringViewUtil.h"
 #include "ColorUtil.h"
+#include "TempAllocator.h"
 
 // lstrcpy is dangerous so forbid using it
 #ifdef lstrcpy

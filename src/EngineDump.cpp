@@ -12,11 +12,14 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineDjVu.h"
 #include "EngineCreate.h"
 #include "PdfCreator.h"
+
+void _submitDebugReportIfFunc(__unused bool cond, __unused const char* condStr) {
+    // no-op implementation to satisfy SubmitBugReport()
+}
 
 #define Out(msg, ...) printf(msg, __VA_ARGS__)
 
@@ -400,13 +403,13 @@ bool RenderDocument(EngineBase* engine, const WCHAR* renderPath, float zoom = 1.
             }
             FreePageText(&pageText);
         }
-        text.Replace(L"\n", L"\r\n");
+        Replace(text, L"\n", L"\r\n");
         if (silent) {
             return true;
         }
         AutoFreeWstr txtFilePath(str::Format(renderPath, 0));
-        AutoFree textUTF8 = strconv::WstrToUtf8(text.Get());
-        AutoFree textUTF8BOM(str::Join(UTF8_BOM, textUTF8.Get()));
+        auto textA = ToUtf8Temp(text.Get());
+        AutoFree textUTF8BOM(str::Join(UTF8_BOM, textA.Get()));
         return file::WriteFile(txtFilePath, textUTF8BOM.AsSpan());
     }
 
@@ -415,11 +418,11 @@ bool RenderDocument(EngineBase* engine, const WCHAR* renderPath, float zoom = 1.
             return false;
         }
         AutoFreeWstr pdfFilePath(str::Format(renderPath, 0));
-        AutoFree pathUtf8(strconv::WstrToUtf8(pdfFilePath.Get()));
-        if (engine->SaveFileAsPDF(pathUtf8.Get(), true)) {
+        auto pathA(ToUtf8Temp(pdfFilePath.Get()));
+        if (engine->SaveFileAsPDF(pathA.Get(), true)) {
             return true;
         }
-        return PdfCreator::RenderToFile(pathUtf8.Get(), engine);
+        return PdfCreator::RenderToFile(pathA.Get(), engine);
     }
 
     bool success = true;
@@ -464,13 +467,13 @@ class PasswordHolder : public PasswordUI {
   public:
     explicit PasswordHolder(const WCHAR* password) : password(password) {
     }
-    WCHAR* GetPassword([[maybe_unused]] const WCHAR* fileName, [[maybe_unused]] u8* fileDigest,
-                       [[maybe_unused]] u8 decryptionKeyOut[32], [[maybe_unused]] bool* saveKey) override {
+    WCHAR* GetPassword(__unused const WCHAR* fileName, __unused u8* fileDigest, __unused u8 decryptionKeyOut[32],
+                       __unused bool* saveKey) override {
         return str::Dup(password);
     }
 };
 
-int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
+int main(__unused int argc, __unused char** argv) {
     setlocale(LC_ALL, "C");
     DisableDataExecution();
 
@@ -478,8 +481,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     ParseCmdLine(GetCommandLine(), argList);
     if (argList.size() < 2) {
     Usage:
-        ErrOut("%s [-pwd <password>][-quick][-render <path-%%d.tga>] <filename>",
-               path::GetBaseNameNoFree(argList.at(0)));
+        ErrOut("%s [-pwd <password>][-quick][-render <path-%%d.tga>] <filename>", path::GetBaseNameTemp(argList.at(0)));
         return 2;
     }
 
@@ -564,7 +566,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     }
 #endif
     if (!engine) {
-        ErrOut("Error: Couldn't create an engine for %s!", path::GetBaseNameNoFree(filePath));
+        ErrOut("Error: Couldn't create an engine for %s!", path::GetBaseNameTemp(filePath));
         return 1;
     }
     if (!loadOnly) {

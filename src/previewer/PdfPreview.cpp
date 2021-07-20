@@ -4,7 +4,7 @@
 #include "utils/BaseUtil.h"
 #include "utils/ScopedWin.h"
 #include "utils/WinUtil.h"
-#include "utils/LogDbg.h"
+#include "utils/Log.h"
 
 #include "wingui/TreeModel.h"
 
@@ -18,13 +18,21 @@
 #include "PdfPreview.h"
 #include "PdfPreviewBase.h"
 
+constexpr COLORREF kColWindowBg = RGB(0x99, 0x99, 0x99);
+constexpr int kPreviewMargin = 2;
+constexpr UINT kUwmPaintAgain = (WM_USER + 101);
+
+void _submitDebugReportIfFunc(bool cond, __unused const char* condStr) {
+    // no-op implementation to satisfy SubmitBugReport()
+}
+
 IFACEMETHODIMP PreviewBase::GetThumbnail(uint cx, HBITMAP* phbmp, WTS_ALPHATYPE* pdwAlpha) {
     EngineBase* engine = GetEngine();
     if (!engine) {
         return E_FAIL;
     }
 
-    dbglogf("PdfPreview: PreviewBase::GetThumbnail(cx=%d)\n", (int)cx);
+    logf("PreviewBase::GetThumbnail(cx=%d)\n", (int)cx);
 
     RectF page = engine->Transform(engine->PageMediabox(1), 1, 1.0, 0);
     float zoom = std::min(cx / (float)page.dx, cx / (float)page.dy) - 0.001f;
@@ -70,46 +78,34 @@ IFACEMETHODIMP PreviewBase::GetThumbnail(uint cx, HBITMAP* phbmp, WTS_ALPHATYPE*
     return hthumb ? S_OK : E_NOTIMPL;
 }
 
-#define COL_WINDOW_BG RGB(0x99, 0x99, 0x99)
-#define PREVIEW_MARGIN 2
-#define UWM_PAINT_AGAIN (WM_USER + 101)
-
 class PageRenderer {
-    EngineBase* engine;
-    HWND hwnd;
+    EngineBase* engine{nullptr};
+    HWND hwnd{nullptr};
 
-    int currPage;
-    RenderedBitmap* currBmp;
+    int currPage{0};
+    RenderedBitmap* currBmp{nullptr};
     // due to rounding differences, currBmp->Size() and currSize can differ slightly
     Size currSize;
-    int reqPage;
-    float reqZoom;
+    int reqPage{0};
+    float reqZoom{0.f};
     Size reqSize;
-    bool reqAbort;
-    AbortCookie* abortCookie;
+    bool reqAbort{false};
+    AbortCookie* abortCookie{nullptr};
 
     CRITICAL_SECTION currAccess;
-    HANDLE thread;
+    HANDLE thread{nullptr};
 
     // seeking inside an IStream spins an inner event loop
     // which can cause reentrance in OnPaint and leave an
     // engine semi-initialized when it's called recursively
     // (this only applies for the UI thread where the critical
     // sections can't prevent recursion without the risk of deadlock)
-    bool preventRecursion;
+    bool preventRecursion{false};
 
   public:
-    PageRenderer(EngineBase* engine, HWND hwnd)
-        : engine(engine),
-          hwnd(hwnd),
-          currPage(0),
-          currBmp(nullptr),
-          reqPage(0),
-          reqZoom(0),
-          reqAbort(false),
-          abortCookie(nullptr),
-          thread(nullptr),
-          preventRecursion(false) {
+    PageRenderer(EngineBase* engine, HWND hwnd) {
+        this->engine = engine;
+        this->hwnd = hwnd;
         InitializeCriticalSection(&currAccess);
     }
     ~PageRenderer() {
@@ -134,7 +130,7 @@ class PageRenderer {
     }
 
     void Render(HDC hdc, Rect target, int pageNo, float zoom) {
-        dbglog("PdfPreview: PageRenderer::Render()\n");
+        log("PageRenderer::Render()\n");
 
         ScopedCritSec scope(&currAccess);
         if (currBmp && currPage == pageNo && currSize == target.Size()) {
@@ -160,6 +156,9 @@ class PageRenderer {
         PageRenderer* pr = (PageRenderer*)data;
         RenderPageArgs args(pr->reqPage, pr->reqZoom, 0, nullptr, RenderTarget::View, &pr->abortCookie);
         RenderedBitmap* bmp = pr->engine->RenderPage(args);
+        if (!bmp) {
+            return 0;
+        }
 
         ScopedCritSec scope(&pr->currAccess);
 
@@ -176,7 +175,7 @@ class PageRenderer {
 
         HANDLE th = pr->thread;
         pr->thread = nullptr;
-        PostMessageW(pr->hwnd, UWM_PAINT_AGAIN, 0, 0);
+        PostMessageW(pr->hwnd, kUwmPaintAgain, 0, 0);
 
         CloseHandle(th);
         return 0;
@@ -187,7 +186,7 @@ static LRESULT OnPaint(HWND hwnd) {
     Rect rect = ClientRect(hwnd);
     DoubleBuffer buffer(hwnd, rect);
     HDC hdc = buffer.GetDC();
-    HBRUSH brushBg = CreateSolidBrush(COL_WINDOW_BG);
+    HBRUSH brushBg = CreateSolidBrush(kColWindowBg);
     HBRUSH brushWhite = GetStockBrush(WHITE_BRUSH);
     RECT rcClient = ToRECT(rect);
     FillRect(hdc, &rcClient, brushBg);
@@ -197,7 +196,7 @@ static LRESULT OnPaint(HWND hwnd) {
         int pageNo = GetScrollPos(hwnd, SB_VERT);
         RectF page = preview->renderer->GetPageRect(pageNo);
         if (!page.IsEmpty()) {
-            rect.Inflate(-PREVIEW_MARGIN, -PREVIEW_MARGIN);
+            rect.Inflate(-kPreviewMargin, -kPreviewMargin);
             float zoom = (float)std::min(rect.dx / page.dx, rect.dy / page.dy) - 0.001f;
             Rect onScreen = RectF((float)rect.x, (float)rect.y, (float)page.dx * zoom, (float)page.dy * zoom).Round();
             onScreen.Offset((rect.dx - onScreen.dx) / 2, (rect.dy - onScreen.dy) / 2);
@@ -297,7 +296,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
             return OnVScroll(hwnd, GET_WHEEL_DELTA_WPARAM(wp) > 0 ? SB_LINEUP : SB_LINEDOWN);
         case WM_DESTROY:
             return OnDestroy(hwnd);
-        case UWM_PAINT_AGAIN:
+        case kUwmPaintAgain:
             InvalidateRect(hwnd, nullptr, TRUE);
             UpdateWindow(hwnd);
             return 0;
@@ -307,7 +306,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
 }
 
 IFACEMETHODIMP PreviewBase::DoPreview() {
-    dbglog("PdfPreview: PreviewBase::DoPreview()\n");
+    log("PreviewBase::DoPreview()\n");
 
     WNDCLASSEX wcex = {0};
     wcex.cbSize = sizeof(wcex);
@@ -348,64 +347,64 @@ IFACEMETHODIMP PreviewBase::DoPreview() {
     return S_OK;
 }
 
-EngineBase* CPdfPreview::LoadEngine(IStream* stream) {
-    dbglog("PdfPreview: CPdfPreview::LoadEngine()\n");
+EngineBase* PdfPreview::LoadEngine(IStream* stream) {
+    log("PdfPreview::LoadEngine()\n");
     return CreateEnginePdfFromStream(stream);
 }
 
-EngineBase* CXpsPreview::LoadEngine(IStream* stream) {
+EngineBase* XpsPreview::LoadEngine(IStream* stream) {
     return CreateXpsEngineFromStream(stream);
 }
 
 #include "EngineDjVu.h"
 
-EngineBase* CDjVuPreview::LoadEngine(IStream* stream) {
+EngineBase* DjVuPreview::LoadEngine(IStream* stream) {
     return CreateDjVuEngineFromStream(stream);
 }
 
-CEpubPreview::CEpubPreview(long* plRefCount) : PreviewBase(plRefCount, SZ_EPUB_PREVIEW_CLSID) {
+EpubPreview::EpubPreview(long* plRefCount) : PreviewBase(plRefCount, SZ_EPUB_PREVIEW_CLSID) {
     m_gdiScope = new ScopedGdiPlus();
     mui::Initialize();
 }
 
-CEpubPreview::~CEpubPreview() {
+EpubPreview::~EpubPreview() {
     mui::Destroy();
 }
 
-EngineBase* CEpubPreview::LoadEngine(IStream* stream) {
+EngineBase* EpubPreview::LoadEngine(IStream* stream) {
     return CreateEpubEngineFromStream(stream);
 }
 
-CFb2Preview::CFb2Preview(long* plRefCount) : PreviewBase(plRefCount, SZ_FB2_PREVIEW_CLSID) {
+Fb2Preview::Fb2Preview(long* plRefCount) : PreviewBase(plRefCount, SZ_FB2_PREVIEW_CLSID) {
     m_gdiScope = new ScopedGdiPlus();
     mui::Initialize();
 }
 
-CFb2Preview::~CFb2Preview() {
+Fb2Preview::~Fb2Preview() {
     mui::Destroy();
 }
 
-EngineBase* CFb2Preview::LoadEngine(IStream* stream) {
+EngineBase* Fb2Preview::LoadEngine(IStream* stream) {
     return CreateFb2EngineFromStream(stream);
 }
 
-CMobiPreview::CMobiPreview(long* plRefCount) : PreviewBase(plRefCount, SZ_MOBI_PREVIEW_CLSID) {
+MobiPreview::MobiPreview(long* plRefCount) : PreviewBase(plRefCount, SZ_MOBI_PREVIEW_CLSID) {
     m_gdiScope = new ScopedGdiPlus();
     mui::Initialize();
 }
 
-CMobiPreview::~CMobiPreview() {
+MobiPreview::~MobiPreview() {
     mui::Destroy();
 }
 
-EngineBase* CMobiPreview::LoadEngine(IStream* stream) {
+EngineBase* MobiPreview::LoadEngine(IStream* stream) {
     return CreateMobiEngineFromStream(stream);
 }
 
-EngineBase* CCbxPreview::LoadEngine(IStream* stream) {
+EngineBase* CbxPreview::LoadEngine(IStream* stream) {
     return CreateCbxEngineFromStream(stream);
 }
 
-EngineBase* CTgaPreview::LoadEngine(IStream* stream) {
+EngineBase* TgaPreview::LoadEngine(IStream* stream) {
     return CreateImageEngineFromStream(stream);
 }

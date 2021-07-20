@@ -283,8 +283,9 @@ NotificationWnd* WindowInfo::ShowNotification(const WCHAR* msg, NotificationOpti
     notifications->Add(wnd, groupId);
     return wnd;
 }
+
 NotificationWnd* WindowInfo::ShowNotification(std::string_view sv, NotificationOptions opts, Kind groupId) {
-    AutoFreeWstr msg = strconv::Utf8ToWstr(sv);
+    auto msg = ToWstrTemp(sv);
     return this->ShowNotification(msg.Get(), opts, groupId);
 }
 
@@ -336,7 +337,7 @@ void LinkHandler::GotoLink(PageDestination* dest) {
             if (hash) {
                 *hash = '\0';
             }
-            str::TransChars(path, L"/", L"\\");
+            str::TransCharsInPlace(path, L"/", L"\\");
             url::DecodeInPlace(path);
             // LaunchFile will reject unsupported file types
             LaunchFile(path, nullptr);
@@ -508,7 +509,7 @@ void LinkHandler::LaunchFile(const WCHAR* path, PageDestination* link) {
 static WCHAR* NormalizeFuzzy(const WCHAR* str) {
     WCHAR* dup = str::Dup(str);
     CharLower(dup);
-    str::NormalizeWS(dup);
+    str::NormalizeWSInPlace(dup);
     // cf. AddTocItemToView
     return dup;
 }

@@ -17,7 +17,6 @@
 #include "wingui/TreeCtrl.h"
 #include "wingui/TabsCtrl.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 #include "DisplayMode.h"
@@ -354,6 +353,8 @@ static void SetTabTitle(TabInfo* tab) {
     int idx = win->tabs.Find(tab);
     WCHAR* title = (WCHAR*)tab->GetTabTitle();
     win->tabsCtrl->SetTabText(idx, title);
+    auto tooltip = tab->filePath.AsView();
+    win->tabsCtrl->SetTooltip(idx, tooltip);
 }
 
 static void NO_INLINE SwapTabs(WindowInfo* win, int tab1, int tab2) {
@@ -383,25 +384,25 @@ static void TabNotification(WindowInfo* win, UINT code, int idx1, int idx2) {
         return;
     }
     TabPainter* tab = (TabPainter*)GetWindowLongPtr(win->tabsCtrl->hwnd, GWLP_USERDATA);
-    if (T_CLOSING == code) {
+    if ((UINT)T_CLOSING == code) {
         // if we have permission to close the tab
         tab->Invalidate(tab->nextTab);
         tab->xClicked = tab->nextTab;
         return;
     }
-    if (TCN_SELCHANGING == code) {
+    if ((UINT)TCN_SELCHANGING == code) {
         // if we have permission to select the tab
         tab->Invalidate(tab->selectedTabIdx);
         tab->Invalidate(tab->nextTab);
         tab->selectedTabIdx = tab->nextTab;
         // send notification that the tab is selected
-        nmhdr.code = TCN_SELCHANGE;
+        nmhdr.code = (UINT)TCN_SELCHANGE;
         TabsOnNotify(win, (LPARAM)&nmhdr);
     }
 }
 
-static LRESULT CALLBACK TabBarParentProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
-                                         [[maybe_unused]] UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+static LRESULT CALLBACK TabBarParentProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, __unused UINT_PTR uIdSubclass,
+                                         DWORD_PTR dwRefData) {
     if (msg == WM_NOTIFY && wp == IDC_TABBAR) {
         WindowInfo* win = (WindowInfo*)dwRefData;
         if (win) {
@@ -412,8 +413,8 @@ static LRESULT CALLBACK TabBarParentProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
     return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
-static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[maybe_unused]] UINT_PTR uIdSubclass,
-                                   [[maybe_unused]] DWORD_PTR dwRefData) {
+static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, __unused UINT_PTR uIdSubclass,
+                                   __unused DWORD_PTR dwRefData) {
     PAINTSTRUCT ps;
     HDC hdc;
     int index;
@@ -527,9 +528,11 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
 
             bool inX = false;
             int hl = wp == 0xFF ? -1 : tab->IndexFromPoint(GET_X_LPARAM(lp), GET_Y_LPARAM(lp), &inX);
+            bool didChangeTabs = false;
             if (tab->isDragging && hl == -1) {
                 // preserve the highlighted tab if it's dragged outside the tabs' area
                 hl = tab->highlighted;
+                didChangeTabs = true;
             }
             if (tab->highlighted != hl) {
                 if (tab->isDragging) {
@@ -542,6 +545,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
                 tab->Invalidate(hl);
                 tab->Invalidate(tab->highlighted);
                 tab->highlighted = hl;
+                didChangeTabs = true;
             }
             int xHl = inX && !tab->isDragging ? hl : -1;
             if (tab->xHighlighted != xHl) {
@@ -551,6 +555,11 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
             }
             if (!inX) {
                 tab->xClicked = -1;
+            }
+            if (didChangeTabs && tab->highlighted >= 0) {
+                int idx = tab->highlighted;
+                auto tabsCtrl = tab->tabsCtrl;
+                tabsCtrl->MaybeUpdateTooltipText(idx);
             }
         }
             return 0;
@@ -562,12 +571,12 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
                 // send request to close the tab
                 WindowInfo* win = FindWindowInfoByHwnd(hwnd);
                 int next = tab->nextTab;
-                uitask::Post([=] { TabNotification(win, T_CLOSING, next, -1); });
+                uitask::Post([=] { TabNotification(win, (UINT)T_CLOSING, next, -1); });
             } else if (tab->nextTab != -1) {
                 if (tab->nextTab != tab->selectedTabIdx) {
                     // send request to select tab
                     WindowInfo* win = FindWindowInfoByHwnd(hwnd);
-                    uitask::Post([=] { TabNotification(win, TCN_SELCHANGING, -1, -1); });
+                    uitask::Post([=] { TabNotification(win, (UINT)TCN_SELCHANGING, -1, -1); });
                 }
                 tab->isDragging = true;
                 SetCapture(hwnd);
@@ -579,7 +588,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
                 // send notification that the tab is closed
                 WindowInfo* win = FindWindowInfoByHwnd(hwnd);
                 int clicked = tab->xClicked;
-                uitask::Post([=] { TabNotification(win, T_CLOSE, clicked, -1); });
+                uitask::Post([=] { TabNotification(win, (UINT)T_CLOSE, clicked, -1); });
                 tab->Invalidate(clicked);
                 tab->xClicked = -1;
             }
@@ -596,7 +605,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
                 // send request to close the tab
                 WindowInfo* win = FindWindowInfoByHwnd(hwnd);
                 int next = tab->nextTab;
-                uitask::Post([=] { TabNotification(win, T_CLOSING, next, -1); });
+                uitask::Post([=] { TabNotification(win, (UINT)T_CLOSING, next, -1); });
             }
             return 0;
 
@@ -605,7 +614,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
                 // send notification that the tab is closed
                 WindowInfo* win = FindWindowInfoByHwnd(hwnd);
                 int clicked = tab->xClicked;
-                uitask::Post([=] { TabNotification(win, T_CLOSE, clicked, -1); });
+                uitask::Post([=] { TabNotification(win, (UINT)T_CLOSE, clicked, -1); });
                 tab->Invalidate(clicked);
                 tab->xClicked = -1;
             }
@@ -645,6 +654,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, [[
 void CreateTabbar(WindowInfo* win) {
     TabsCtrl2* tabsCtrl = new TabsCtrl2(win->hwndFrame);
     tabsCtrl->ctrlID = IDC_TABBAR;
+    tabsCtrl->createToolTipsHwnd = true;
     tabsCtrl->Create();
 
     HWND hwndTabBar = tabsCtrl->hwnd;
@@ -663,8 +673,11 @@ void CreateTabbar(WindowInfo* win) {
 // verifies that TabInfo state is consistent with WindowInfo state
 static NO_INLINE void VerifyTabInfo(WindowInfo* win, TabInfo* tdata) {
     CrashIf(!tdata || !win || tdata->ctrl != win->ctrl);
-    AutoFreeWstr winTitle(win::GetText(win->hwndFrame));
-    SubmitCrashIf(!str::Eq(winTitle.Get(), tdata->frameTitle));
+    auto winTitle = win::GetTextTemp(win->hwndFrame);
+    if (!!str::Eq(winTitle.Get(), tdata->frameTitle.Get())) {
+        logf(L"VerifyTabInfo: winTitle: '%s', tdata->frameTitle: '%s'\n", winTitle.Get(), tdata->frameTitle.Get());
+        SubmitBugReportIf(!str::Eq(winTitle.Get(), tdata->frameTitle));
+    }
     bool expectedTocVisibility = tdata->showToc; // if not in presentation mode
     if (PM_DISABLED != win->presentation) {
         expectedTocVisibility = false; // PM_BLACK_SCREEN, PM_WHITE_SCREEN
@@ -672,8 +685,8 @@ static NO_INLINE void VerifyTabInfo(WindowInfo* win, TabInfo* tdata) {
             expectedTocVisibility = tdata->showTocPresentation;
         }
     }
-    SubmitCrashIf(win->tocVisible != expectedTocVisibility);
-    SubmitCrashIf(tdata->canvasRc != win->canvasRc);
+    SubmitBugReportIf(win->tocVisible != expectedTocVisibility);
+    SubmitBugReportIf(tdata->canvasRc != win->canvasRc);
 }
 
 // Must be called when the active tab is losing selection.
@@ -829,6 +842,10 @@ LRESULT TabsOnNotify(WindowInfo* win, LPARAM lp, int tab1, int tab2) {
         case T_DRAG:
             SwapTabs(win, tab1, tab2);
             break;
+        case TTN_GETDISPINFOA:
+        case TTN_GETDISPINFOW:
+            logf("TabsOnNotify TTN_GETDISPINFO\n");
+            break;
     }
     return TRUE;
 }
@@ -856,6 +873,7 @@ void UpdateTabWidth(WindowInfo* win) {
     auto maxDx = (rect.dx - 3) / count;
     tabSize.dx = std::min(tabSize.dx, maxDx);
     win->tabsCtrl->SetItemSize(tabSize);
+    win->tabsCtrl->MaybeUpdateTooltip();
 }
 
 void SetTabsInTitlebar(WindowInfo* win, bool inTitlebar) {
@@ -889,16 +907,16 @@ void TabsSelect(WindowInfo* win, int tabIndex) {
     if (count < 2 || tabIndex < 0 || tabIndex >= count) {
         return;
     }
-    NMHDR ntd = {nullptr, 0, TCN_SELCHANGING};
+    NMHDR ntd = {nullptr, 0, (UINT)TCN_SELCHANGING};
     if (TabsOnNotify(win, (LPARAM)&ntd)) {
         return;
     }
     win->currentTab = win->tabs.at(tabIndex);
-    AutoFree path = strconv::WstrToUtf8(win->currentTab->filePath);
+    auto path = ToUtf8Temp(win->currentTab->filePath);
     dbglogf("TabsSelect: tabIndex: %d, new win->currentTab: 0x%p, path: '%s'\n", tabIndex, win->currentTab, path.Get());
     int prevIdx = win->tabsCtrl->SetSelectedTabByIndex(tabIndex);
     if (prevIdx != -1) {
-        ntd.code = TCN_SELCHANGE;
+        ntd.code = (UINT)TCN_SELCHANGE;
         TabsOnNotify(win, (LPARAM)&ntd);
     }
 }

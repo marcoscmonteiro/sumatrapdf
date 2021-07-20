@@ -21,7 +21,6 @@ extern "C" {
 #include "AppColors.h"
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineFzUtil.h"
 
@@ -61,7 +60,7 @@ WCHAR* pdf_to_wstr(fz_context* ctx, pdf_obj* obj) {
 }
 
 // some PDF documents contain control characters in outline titles or /Info properties
-// we replace them with spaces and cleanup for display with NormalizeWS()
+// we replace them with spaces and cleanup for display with NormalizeWSInPlace()
 WCHAR* pdf_clean_string(WCHAR* s) {
     if (!s) {
         return nullptr;
@@ -74,7 +73,7 @@ WCHAR* pdf_clean_string(WCHAR* s) {
         }
         curr++;
     }
-    str::NormalizeWS(s);
+    str::NormalizeWSInPlace(s);
     return s;
 }
 
@@ -104,7 +103,7 @@ struct istream_filter {
     u8 buf[4096];
 };
 
-extern "C" int next_istream(fz_context* ctx, fz_stream* stm, [[maybe_unused]] size_t max) {
+extern "C" int next_istream(fz_context* ctx, fz_stream* stm, __unused size_t max) {
     istream_filter* state = (istream_filter*)stm->state;
     ULONG cbRead = sizeof(state->buf);
     HRESULT res = state->stream->Read(state->buf, sizeof(state->buf), &cbRead);
@@ -171,7 +170,7 @@ void* fz_memdup(fz_context* ctx, void* p, size_t size) {
 
 fz_stream* fz_open_file2(fz_context* ctx, const WCHAR* filePath) {
     fz_stream* stm = nullptr;
-    AutoFreeStr path = strconv::WstrToUtf8(filePath);
+    auto path = ToUtf8Temp(filePath);
     i64 fileSize = file::GetSize(path.AsView());
     // load small files entirely into memory so that they can be
     // overwritten even by programs that don't open files with FILE_SHARE_READ
@@ -541,28 +540,6 @@ int is_external_link(const char* uri) {
     return uri[0] == ':';
 }
 
-// copy of pdf_resolve_link in pdf-link.c without ctx and doc
-// returns page number and location on the page
-int resolve_link(const char* uri, float* xp, float* yp) {
-    if (uri && uri[0] == '#') {
-        int page = fz_atoi(uri + 1) - 1;
-        if (xp || yp) {
-            const char* x = strchr(uri, ',');
-            const char* y = strrchr(uri, ',');
-            if (x && y) {
-                if (xp) {
-                    *xp = fz_atoi(x + 1);
-                }
-                if (yp) {
-                    *yp = fz_atoi(y + 1);
-                }
-            }
-        }
-        return page;
-    }
-    return -1;
-}
-
 static bool LinkifyCheckMultiline(const WCHAR* pageText, const WCHAR* pos, Rect* coords) {
     // multiline links end in a non-alphanumeric character and continue on a line
     // that starts left and only slightly below where the current line ended
@@ -631,7 +608,7 @@ static const WCHAR* LinkifyMultilineText(LinkRectList* list, const WCHAR* pageTe
         end = LinkifyFindEnd(next, start > pageText ? start[-1] : ' ');
         multiline = LinkifyCheckMultiline(pageText, end, coords);
 
-        AutoFreeWstr part(str::DupN(next, end - next));
+        AutoFreeWstr part(str::Dup(next, end - next));
         uri.Set(str::Join(uri, part));
         Rect bbox = coords[next - pageText].Union(coords[end - pageText - 1]);
         list->coords.Append(To_fz_rect(ToRectFl(bbox)));
@@ -727,7 +704,7 @@ LinkRectList* LinkifyText(const WCHAR* pageText, Rect* coords) {
             continue;
         }
 
-        AutoFreeWstr part(str::DupN(start, end - start));
+        AutoFreeWstr part(str::Dup(start, end - start));
         WCHAR* uri = protocol ? str::Join(protocol, part) : part.StealData();
         list->links.Append(uri);
         Rect bbox = coords[start - pageText].Union(coords[end - pageText - 1]);
@@ -742,16 +719,6 @@ LinkRectList* LinkifyText(const WCHAR* pageText, Rect* coords) {
     return list;
 }
 
-#if 0
-static bool IsRelativeURI(const WCHAR* uri) {
-    const WCHAR* c = uri;
-    while (*c && *c != ':' && *c != '/' && *c != '?' && *c != '#') {
-        c++;
-    }
-    return *c != ':';
-}
-#endif
-
 static char* PdfLinkGetURI(fz_link* link, fz_outline* outline) {
     if (link) {
         return link->uri;
@@ -760,94 +727,6 @@ static char* PdfLinkGetURI(fz_link* link, fz_outline* outline) {
         return outline->uri;
     }
     return nullptr;
-}
-
-static WCHAR* CalcDestName(fz_link* link, fz_outline* outline) {
-    char* uri = PdfLinkGetURI(link, outline);
-    if (!uri) {
-        return nullptr;
-    }
-    if (is_external_link(uri)) {
-        return nullptr;
-    }
-    // TODO(port): test with more stuff
-    // figure out what PDF_NAME(GoToR) ends up being
-    return strconv::Utf8ToWstr(uri);
-#if 0
-    if (!link || FZ_LINK_GOTOR != link->kind || !link->ld.gotor.dest)
-        return nullptr;
-    return strconv::FromUtf8(link->ld.gotor.dest);
-#endif
-}
-
-static WCHAR* CalcValue(fz_link* link, fz_outline* outline) {
-    char* uri = PdfLinkGetURI(link, outline);
-    if (!uri) {
-        return nullptr;
-    }
-    if (!is_external_link(uri)) {
-        // other values: #1,115,208
-        return nullptr;
-    }
-    WCHAR* path = strconv::Utf8ToWstr(uri);
-    return path;
-#if 0
-    if (!link || !engine)
-        return nullptr;
-    if (link->kind != FZ_LINK_URI && link->kind != FZ_LINK_LAUNCH && link->kind != FZ_LINK_GOTOR)
-        return nullptr;
-
-    ScopedCritSec scope(&engine->ctxAccess);
-
-    WCHAR* path = nullptr;
-
-    switch (link->kind) {
-        case FZ_LINK_URI:
-            path = strconv::FromUtf8(link->ld.uri.uri);
-            if (IsRelativeURI(path)) {
-                AutoFreeWstr base;
-                fz_try(engine->ctx) {
-                    pdf_obj* obj = pdf_dict_gets(pdf_trailer(engine->_doc), "Root");
-                    obj = pdf_dict_gets(pdf_dict_gets(obj, "URI"), "Base");
-                    if (obj)
-                        base.Set(PdfToWstr(obj));
-                }
-                fz_catch(engine->ctx) {}
-                if (!str::IsEmpty(base.Get())) {
-                    AutoFreeWstr uri(str::Join(base, path));
-                    free(path);
-                    path = uri.StealData();
-                }
-            }
-            if (link->ld.uri.is_map) {
-                int x = 0, y = 0;
-                if (rect.Contains(pt)) {
-                    x = (int)(pt.x - rect.x + 0.5);
-                    y = (int)(pt.y - rect.y + 0.5);
-                }
-                AutoFreeWstr uri(str::Format(L"%s?%d,%d", path, x, y));
-                free(path);
-                path = uri.StealData();
-            }
-            break;
-        case FZ_LINK_LAUNCH:
-            // note: we (intentionally) don't support the /Win specific Launch parameters
-            if (link->ld.launch.file_spec)
-                path = strconv::FromUtf8(link->ld.launch.file_spec);
-            if (path && link->ld.launch.embedded_num && str::EndsWithI(path, L".pdf")) {
-                free(path);
-                path = str::Format(L"%s:%d:%d", engine->FileName(), link->ld.launch.embedded_num,
-                                   link->ld.launch.embedded_gen);
-            }
-            break;
-        case FZ_LINK_GOTOR:
-            if (link->ld.gotor.file_spec)
-                path = strconv::FromUtf8(link->ld.gotor.file_spec);
-            break;
-    }
-
-    return path;
-#endif
 }
 
 static Kind CalcDestKind(fz_link* link, fz_outline* outline) {
@@ -862,12 +741,12 @@ static Kind CalcDestKind(fz_link* link, fz_outline* outline) {
         return kindDestinationNone;
     }
     if (!is_external_link(uri)) {
-        float x, y;
-        int pageNo = resolve_link(uri, &x, &y);
+        float x = 0, y = 0, zoom = 0;
+        int pageNo = resolve_link(uri, &x, &y, &zoom);
         if (pageNo == -1) {
             // TODO: figure out what it could be
             logf("CalcDestKind(): unknown uri: '%s'\n", uri);
-            // SubmitCrashIf(true);
+            // SubmitBugReportIf(true);
             return nullptr;
         }
         return kindDestinationScrollTo;
@@ -884,148 +763,46 @@ static Kind CalcDestKind(fz_link* link, fz_outline* outline) {
 
     logf("CalcDestKind(): unknown uri: '%s'\n", uri);
     // TODO: kindDestinationLaunchEmbedded, kindDestinationLaunchURL, named destination
-    // SubmitCrashIf(true);
+    // SubmitBugReportIf(true);
     return nullptr;
-#if 0
-    switch (link->kind) {
-        case FZ_LINK_GOTO:
-            return kindDestinationScrollTo;
-        case FZ_LINK_URI:
-            return kindDestinationLaunchURL;
-        case FZ_LINK_NAMED:
-            return DestTypeFromName(link->ld.named.named);
-        case FZ_LINK_LAUNCH:
-            if (link->ld.launch.embedded_num)
-                return kindDestinationLaunchEmbedded;
-            if (link->ld.launch.is_uri)
-                return kindDestinationLaunchURL;
-            return kindDestinationLaunchFile;
-        case FZ_LINK_GOTOR:
-            return kindDestinationLaunchFile;
-        default:
-            return nullptr; // unsupported action
-    }
-#endif
 }
 
-static int CalcDestPageNo(fz_link* link, fz_outline* outline) {
-    char* uri = PdfLinkGetURI(link, outline);
-    // TODO: happened in ug_logodesign.pdf. investigate
-    // CrashIf(!uri);
-    if (!uri) {
-        return 0;
-    }
-    if (is_external_link(uri)) {
-        return 0;
-    }
-    float x, y;
-    int pageNo = resolve_link(uri, &x, &y);
-    if (pageNo == -1) {
-        return 0;
-    }
-    return pageNo + 1; // TODO(port): or is it just pageNo?
-#if 0
-    if (link && FZ_LINK_GOTO == link->kind)
-        return link->ld.gotor.page + 1;
-    if (link && FZ_LINK_GOTOR == link->kind && !link->ld.gotor.dest)
-        return link->ld.gotor.page + 1;
-#endif
-    return 0;
-}
-
-static RectF CalcDestRect(fz_link* link, fz_outline* outline) {
-    RectF result(DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
-    char* uri = PdfLinkGetURI(link, outline);
-    // TODO: this happens in pdf/ug_logodesign.pdf, there's only outline without
-    // pageno. need to investigate
-    // CrashIf(!uri);
-    if (!uri) {
-        return result;
-    }
-
-    if (is_external_link(uri)) {
-        return result;
-    }
-    float x = 0;
-    float y = 0;
-    int pageNo = resolve_link(uri, &x, &y);
-    if (pageNo == -1) {
-        // SubmitCrashIf(pageNo == -1);
-        return result;
-    }
-
-    result.x = (double)x;
-    result.y = (double)y;
-    return result;
-#if 0
-    if (!link || FZ_LINK_GOTO != link->kind && FZ_LINK_GOTOR != link->kind)
-        return result;
-    if (link->ld.gotor.page < 0 || link->ld.gotor.page >= engine->PageCount())
-        return result;
-
-    pdf_page* page = engine->GetFzPage(link->ld.gotor.page + 1);
-    if (!page)
-        return result;
-    fz_point lt = link->ld.gotor.lt, rb = link->ld.gotor.rb;
-    fz_transform_point(&lt, &page->ctm);
-    fz_transform_point(&rb, &page->ctm);
-
-    if ((link->ld.gotor.flags & fz_link_flag_r_is_zoom)) {
-        // /XYZ link, undefined values for the coordinates mean: keep the current position
-        if ((link->ld.gotor.flags & fz_link_flag_l_valid))
-            result.x = lt.x;
-        if ((link->ld.gotor.flags & fz_link_flag_t_valid))
-            result.y = lt.y;
-        result.dx = result.dy = 0;
-    } else if ((link->ld.gotor.flags & (fz_link_flag_fit_h | fz_link_flag_fit_v)) ==
-                   (fz_link_flag_fit_h | fz_link_flag_fit_v) &&
-               (link->ld.gotor.flags &
-                (fz_link_flag_l_valid | fz_link_flag_t_valid | fz_link_flag_r_valid | fz_link_flag_b_valid))) {
-        // /FitR link
-        result = RectF::FromXY(lt.x, lt.y, rb.x, rb.y);
-        // an empty destination rectangle would imply an /XYZ-type link to callers
-        if (result.IsEmpty())
-            result.dx = result.dy = 0.1;
-    } else if ((link->ld.gotor.flags & (fz_link_flag_fit_h | fz_link_flag_fit_v)) == fz_link_flag_fit_h &&
-               (link->ld.gotor.flags & fz_link_flag_t_valid)) {
-        // /FitH or /FitBH link
-        result.y = lt.y;
-    }
-    // all other link types only affect the zoom level, which we intentionally leave alone
-#endif
-}
-
-// TODO: clean this up
-PageDestination* newFzDestination(fz_outline* outline) {
-    fz_link* link = nullptr;
+static PageDestination* newPageDestination(fz_link* link, fz_outline* outline) {
     auto dest = new PageDestination();
     dest->kind = CalcDestKind(link, outline);
     CrashIf(!dest->kind);
-    dest->rect = CalcDestRect(link, outline);
-    dest->value = CalcValue(link, outline);
-    dest->name = CalcDestName(link, outline);
-    dest->pageNo = CalcDestPageNo(link, outline);
+    dest->rect = RectF(DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT, DEST_USE_DEFAULT);
+    if (dest->kind == kindDestinationScrollTo) {
+        char* uri = PdfLinkGetURI(link, outline);
+        float x = 0, y = 0, zoom = 0;
+        int pageNo = resolve_link(uri, &x, &y, &zoom);
+        dest->pageNo = pageNo + 1;
+        dest->rect.x = (double)x;
+        dest->rect.y = (double)y;
+        dest->value = strconv::Utf8ToWstr(uri);
+        dest->name = strconv::Utf8ToWstr(uri);
+        dest->zoom = zoom;
+    }
+    SubmitBugReportIf(dest->pageNo <= 0);
     return dest;
 }
 
-PageElement* newFzLink(int pageNo, fz_link* link, fz_outline* outline) {
+PageDestination* newFzDestination(fz_outline* outline) {
+    return newPageDestination(nullptr, outline);
+}
+
+static PageElement* newFzLink(int srcPageNo, fz_link* link, fz_outline* outline) {
     auto res = new PageElement();
     res->kind_ = kindPageElementDest;
+    res->pageNo = srcPageNo;
 
-    res->pageNo = pageNo;
     if (link) {
         res->rect = ToRectFl(link->rect);
     }
-    res->value = CalcValue(link, outline);
 
-    auto dest = new PageDestination();
-    dest->kind = CalcDestKind(link, outline);
-    CrashIf(!dest->kind);
-    dest->rect = CalcDestRect(link, outline);
-    dest->value = str::Dup(res->GetValue());
-    dest->name = CalcDestName(link, outline);
-    dest->pageNo = CalcDestPageNo(link, outline);
-    res->dest = dest;
+    res->dest = newPageDestination(link, outline);
+    res->pageNo = res->dest->pageNo;
+    res->value = str::Dup(res->dest->value);
 
     return res;
 }

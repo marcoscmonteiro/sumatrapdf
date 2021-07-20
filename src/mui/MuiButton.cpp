@@ -68,8 +68,8 @@ void Button::RecalculateSize(bool repaintIfSizeDidntChange) {
             fontDy = bbox.dy;
             float diff = fontDy + maxDiff - bbox.dy;
             if (diff < 0) {
-                AutoFree fontName = strconv::WstrToUtf8(s->fontName);
-                AutoFree tmp = strconv::WstrToUtf8(text);
+                auto fontName = ToUtf8Temp(s->fontName);
+                auto tmp = ToUtf8Temp(text);
                 logf("fontDy=%.2f, bbox.Height=%.2f, diff=%.2f (should be > 0) font: %s, text='%s'\n", fontDy, bbox.dy,
                      diff, fontName.Get(), tmp.Get());
                 CrashIf(true);
@@ -88,11 +88,11 @@ void Button::RecalculateSize(bool repaintIfSizeDidntChange) {
 }
 
 void Button::SetText(const WCHAR* s) {
-    str::ReplacePtr(&text, s);
+    str::ReplaceWithCopy(&text, s);
     RecalculateSize(true);
 }
 
-Size Button::Measure([[maybe_unused]] const Size availableSize) {
+Size Button::Measure(__unused const Size availableSize) {
     // desiredSize is calculated when we change the
     // text, font or other attributes that influence
     // the size so it doesn't have to be calculated
@@ -238,7 +238,7 @@ void ButtonVector::RecalculateSize(bool repaintIfSizeDidntChange) {
     }
 }
 
-Size ButtonVector::Measure([[maybe_unused]] const Size availableSize) {
+Size ButtonVector::Measure(__unused const Size availableSize) {
     // do nothing: calculated in RecalculateSize()
     return desiredSize;
 }

@@ -18,13 +18,11 @@ extern "C" {
 // 3 is for absolute worst case of WCHAR* where last char was partially written
 #define ZERO_PADDING_COUNT 3
 
-#if OS_WIN
 FILETIME MultiFormatArchive::FileInfo::GetWinFileTime() const {
     FILETIME ft = {(DWORD)-1, (DWORD)-1};
     LocalFileTimeToFileTime((FILETIME*)&fileTime, &ft);
     return ft;
 }
-#endif
 
 MultiFormatArchive::MultiFormatArchive(archive_opener_t opener, MultiFormatArchive::Format format)
     : format(format), opener_(opener) {
@@ -62,7 +60,7 @@ bool MultiFormatArchive::Open(ar_stream* data, const char* archivePath) {
         i->fileSizeUncompressed = ar_entry_get_size(ar_);
         i->filePos = ar_entry_get_offset(ar_);
         i->fileTime = ar_entry_get_filetime(ar_);
-        i->name = Allocator::AllocString(&allocator_, name);
+        i->name = str::Dup(&allocator_, name);
         fileInfos_.Append(i);
 
         fileId++;
@@ -92,12 +90,10 @@ size_t MultiFormatArchive::GetFileId(const char* fileName) {
     return getFileIdByName(fileInfos_, fileName);
 }
 
-#if OS_WIN
 std::span<u8> MultiFormatArchive::GetFileDataByName(const WCHAR* fileName) {
-    AutoFree fileNameUtf8 = strconv::WstrToUtf8(fileName);
-    return GetFileDataByName(fileNameUtf8);
+    auto fileNameA = ToUtf8Temp(fileName);
+    return GetFileDataByName(fileNameA);
 }
-#endif
 
 std::span<u8> MultiFormatArchive::GetFileDataByName(const char* fileName) {
     size_t fileId = getFileIdByName(fileInfos_, fileName);
@@ -174,10 +170,9 @@ static MultiFormatArchive* open(MultiFormatArchive* archive, const char* path) {
     return archive;
 }
 
-#if OS_WIN
 static MultiFormatArchive* open(MultiFormatArchive* archive, const WCHAR* path) {
-    AutoFree pathUtf = strconv::WstrToUtf8(path);
-    bool ok = archive->Open(ar_open_file_w(path), pathUtf);
+    auto pathA = ToUtf8Temp(path);
+    bool ok = archive->Open(ar_open_file_w(path), pathA.Get());
     if (!ok) {
         delete archive;
         return nullptr;
@@ -193,7 +188,6 @@ static MultiFormatArchive* open(MultiFormatArchive* archive, IStream* stream) {
     }
     return archive;
 }
-#endif
 
 MultiFormatArchive* OpenZipArchive(const char* path, bool deflatedOnly) {
     auto opener = ar_open_zip_archive_any;
@@ -219,7 +213,6 @@ MultiFormatArchive* OpenRarArchive(const char* path) {
     return open(archive, path);
 }
 
-#if OS_WIN
 MultiFormatArchive* OpenZipArchive(const WCHAR* path, bool deflatedOnly) {
     auto opener = ar_open_zip_archive_any;
     if (deflatedOnly) {
@@ -243,9 +236,7 @@ MultiFormatArchive* OpenRarArchive(const WCHAR* path) {
     auto* archive = new MultiFormatArchive(ar_open_rar_archive, MultiFormatArchive::Format::Rar);
     return open(archive, path);
 }
-#endif
 
-#if OS_WIN
 MultiFormatArchive* OpenZipArchive(IStream* stream, bool deflatedOnly) {
     auto opener = ar_open_zip_archive_any;
     if (deflatedOnly) {
@@ -269,7 +260,6 @@ MultiFormatArchive* OpenRarArchive(IStream* stream) {
     auto* archive = new MultiFormatArchive(ar_open_rar_archive, MultiFormatArchive::Format::Rar);
     return open(archive, stream);
 }
-#endif
 
 // TODO: set include path to ext/ dir
 #include "../../ext/unrar/dll.hpp"
@@ -296,7 +286,7 @@ static bool FindFile(HANDLE hArc, RARHeaderDataEx* rarHeader, const WCHAR* fileN
         if (0 != res) {
             return false;
         }
-        str::TransChars(rarHeader->FileNameW, L"\\", L"/");
+        str::TransCharsInPlace(rarHeader->FileNameW, L"\\", L"/");
         if (str::EqI(rarHeader->FileNameW, fileName)) {
             // don't support files whose uncompressed size is greater than 4GB
             return rarHeader->UnpSizeHigh == 0;
@@ -308,7 +298,7 @@ static bool FindFile(HANDLE hArc, RARHeaderDataEx* rarHeader, const WCHAR* fileN
 std::span<u8> MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
     CrashIf(!rarFilePath_);
 
-    AutoFreeWstr rarPath = strconv::Utf8ToWstr(rarFilePath_);
+    auto rarPath = ToWstrTemp(rarFilePath_);
 
     str::Slice uncompressedBuf;
 
@@ -328,7 +318,7 @@ std::span<u8> MultiFormatArchive::GetFileDataByIdUnarrDll(size_t fileId) {
 
     char* data = nullptr;
     size_t size = 0;
-    AutoFreeWstr fileName = strconv::Utf8ToWstr(fileInfo->name.data());
+    auto fileName = ToWstrTemp(fileInfo->name.data());
     RARHeaderDataEx rarHeader = {0};
     int res;
     bool ok = FindFile(hArc, &rarHeader, fileName.Get());
@@ -362,15 +352,15 @@ Exit:
 
 // asan build crashes in UnRAR code
 // see https://codeeval.dev/gist/801ad556960e59be41690d0c2fa7cba0
-bool MultiFormatArchive::OpenUnrarFallback(const char* rarPathUtf) {
-    if (!rarPathUtf) {
+bool MultiFormatArchive::OpenUnrarFallback(const char* rarPath) {
+    if (!rarPath) {
         return false;
     }
     CrashIf(rarFilePath_);
-    AutoFreeWstr rarPath = strconv::Utf8ToWstr(rarPathUtf);
+    auto rarPathW = ToWstrTemp(rarPath);
 
     RAROpenArchiveDataEx arcData = {0};
-    arcData.ArcNameW = (WCHAR*)rarPath;
+    arcData.ArcNameW = (WCHAR*)rarPathW;
     arcData.OpenMode = RAR_OM_EXTRACT;
 
     HANDLE hArc = RAROpenArchiveEx(&arcData);
@@ -386,15 +376,15 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPathUtf) {
             break;
         }
 
-        str::TransChars(rarHeader.FileNameW, L"\\", L"/");
-        AutoFree name = strconv::WstrToUtf8(rarHeader.FileNameW);
+        str::TransCharsInPlace(rarHeader.FileNameW, L"\\", L"/");
+        auto name = ToUtf8Temp(rarHeader.FileNameW);
 
         FileInfo* i = allocator_.AllocStruct<FileInfo>();
         i->fileId = fileId;
         i->fileSizeUncompressed = (size_t)rarHeader.UnpSize;
         i->filePos = 0;
         i->fileTime = (i64)rarHeader.FileTime;
-        i->name = Allocator::AllocString(&allocator_, name.Get());
+        i->name = str::Dup(&allocator_, name.Get());
         fileInfos_.Append(i);
 
         fileId++;
@@ -404,7 +394,6 @@ bool MultiFormatArchive::OpenUnrarFallback(const char* rarPathUtf) {
 
     RARCloseArchive(hArc);
 
-    auto tmp = Allocator::AllocString(&allocator_, rarPathUtf);
-    rarFilePath_ = tmp.data();
+    rarFilePath_ = str::Dup(&allocator_, rarPath);
     return true;
 }

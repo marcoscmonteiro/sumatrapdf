@@ -9,7 +9,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "DisplayMode.h"
 #include "SettingsStructs.h"
@@ -222,7 +221,7 @@ HRESULT STDMETHODCALLTYPE SumatraUIAutomationPageProvider::get_ProviderOptions(P
     return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE SumatraUIAutomationPageProvider::SetValue([[maybe_unused]] LPCWSTR val) {
+HRESULT STDMETHODCALLTYPE SumatraUIAutomationPageProvider::SetValue(__unused LPCWSTR val) {
     return E_ACCESSDENIED;
 }
 

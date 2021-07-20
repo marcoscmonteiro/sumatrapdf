@@ -43,8 +43,7 @@ enum class DocumentProperty {
     PdfFileStructure,
 };
 
-class RenderedBitmap {
-  public:
+struct RenderedBitmap {
     HBITMAP hbmp{nullptr};
     Size size = {};
     AutoCloseHandle hMap = {};
@@ -88,11 +87,14 @@ struct PageText {
 
 void FreePageText(PageText*);
 
+int resolve_link(const char* uri, float* xp, float* yp, float* zoomp);
+
 // a link destination
 struct PageDestination {
     Kind kind{nullptr};
     int pageNo{0};
     RectF rect{};
+    float zoom{0};
     WCHAR* value{nullptr};
     WCHAR* name{nullptr};
 
@@ -104,6 +106,8 @@ struct PageDestination {
     int GetPageNo() const;
     // rectangle of the destination on the above returned page
     RectF GetRect() const;
+    // optional zoom level on the above returned page
+    float GetZoom() const;
     // string value associated with the destination (e.g. a path or a URL)
     WCHAR* GetValue() const;
     // the name of this destination (reverses EngineBase::GetNamedDest) or nullptr
@@ -220,7 +224,7 @@ struct TocItem : TreeItem {
     TocItem* currChild{nullptr};
     int currChildNo{0};
 
-    // -- only for .vbkm usage (EngineMulti, TocEditor) --
+    // -- only for .EngineMulti
     // marks a node that represents a file
     char* engineFilePath{nullptr};
     int nPages{0};

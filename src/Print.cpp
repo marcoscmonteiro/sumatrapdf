@@ -10,7 +10,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 
@@ -507,7 +506,7 @@ void OnMenuPrint(WindowInfo* win, bool waitForCompletion) {
     Vec<PRINTPAGERANGE> ranges;
     PRINTER_INFO_2W printerInfo{};
 
-    if (!HasPermission(Perm_PrinterAccess)) {
+    if (!HasPermission(Perm::PrinterAccess)) {
         return;
     }
     if (!win->IsDocLoaded()) {
@@ -517,7 +516,7 @@ void OnMenuPrint(WindowInfo* win, bool waitForCompletion) {
     if (win->AsChm()) {
         // the Print dialog allows access to the file system, so fall back
         // to printing the entire document without dialog if that isn't desired
-        bool showUI = HasPermission(Perm_DiskAccess);
+        bool showUI = HasPermission(Perm::DiskAccess);
         win->AsChm()->PrintCurrentPage(showUI);
         return;
     }
@@ -551,7 +550,7 @@ void OnMenuPrint(WindowInfo* win, bool waitForCompletion) {
 
     // the Print dialog allows access to the file system, so fall back
     // to printing the entire document without dialog if that isn't desired
-    if (!HasPermission(Perm_DiskAccess)) {
+    if (!HasPermission(Perm::DiskAccess)) {
         PrintFile(dm->GetEngine());
         return;
     }
@@ -704,6 +703,7 @@ static short GetPaperSize(EngineBase* engine) {
     }
 }
 
+#if 0
 static short GetPaperByName(const WCHAR* papername) {
     if (str::EqI(papername, L"letter")) {
         return DMPAPER_LETTER;
@@ -734,6 +734,7 @@ static short GetPaperByName(const WCHAR* papername) {
     }
     return 0;
 }
+#endif
 
 static short GetPaperByName(const WCHAR* printerName, const WCHAR* paperName, LPDEVMODE devMode) {
     CrashIf(!(devMode->dmFields & DM_PAPERSIZE));
@@ -911,7 +912,7 @@ static void SetPrinterCustomPaperSize(EngineBase* engine, LPDEVMODE devMode) {
 bool PrintFile(EngineBase* engine, WCHAR* printerName, bool displayErrors, const WCHAR* settings) {
     bool ok = false;
     LONG ret;
-    if (!HasPermission(Perm_PrinterAccess)) {
+    if (!HasPermission(Perm::PrinterAccess)) {
         return false;
     }
 

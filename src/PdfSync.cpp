@@ -8,7 +8,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "PdfSync.h"
 
@@ -125,12 +124,12 @@ int Synchronizer::Create(const WCHAR* pdffilename, EngineBase* engine, Synchroni
         return PDFSYNCERR_INVALID_ARGUMENT;
     }
 
-    const WCHAR* fileExt = path::GetExtNoFree(pdffilename);
+    const WCHAR* fileExt = path::GetExtNoFreeTemp(pdffilename);
     if (!str::EqI(fileExt, L".pdf")) {
         return PDFSYNCERR_INVALID_ARGUMENT;
     }
 
-    AutoFreeWstr baseName(str::DupN(pdffilename, fileExt - pdffilename));
+    AutoFreeWstr baseName(str::Dup(pdffilename, fileExt - pdffilename));
 
     // Check if a PDFSYNC file is present
     AutoFreeWstr syncFile(str::Join(baseName, PDFSYNC_EXTENSION));
@@ -200,15 +199,15 @@ int Pdfsync::RebuildIndex() {
         return PDFSYNCERR_SYNCFILE_CANNOT_BE_OPENED;
     }
     // convert the file data into a list of zero-terminated strings
-    str::TransChars(data.data, "\r\n", "\0\0");
+    str::TransCharsInPlace(data.data, "\r\n", "\0\0");
 
     // parse preamble (jobname and version marker)
     char* line = data.data;
     char* dataEnd = data.data + data.size();
 
     // replace star by spaces (TeX uses stars instead of spaces in filenames)
-    str::TransChars(line, "*/", " \\");
-    AutoFreeWstr jobName(strconv::FromAnsi(line));
+    str::TransCharsInPlace(line, "*/", " \\");
+    AutoFreeWstr jobName(strconv::AnsiToWstr(line));
     jobName.Set(str::Join(jobName, L".tex"));
     jobName.Set(PrependDir(jobName));
 
@@ -279,16 +278,16 @@ int Pdfsync::RebuildIndex() {
                 break;
 
             case '(': {
-                AutoFreeWstr filename(strconv::FromAnsi(line + 1));
+                AutoFreeWstr filename(strconv::AnsiToWstr(line + 1));
                 // if the filename contains quotes then remove them
                 // TODO: this should never happen!?
                 if (filename[0] == '"' && filename[str::Len(filename) - 1] == '"') {
-                    filename.Set(str::DupN(filename + 1, str::Len(filename) - 2));
+                    filename.Set(str::Dup(filename + 1, str::Len(filename) - 2));
                 }
                 // undecorate the filepath: replace * by space and / by \ (backslash)
-                str::TransChars(filename, L"*/", L" \\");
+                str::TransCharsInPlace(filename, L"*/", L" \\");
                 // if the file name extension is not specified then add the suffix '.tex'
-                if (str::IsEmpty(path::GetExtNoFree(filename))) {
+                if (str::IsEmpty(path::GetExtNoFreeTemp(filename))) {
                     filename.Set(str::Join(filename, L".tex"));
                 }
                 // ensure that the path is absolute
@@ -316,7 +315,7 @@ int Pdfsync::RebuildIndex() {
     }
 
     fileIndex.at(0).end = lines.size();
-    SubmitCrashIf(filestack.size() != 1);
+    SubmitBugReportIf(filestack.size() != 1);
 
     return Synchronizer::RebuildIndex();
 }
@@ -406,7 +405,7 @@ int Pdfsync::DocToSource(UINT pageNo, Point pt, AutoFreeWstr& filename, UINT* li
 // (within a range of EPSILON_LINE)
 //
 // The function returns PDFSYNCERR_SUCCESS if a matching record was found.
-UINT Pdfsync::SourceToRecord(const WCHAR* srcfilename, UINT line, [[maybe_unused]] UINT col, Vec<size_t>& records) {
+UINT Pdfsync::SourceToRecord(const WCHAR* srcfilename, UINT line, __unused UINT col, Vec<size_t>& records) {
     if (!srcfilename) {
         return PDFSYNCERR_INVALID_ARGUMENT;
     }
@@ -515,7 +514,7 @@ int SyncTex::RebuildIndex() {
     synctex_scanner_free(scanner);
     scanner = nullptr;
 
-    AutoFree syncfname(strconv::WstrToAnsi(syncfilepath));
+    AutoFree syncfname(strconv::WstrToAnsiV(syncfilepath));
     if (!syncfname.Get()) {
         return PDFSYNCERR_OUTOFMEMORY;
     }
@@ -560,7 +559,7 @@ TryAgainAnsi:
     }
 
     // undecorate the filepath: replace * by space and / by \ (backslash)
-    str::TransChars(filename, L"*/", L" \\");
+    str::TransCharsInPlace(filename, L"*/", L" \\");
     // Convert the source filepath to an absolute path
     if (PathIsRelative(filename)) {
         filename.Set(PrependDir(filename));
@@ -569,7 +568,7 @@ TryAgainAnsi:
     // recent SyncTeX versions encode in UTF-8 instead of ANSI
     if (isUtf8 && !file::Exists(filename)) {
         isUtf8 = false;
-        filename.Set(strconv::FromAnsi(name));
+        filename.Set(strconv::AnsiToWstr(name));
         goto TryAgainAnsi;
     }
 
@@ -599,7 +598,7 @@ int SyncTex::SourceToDoc(const WCHAR* srcfilename, UINT line, UINT col, UINT* pa
     }
 
     bool isUtf8 = true;
-    const char* mb_srcfilepath = strconv::WstrToUtf8(srcfilepath).data();
+    char* mb_srcfilepath = strconv::WstrToUtf8(srcfilepath);
 TryAgainAnsi:
     if (!mb_srcfilepath) {
         return PDFSYNCERR_OUTOFMEMORY;
@@ -609,7 +608,7 @@ TryAgainAnsi:
     // recent SyncTeX versions encode in UTF-8 instead of ANSI
     if (isUtf8 && -1 == ret) {
         isUtf8 = false;
-        mb_srcfilepath = (char*)strconv::WstrToAnsi(srcfilepath).data();
+        mb_srcfilepath = (char*)strconv::WstrToAnsiV(srcfilepath).data();
         goto TryAgainAnsi;
     }
 

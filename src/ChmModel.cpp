@@ -12,7 +12,7 @@
 #include "Annotation.h"
 #include "EngineBase.h"
 #include "EbookBase.h"
-#include "ChmDoc.h"
+#include "ChmFile.h"
 
 #include "DisplayMode.h"
 #include "SettingsStructs.h"
@@ -123,10 +123,10 @@ int ChmModel::CurrentPageNo() const {
     return currentPageNo;
 }
 
-void ChmModel::GoToPage(int pageNo, [[maybe_unused]] bool addNavPoint) {
+void ChmModel::GoToPage(int pageNo, __unused bool addNavPoint) {
     // TODO: not sure if crashing here is warranted
     // I've seen a crash with call from RestoreTabOnStartup() which doesn't validate pageNo
-    SubmitCrashIf(!ValidPageNo(pageNo));
+    SubmitBugReportIf(!ValidPageNo(pageNo));
     if (!ValidPageNo(pageNo)) {
         return;
     }
@@ -255,23 +255,23 @@ void ChmModel::Navigate(int dir) {
     }
 }
 
-void ChmModel::SetDisplayMode([[maybe_unused]] DisplayMode mode, [[maybe_unused]] bool keepContinuous) {
+void ChmModel::SetDisplayMode(__unused DisplayMode mode, __unused bool keepContinuous) {
 }
 
 DisplayMode ChmModel::GetDisplayMode() const {
     return DisplayMode::SinglePage;
 }
-void ChmModel::SetPresentationMode([[maybe_unused]] bool enable) {
+void ChmModel::SetPresentationMode(__unused bool enable) {
 }
 
-void ChmModel::SetViewPortSize([[maybe_unused]] Size size) {
+void ChmModel::SetViewPortSize(__unused Size size) {
 }
 
 ChmModel* ChmModel::AsChm() {
     return this;
 }
 
-void ChmModel::SetZoomVirtual(float zoom, [[maybe_unused]] Point* fixPt) {
+void ChmModel::SetZoomVirtual(float zoom, __unused Point* fixPt) {
     if (zoom > 0) {
         zoom = limitValue(zoom, ZOOM_MIN, ZOOM_MAX);
     }
@@ -288,7 +288,7 @@ void ChmModel::ZoomTo(float zoomLevel) {
     }
 }
 
-float ChmModel::GetZoomVirtual([[maybe_unused]] bool absolute) const {
+float ChmModel::GetZoomVirtual(__unused bool absolute) const {
     if (!htmlWindow) {
         return 100;
     }
@@ -296,7 +296,7 @@ float ChmModel::GetZoomVirtual([[maybe_unused]] bool absolute) const {
 }
 
 class ChmTocBuilder : public EbookTocVisitor {
-    ChmDoc* doc = nullptr;
+    ChmFile* doc = nullptr;
 
     WStrList* pages = nullptr;
     Vec<ChmTocTraceItem>* tocTrace = nullptr;
@@ -325,7 +325,7 @@ class ChmTocBuilder : public EbookTocVisitor {
     }
 
   public:
-    ChmTocBuilder(ChmDoc* doc, WStrList* pages, Vec<ChmTocTraceItem>* tocTrace, Allocator* allocator) {
+    ChmTocBuilder(ChmFile* doc, WStrList* pages, Vec<ChmTocTraceItem>* tocTrace, Allocator* allocator) {
         this->doc = doc;
         this->pages = pages;
         this->tocTrace = tocTrace;
@@ -340,8 +340,8 @@ class ChmTocBuilder : public EbookTocVisitor {
 
     void Visit(const WCHAR* name, const WCHAR* url, int level) override {
         int pageNo = CreatePageNoForURL(url);
-        name = Allocator::StrDup(allocator, name);
-        url = Allocator::StrDup(allocator, url);
+        name = str::Dup(allocator, name);
+        url = str::Dup(allocator, url);
         auto item = ChmTocTraceItem{name, url, level, pageNo};
         tocTrace->Append(item);
     }
@@ -349,13 +349,13 @@ class ChmTocBuilder : public EbookTocVisitor {
 
 bool ChmModel::Load(const WCHAR* fileName) {
     this->fileName.SetCopy(fileName);
-    doc = ChmDoc::CreateFromFile(fileName);
+    doc = ChmFile::CreateFromFile(fileName);
     if (!doc) {
         return false;
     }
 
     // always make the document's homepage page 1
-    pages.Append(strconv::FromAnsi(doc->GetHomePath()));
+    pages.Append(strconv::AnsiToWstr(doc->GetHomePath()));
 
     // parse the ToC here, since page numbering depends on it
     tocTrace = new Vec<ChmTocTraceItem>();
@@ -445,9 +445,9 @@ std::span<u8> ChmModel::GetDataForUrl(const WCHAR* url) {
     AutoFreeWstr plainUrl(url::GetFullPath(url));
     ChmCacheEntry* e = FindDataForUrl(plainUrl);
     if (!e) {
-        e = new ChmCacheEntry(Allocator::StrDup(&poolAlloc, plainUrl));
-        AutoFree urlUtf8(strconv::WstrToUtf8(plainUrl));
-        e->data = doc->GetData(urlUtf8.Get());
+        e = new ChmCacheEntry(str::Dup(&poolAlloc, plainUrl));
+        AutoFree urlA(strconv::WstrToUtf8(plainUrl));
+        e->data = doc->GetData(urlA.Get());
         if (e->data.empty()) {
             delete e;
             return {};
@@ -472,23 +472,23 @@ void ChmModel::OnLButtonDown() {
 // named destinations are either in-document URLs or Alias topic IDs
 PageDestination* ChmModel::GetNamedDest(const WCHAR* name) {
     AutoFreeWstr plainUrl(url::GetFullPath(name));
-    AutoFree urlUtf8(strconv::WstrToUtf8(plainUrl));
-    if (!doc->HasData(urlUtf8.Get())) {
+    AutoFree urlA(strconv::WstrToUtf8(plainUrl));
+    if (!doc->HasData(urlA.Get())) {
         unsigned int topicID;
         if (str::Parse(name, L"%u%$", &topicID)) {
-            urlUtf8.TakeOwnershipOf(doc->ResolveTopicID(topicID));
-            if (urlUtf8.Get() && doc->HasData(urlUtf8.Get())) {
-                plainUrl.Set(strconv::Utf8ToWstr(urlUtf8.Get()));
+            urlA.TakeOwnershipOf(doc->ResolveTopicID(topicID));
+            if (urlA.Get() && doc->HasData(urlA.Get())) {
+                plainUrl.Set(strconv::Utf8ToWstr(urlA.Get()));
                 name = plainUrl;
             } else {
-                urlUtf8.Reset();
+                urlA.Reset();
             }
         } else {
-            urlUtf8.Reset();
+            urlA.Reset();
         }
     }
     int pageNo = pages.Find(plainUrl) + 1;
-    if (!pageNo && !str::IsEmpty(urlUtf8.Get())) {
+    if (!pageNo && !str::IsEmpty(urlA.Get())) {
         // some documents use redirection URLs which aren't listed in the ToC
         // return pageNo=1 for these, as ScrollToLink will ignore that anyway
         // but LinkHandler::ScrollTo doesn't
@@ -535,7 +535,7 @@ TocTree* ChmModel::GetToc() {
         }
         nextChild = &item->child;
     }
-    if (foundRoot) {
+    if (!foundRoot) {
         return nullptr;
     }
     tocTree = new TocTree(root);
@@ -582,14 +582,14 @@ float ChmModel::GetNextZoomStep(float towardsLevel) const {
     return newZoom;
 }
 
-void ChmModel::GetDisplayState(DisplayState* ds) {
+void ChmModel::GetDisplayState(FileState* ds) {
     if (!ds->filePath || !str::EqI(ds->filePath, fileName)) {
-        str::ReplacePtr(&ds->filePath, fileName);
+        str::ReplaceWithCopy(&ds->filePath, fileName);
     }
 
     ds->useDefaultState = !gGlobalPrefs->rememberStatePerDocument;
 
-    str::ReplacePtr(&ds->displayMode, DisplayModeToString(GetDisplayMode()));
+    str::ReplaceWithCopy(&ds->displayMode, DisplayModeToString(GetDisplayMode()));
     ZoomToString(&ds->zoom, GetZoomVirtual(), ds);
 
     ds->pageNo = CurrentPageNo();
@@ -597,7 +597,7 @@ void ChmModel::GetDisplayState(DisplayState* ds) {
 }
 
 class ChmThumbnailTask : public HtmlWindowCallback {
-    ChmDoc* doc = nullptr;
+    ChmFile* doc = nullptr;
     HWND hwnd = nullptr;
     HtmlWindow* hw = nullptr;
     Size size;
@@ -607,7 +607,7 @@ class ChmThumbnailTask : public HtmlWindowCallback {
     CRITICAL_SECTION docAccess;
 
   public:
-    ChmThumbnailTask(ChmDoc* doc, HWND hwnd, Size size, const onBitmapRenderedCb& saveThumbnail) {
+    ChmThumbnailTask(ChmFile* doc, HWND hwnd, Size size, const onBitmapRenderedCb& saveThumbnail) {
         this->doc = doc;
         this->hwnd = hwnd;
         this->size = size;
@@ -629,14 +629,14 @@ class ChmThumbnailTask : public HtmlWindowCallback {
 
     void CreateThumbnail(HtmlWindow* hw) {
         this->hw = hw;
-        homeUrl.Set(strconv::FromAnsi(doc->GetHomePath()));
+        homeUrl.Set(strconv::AnsiToWstr(doc->GetHomePath()));
         if (*homeUrl == '/') {
             homeUrl.SetCopy(homeUrl + 1);
         }
         hw->NavigateToDataUrl(homeUrl);
     }
 
-    bool OnBeforeNavigate([[maybe_unused]] const WCHAR* url, bool newWindow) override {
+    bool OnBeforeNavigate(__unused const WCHAR* url, bool newWindow) override {
         return !newWindow;
     }
 
@@ -662,13 +662,13 @@ class ChmThumbnailTask : public HtmlWindowCallback {
     std::span<u8> GetDataForUrl(const WCHAR* url) override {
         ScopedCritSec scope(&docAccess);
         AutoFreeWstr plainUrl(url::GetFullPath(url));
-        AutoFree urlUtf8(strconv::WstrToUtf8(plainUrl));
-        auto d = doc->GetData(urlUtf8.Get());
+        auto urlA(ToUtf8Temp(plainUrl));
+        auto d = doc->GetData(urlA.Get());
         data.Append(d);
         return d;
     }
 
-    void DownloadData([[maybe_unused]] const WCHAR* url, [[maybe_unused]] std::span<u8> data) override {
+    void DownloadData(__unused const WCHAR* url, __unused std::span<u8> data) override {
     }
 };
 
@@ -676,7 +676,7 @@ class ChmThumbnailTask : public HtmlWindowCallback {
 // its first page to a hwnd specially created for it.
 void ChmModel::CreateThumbnail(Size size, const onBitmapRenderedCb& saveThumbnail) {
     // doc and window will be destroyed by the callback once it's invoked
-    ChmDoc* doc = ChmDoc::CreateFromFile(fileName);
+    ChmFile* doc = ChmFile::CreateFromFile(fileName);
     if (!doc) {
         return;
     }
@@ -706,7 +706,7 @@ void ChmModel::CreateThumbnail(Size size, const onBitmapRenderedCb& saveThumbnai
 }
 
 bool ChmModel::IsSupportedFileType(Kind kind) {
-    return ChmDoc::IsSupportedFileType(kind);
+    return ChmFile::IsSupportedFileType(kind);
 }
 
 ChmModel* ChmModel::Create(const WCHAR* fileName, ControllerCallback* cb) {

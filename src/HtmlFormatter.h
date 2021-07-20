@@ -165,7 +165,7 @@ struct HtmlFormatterArgs {
        used to allocate this text. */
     Allocator* textAllocator{nullptr};
 
-    mui::TextRenderMethod textRenderMethod = mui::TextRenderMethodGdiplus;
+    mui::TextRenderMethod textRenderMethod = mui::TextRenderMethod::Gdiplus;
 
     std::span<u8> htmlStr;
 
@@ -199,11 +199,11 @@ class HtmlFormatter {
     void HandleText(HtmlToken* t);
     void HandleText(const char* s, size_t sLen);
     // blank convenience methods to override
-    virtual void HandleTagImg([[maybe_unused]] HtmlToken* t) {
+    virtual void HandleTagImg(__unused HtmlToken* t) {
     }
-    virtual void HandleTagPagebreak([[maybe_unused]] HtmlToken* t) {
+    virtual void HandleTagPagebreak(__unused HtmlToken* t) {
     }
-    virtual void HandleTagLink([[maybe_unused]] HtmlToken* t) {
+    virtual void HandleTagLink(__unused HtmlToken* t) {
     }
 
     float CurrLineDx();
@@ -301,8 +301,6 @@ class HtmlFormatter {
     // number of pages generated so far, approximate. Only used
     // for detection of cover image duplicates in mobi formatting
     int pageCount{0};
-
-    WCHAR buf[512]{};
 
   public:
     explicit HtmlFormatter(HtmlFormatterArgs* args);

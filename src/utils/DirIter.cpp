@@ -6,7 +6,7 @@
 #include "utils/FileUtil.h"
 
 // Start directory traversal in a given dir
-bool DirIter::StartDirIter(const WCHAR* dir) {
+bool DirIter::StartDirIter(std::wstring_view dir) {
     currDir.SetCopy(dir);
     AutoFreeWstr pattern(path::Join(currDir, L"*"));
     currFindHandle = FindFirstFile(pattern, &currFindData);
@@ -21,7 +21,7 @@ bool DirIter::TryNextDir() {
         AutoFreeWstr nextDir(dirsToVisit.Pop());
         // it's ok if we fail, this might be an auth problem,
         // we keep going
-        bool ok = StartDirIter(nextDir);
+        bool ok = StartDirIter(nextDir.AsView());
         if (ok) {
             return true;
         }
@@ -149,7 +149,7 @@ std::vector<std::wstring> CollectDirsFromDirectory(const WCHAR* dir) {
 
 bool CollectFilesFromDirectory(std::string_view dir, VecStr& files,
                                const std::function<bool(std::string_view)>& fileMatchesFn) {
-    AutoFreeWstr dirW = strconv::Utf8ToWstr(dir);
+    auto dirW = ToWstrTemp(dir);
     AutoFreeWstr pattern = path::Join(dirW, L"*");
 
     WIN32_FIND_DATA fdata;
@@ -162,8 +162,8 @@ bool CollectFilesFromDirectory(std::string_view dir, VecStr& files,
     do {
         isFile = IsRegularFile(fdata.dwFileAttributes);
         if (isFile) {
-            AutoFreeStr name = strconv::WstrToUtf8(fdata.cFileName);
-            AutoFreeStr filePath = path::JoinUtf(dir.data(), name.Get(), nullptr);
+            auto name = ToUtf8Temp(fdata.cFileName);
+            AutoFreeStr filePath = path::Join(dir.data(), name.Get(), nullptr);
             bool matches = true;
             if (fileMatchesFn) {
                 matches = fileMatchesFn(filePath.AsView());

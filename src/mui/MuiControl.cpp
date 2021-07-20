@@ -69,7 +69,7 @@ Control::Control(Control* newParent) {
 }
 
 void Control::SetToolTip(const WCHAR* toolTip) {
-    str::ReplacePtr(&this->toolTip, toolTip);
+    str::ReplaceWithCopy(&this->toolTip, toolTip);
     if (nullptr == toolTip) {
         wantedInputBits &= WantsMouseOverBit;
     } else {
@@ -78,7 +78,7 @@ void Control::SetToolTip(const WCHAR* toolTip) {
 }
 
 void Control::SetNamedEventClick(const char* s) {
-    str::ReplacePtr(&this->namedEventClick, s);
+    str::ReplaceWithCopy(&this->namedEventClick, s);
 }
 
 // note: all derived classes must call Control::NotifyMouseEnter()
@@ -275,7 +275,7 @@ void Control::MapRootToMyPos(int& x, int& y) const {
 // Requests the window to draw itself on a Graphics canvas.
 // offX and offY is a position of this window within
 // Graphics canvas (pos is relative to that offset)
-void Control::Paint([[maybe_unused]] Graphics* gfx, [[maybe_unused]] int offX, [[maybe_unused]] int offY) {
+void Control::Paint(__unused Graphics* gfx, __unused int offX, __unused int offY) {
     CrashIf(!IsVisible());
 }
 

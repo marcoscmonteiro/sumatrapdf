@@ -13,7 +13,6 @@ extern "C" {
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineFzUtil.h"
 #include "PdfCreator.h"
@@ -293,7 +292,7 @@ bool PdfCreator::SetProperty(DocumentProperty prop, const WCHAR* value) {
         return false;
     }
 
-    AutoFree val = strconv::WstrToUtf8(value);
+    auto val = ToUtf8Temp(value);
 
     pdf_obj* obj = nullptr;
     fz_var(obj);

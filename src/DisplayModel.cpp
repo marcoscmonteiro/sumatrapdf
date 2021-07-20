@@ -50,7 +50,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 
@@ -207,14 +206,14 @@ bool DisplayModel::GetPresentationMode() const {
     return presentationMode;
 }
 
-void DisplayModel::GetDisplayState(DisplayState* ds) {
+void DisplayModel::GetDisplayState(FileState* ds) {
     if (!ds->filePath || !str::EqI(ds->filePath, engine->FileName())) {
-        str::ReplacePtr(&ds->filePath, engine->FileName());
+        str::ReplaceWithCopy(&ds->filePath, engine->FileName());
     }
 
     ds->useDefaultState = !gGlobalPrefs->rememberStatePerDocument;
 
-    str::ReplacePtr(&ds->displayMode, DisplayModeToString(presentationMode ? presDisplayMode : GetDisplayMode()));
+    str::ReplaceWithCopy(&ds->displayMode, DisplayModeToString(presentationMode ? presDisplayMode : GetDisplayMode()));
     ZoomToString(&ds->zoom, presentationMode ? presZoomVirtual : zoomVirtual, ds);
 
     ScrollState ss = GetScrollState();
@@ -944,18 +943,49 @@ int DisplayModel::GetPageNextToPoint(Point pt) {
     return closest;
 }
 
+// TODO: try to track down why sometimes zoom on a page is 0
+// like https://github.com/sumatrapdfreader/sumatrapdf/issues/2014
+static float getZoomSafe(DisplayModel* dm, int pageNo, const PageInfo* pageInfo) {
+    float zoom = pageInfo->zoomReal;
+    if (zoom > 0) {
+        return zoom;
+    }
+    char* name = str::Dup("");
+    const WCHAR* nameW = dm->FilePath();
+    if (nameW) {
+        name = strconv::WstrToUtf8(nameW);
+    }
+    logf(
+        "getZoomSafe: invalid zoom, doc: %s, pageNo: %d, pageInfo->zoomReal: %.2f, dm->zoomReal: %.2f, "
+        "dm->zoomVirtual: %.2f\n",
+        name, pageNo, zoom, pageInfo->zoomReal, dm->zoomReal, dm->zoomVirtual);
+    free(name);
+    DebugCrashIf(true);
+
+    SubmitBugReportIf(true);
+
+    if (dm->zoomReal > 0) {
+        return dm->zoomReal;
+    }
+
+    if (dm->zoomVirtual > 0) {
+        return dm->zoomVirtual;
+    }
+    // hail mary, return 100%
+    return 1.f;
+}
+
 Point DisplayModel::CvtToScreen(int pageNo, PointF pt) {
     PageInfo* pageInfo = GetPageInfo(pageNo);
-    SubmitCrashIf(!pageInfo);
     if (!pageInfo) {
+        const char* isValid = ValidPageNo(pageNo) ? "yes" : "no";
+        logf("DisplayModel::CvtToScreen: GetPageInfo(%d) failed, is valid page: %s\n", pageNo, isValid);
+        SubmitBugReportIf(!pageInfo);
         return Point();
     }
 
-    float zoom = pageInfo->zoomReal;
-    // TODO: must be a better way
-    if (zoom == 0) {
-        zoom = zoomReal;
-    }
+    float zoom = getZoomSafe(this, pageNo, pageInfo);
+
     PointF p = engine->Transform(pt, pageNo, zoom, rotation);
     // don't add the full 0.5 for rounding to account for precision errors
     Rect r = pageInfo->pageOnScreen;
@@ -985,11 +1015,8 @@ PointF DisplayModel::CvtFromScreen(Point pt, int pageNo) {
     // don't add the full 0.5 for rounding to account for precision errors
     Rect r = pageInfo->pageOnScreen;
     PointF p = PointF(pt.x - 0.499 - r.x, pt.y - 0.499 - r.y);
-    float zoom = pageInfo->zoomReal;
-    // TODO: must be a better way
-    if (zoom == 0) {
-        zoom = zoomReal;
-    }
+
+    float zoom = getZoomSafe(this, pageNo, pageInfo);
     return engine->Transform(p, pageNo, zoom, rotation, true);
 }
 
@@ -1005,7 +1032,7 @@ RectF DisplayModel::CvtFromScreen(Rect r, int pageNo) {
 
 /* Given position 'x'/'y' in the draw area, returns a structure describing
    a link or nullptr if there is no link at this position. */
-IPageElement* DisplayModel::GetElementAtPos(Point pt) {
+IPageElement* DisplayModel::GetElementAtPos(Point pt, int* pageNoOut) {
     int pageNo = GetPageNoByPoint(pt);
     if (!ValidPageNo(pageNo)) {
         return nullptr;
@@ -1014,11 +1041,14 @@ IPageElement* DisplayModel::GetElementAtPos(Point pt) {
     if (!Rect(Point(), viewPort.Size()).Contains(pt)) {
         return nullptr;
     }
-
+    if (pageNoOut) {
+        *pageNoOut = pageNo;
+    }
     PointF pos = CvtFromScreen(pt, pageNo);
     return engine->GetElementAtPos(pageNo, pos);
 }
 
+// caller must delete
 Annotation* DisplayModel::GetAnnotationAtPos(Point pt, AnnotationType* allowedAnnots) {
     int pageNo = GetPageNoByPoint(pt);
     if (!ValidPageNo(pageNo)) {
@@ -1159,7 +1189,7 @@ Point DisplayModel::GetContentStart(int pageNo) {
 void DisplayModel::GoToPage(int pageNo, int scrollY, bool addNavPt, int scrollX) {
     if (!ValidPageNo(pageNo)) {
         logf("DisplayModel::GoToPage: invalid pageNo: %d, nPages: %d\n", pageNo, engine->PageCount());
-        SubmitCrashIf(ValidPageNo(pageNo));
+        SubmitBugReportIf(ValidPageNo(pageNo));
         return;
     }
 
@@ -1843,10 +1873,18 @@ void DisplayModel::ScrollToLink(PageDestination* dest) {
     Point scroll(-1, 0);
     RectF rect = dest->GetRect();
     int pageNo = dest->GetPageNo();
+    float zoom = dest->GetZoom();
 
     if (rect.IsEmpty() || (rect.dx == DEST_USE_DEFAULT && rect.dy == DEST_USE_DEFAULT)) {
-        // PDF: /XYZ top left
+        // PDF: /XYZ top left zoom
         // scroll to rect.TL()
+        // logf("DisplayModel::ScrollToLink /XYZ START [dest] pageNo=%d rect.x=%f rect.y=%f zoom=%f\n", pageNo, rect.x,
+        // rect.y, zoom); logf("DisplayModel::ScrollToLink /XYZ START [zoom] real=%f virtual=%f\n", zoomReal,
+        // zoomVirtual);
+        if (zoom) {
+            SetZoomVirtual(100 * zoom, nullptr);
+            CalcZoomReal(zoomVirtual);
+        }
         PointF scrollD = engine->Transform(rect.TL(), pageNo, zoomReal, rotation);
         scroll = ToPoint(scrollD);
 
@@ -1858,6 +1896,8 @@ void DisplayModel::ScrollToLink(PageDestination* dest) {
             PageInfo* pageInfo = GetPageInfo(CurrentPageNo());
             scroll.y = -(pageInfo->pageOnScreen.y - windowMargin.top);
         }
+        // logf("DisplayModel::ScrollToLink /XYZ END [zoom] real=%f virtual=%f\n", zoomReal, zoomVirtual);
+        // logf("DisplayModel::ScrollToLink /XYZ END [scroll] x=%d y=%d\n", scroll.x, scroll.y);
     } else if (rect.dx != DEST_USE_DEFAULT && rect.dy != DEST_USE_DEFAULT) {
         // PDF: /FitR left bottom right top
         RectF rectD = engine->Transform(rect, pageNo, zoomReal, rotation);

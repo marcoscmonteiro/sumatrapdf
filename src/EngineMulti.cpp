@@ -23,11 +23,9 @@ extern "C" {
 #include "wingui/TreeModel.h"
 
 #include "SumatraConfig.h"
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineFzUtil.h"
 #include "EngineCreate.h"
-#include "ParseBKM.h"
 #include "EngineMulti.h"
 
 struct EngineInfo {
@@ -80,7 +78,6 @@ class EngineMulti : public EngineBase {
     void UpdatePagesForEngines(Vec<EngineInfo>& enginesInfo);
 
     EngineBase* PageToEngine(int& pageNo) const;
-    VbkmFile vbkm;
     Vec<EnginePage> pageToEngine;
     Vec<EngineInfo> enginesInfo;
     TocTree* tocTree = nullptr;
@@ -94,7 +91,7 @@ EngineBase* EngineMulti::PageToEngine(int& pageNo) const {
 
 EngineMulti::EngineMulti() {
     kind = kindEngineMulti;
-    defaultFileExt = L".vbkm";
+    defaultFileExt = L""; // TODO: no extension, is it important?
     fileDPI = 72.0f;
 }
 
@@ -106,10 +103,9 @@ EngineMulti::~EngineMulti() {
 }
 
 EngineBase* EngineMulti::Clone() {
-    const WCHAR* fileName = FileName();
-    CrashIf(!fileName);
     // TODO: support CreateFromFiles()
-    return CreateEngineMultiFromFile(fileName, nullptr);
+    CrashIf(true);
+    return nullptr;
 }
 
 RectF EngineMulti::PageMediabox(int pageNo) {
@@ -324,22 +320,6 @@ static void CalcRemovedPages(TocItem* root, Vec<bool>& visible) {
 }
 #endif
 
-// to supporting moving .vbkm and it's associated files, we accept absolute paths
-// and relative to directory of .vbkm file
-std::string_view FindEnginePath(std::string_view vbkmPath, std::string_view engineFilePath) {
-    if (file::Exists(engineFilePath)) {
-        return str::Dup(engineFilePath);
-    }
-    AutoFreeStr dir = path::GetDir(vbkmPath);
-    const char* engineFileName = path::GetBaseNameNoFree(engineFilePath.data());
-    AutoFreeStr path = path::JoinUtf(dir, engineFileName, nullptr);
-    if (file::Exists(path.AsView())) {
-        std::string_view res = path.Release();
-        return res;
-    }
-    return {};
-}
-
 TocItem* CreateWrapperItem(EngineBase* engine) {
     TocItem* tocFileRoot = nullptr;
     TocTree* tocTree = engine->GetToc();
@@ -349,11 +329,11 @@ TocItem* CreateWrapperItem(EngineBase* engine) {
     }
 
     int nPages = engine->PageCount();
-    const WCHAR* title = path::GetBaseNameNoFree(engine->FileName());
+    const WCHAR* title = path::GetBaseNameTemp(engine->FileName());
     TocItem* tocWrapper = new TocItem(tocFileRoot, title, 0);
     tocWrapper->isOpenDefault = true;
     tocWrapper->child = tocFileRoot;
-    char* filePath = (char*)strconv::WstrToUtf8(engine->FileName()).data();
+    char* filePath = (char*)strconv::WstrToUtf8(engine->FileName());
     tocWrapper->engineFilePath = filePath;
     tocWrapper->nPages = nPages;
     tocWrapper->pageNo = 1;
@@ -368,7 +348,7 @@ bool EngineMulti::LoadFromFiles(std::string_view dir, VecStr& files) {
     TocItem* tocFiles = nullptr;
     for (int i = 0; i < n; i++) {
         std::string_view path = files.at(i);
-        AutoFreeWstr pathW = strconv::Utf8ToWstr(path);
+        auto pathW = ToWstrTemp(path);
         EngineBase* engine = CreateEngine(pathW);
         if (!engine) {
             continue;
@@ -391,12 +371,12 @@ bool EngineMulti::LoadFromFiles(std::string_view dir, VecStr& files) {
     }
     UpdatePagesForEngines(enginesInfo);
 
-    AutoFreeWstr dirW = strconv::Utf8ToWstr(dir);
+    auto dirW = ToWstrTemp(dir);
     TocItem* root = new TocItem(nullptr, dirW, 0);
     root->child = tocFiles;
     tocTree = new TocTree(root);
 
-    AutoFreeWstr fileName = strconv::Utf8ToWstr(dir);
+    auto fileName = ToWstrTemp(dir);
     SetFileName(fileName);
 
     return true;
@@ -457,72 +437,8 @@ void EngineMulti::UpdatePagesForEngines(Vec<EngineInfo>& enginesInfo) {
     }
 }
 
-bool EngineMulti::Load(const WCHAR* fileName, PasswordUI* pwdUI) {
-    AutoFreeStr filePath = strconv::WstrToUtf8(fileName);
-    bool ok = LoadVbkmFile(filePath.Get(), vbkm);
-    if (!ok) {
-        return false;
-    }
-
-    TocItem* tocRoot = CloneTocItemRecur(vbkm.tree->root, true);
-    delete vbkm.tree;
-    vbkm.tree = nullptr;
-
-    // load all referenced files
-    auto loadEngines = [this, &filePath](TocItem* ti) -> bool {
-        if (ti->engineFilePath == nullptr) {
-            return true;
-        }
-        if (ti->isUnchecked) {
-            return true;
-        }
-
-        EngineBase* engine = nullptr;
-        AutoFreeStr path = FindEnginePath(filePath.AsView(), ti->engineFilePath);
-        if (path.empty()) {
-            return false;
-        }
-        AutoFreeWstr pathW = strconv::Utf8ToWstr(path.AsView());
-        engine = CreateEngine(pathW, nullptr);
-        if (!engine) {
-            return false;
-        }
-        EngineInfo ei;
-        ei.engine = engine;
-        ei.tocRoot = ti;
-        this->enginesInfo.Append(ei);
-        return true;
-    };
-
-    ok = VisitTocTree(tocRoot, loadEngines);
-    if (!ok) {
-        delete tocRoot;
-        return false;
-    }
-
-    UpdatePagesForEngines(enginesInfo);
-    tocTree = new TocTree(tocRoot);
-    SetFileName(fileName);
-    return true;
-}
-
 bool IsEngineMultiSupportedFileType(Kind kind) {
-    return kind == kindFileVbkm;
-}
-
-EngineBase* CreateEngineMultiFromFile(const WCHAR* path, PasswordUI* pwdUI) {
-    if (str::IsEmpty(path)) {
-        return nullptr;
-    }
-    if (path::IsDirectory(path)) {
-        return CreateEngineMultiFromDirectory(path);
-    }
-    EngineMulti* engine = new EngineMulti();
-    if (!engine->Load(path, pwdUI)) {
-        delete engine;
-        return nullptr;
-    }
-    return engine;
+    return kind == kindDirectory;
 }
 
 EngineBase* CreateEngineMultiFromFiles(std::string_view dir, VecStr& files) {
@@ -540,7 +456,7 @@ EngineBase* CreateEngineMultiFromDirectory(const WCHAR* dirW) {
         return isValid;
     };
     VecStr files;
-    AutoFreeStr dir = strconv::WstrToUtf8(dirW);
+    auto dir = ToUtf8Temp(dirW);
     bool ok = CollectFilesFromDirectory(dir.AsView(), files, isValidFunc);
     if (!ok) {
         // TODO: show error message

@@ -207,7 +207,6 @@ static bool RemoveEntry(HashTable* h, HasherComparator* hc, uintptr_t key, uintp
 MapStrToInt::MapStrToInt(size_t initialSize) {
     // we use PoolAllocator to allocate HashTableEntry entries
     // and copies of string keys
-    allocator.allocAlign = 4;
     h = NewHashTable(initialSize, &allocator);
 }
 
@@ -240,7 +239,7 @@ bool MapStrToInt::Insert(const char* key, int val, int* existingValOut, const ch
         }
         return false;
     }
-    e->key = (intptr_t)Allocator::StrDup(&allocator, key);
+    e->key = (intptr_t)str::Dup(&allocator, key);
     e->val = (intptr_t)val;
     if (existingKeyOut) {
         *existingKeyOut = (const char*)e->key;
@@ -293,7 +292,7 @@ bool MapWStrToInt::Insert(const WCHAR* key, int val, int* prevVal) {
         }
         return false;
     }
-    e->key = (intptr_t)Allocator::StrDup(&allocator, key);
+    e->key = (intptr_t)str::Dup(&allocator, key);
     e->val = (intptr_t)val;
 
     HashTableResizeIfNeeded(h, &gWStrKeyHasherComparator);

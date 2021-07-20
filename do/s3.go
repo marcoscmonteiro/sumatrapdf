@@ -29,15 +29,15 @@ func md5B64OfBytes(d []byte) string {
 
 func md5B64OfFile(path string) string {
 	d, err := ioutil.ReadFile(path)
-	panicIfErr(err)
+	must(err)
 	return md5B64OfBytes(d)
 }
 
 // VerifyHasSecrets must be called before any other call
 func (c *S3Client) VerifyHasSecrets() {
-	fatalIf(c.Access == "", "invalid Access\n")
-	fatalIf(c.Secret == "", "invalid Secret\n")
-	fatalIf(c.Secret == c.Access, "Secret == Access")
+	panicIf(c.Access == "", "invalid Access\n")
+	panicIf(c.Secret == "", "invalid Secret\n")
+	panicIf(c.Secret == c.Access, "Secret == Access")
 }
 
 // GetClient returns http.Client
@@ -65,7 +65,7 @@ func (c *S3Client) GetBucket() *s3.Bucket {
 // UploadFileReader uploads file from a reader
 func (c *S3Client) UploadFileReader(pathRemote, pathLocal string, public bool) error {
 	logf("Uploading '%s' as '%s'. ", pathLocal, pathRemote)
-	start := time.Now()
+	timeStart := time.Now()
 	opts := s3.Options{}
 	opts.ContentMD5 = md5B64OfFile(pathLocal)
 	bucket := c.GetBucket()
@@ -85,7 +85,7 @@ func (c *S3Client) UploadFileReader(pathRemote, pathLocal string, public bool) e
 	if err != nil {
 		logf("Failed with %s\n", err)
 	} else {
-		logf("Done in %s\n", time.Since(start))
+		logf("Done in %s\n", time.Since(timeStart))
 	}
 	return err
 }

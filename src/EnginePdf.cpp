@@ -32,7 +32,9 @@ extern "C" {
 extern "C" void drop_cached_fonts_for_ctx(fz_context*);
 extern "C" void pdf_install_load_system_font_funcs(fz_context* ctx);
 
-AnnotationType AnnotationTypeFromPdfAnnot(enum pdf_annot_type tp);
+AnnotationType AnnotationTypeFromPdfAnnot(enum pdf_annot_type tp) {
+    return (AnnotationType)tp;
+}
 
 Kind kindEnginePdf = "enginePdf";
 
@@ -258,7 +260,7 @@ WStrVec* BuildPageLabelVec(fz_context* ctx, pdf_obj* root, int pageCount) {
             do {
                 unique.Set(str::Format(L"%s.%d", dups.at(i), ++counter));
             } while (labels->Contains(unique));
-            str::ReplacePtr(&labels->at(idx), unique);
+            str::ReplaceWithCopy(&labels->at(idx), unique);
         }
         nDups = dups.isize();
         for (; i + 1 < nDups && str::Eq(dups.at(i), dups.at(i + 1)); i++) {
@@ -408,7 +410,7 @@ class PasswordCloner : public PasswordUI {
         this->cryptKey = cryptKey;
     }
 
-    WCHAR* GetPassword([[maybe_unused]] const WCHAR* fileName, [[maybe_unused]] u8* fileDigest, u8 decryptionKeyOut[32],
+    WCHAR* GetPassword(__unused const WCHAR* fileName, __unused u8* fileDigest, u8 decryptionKeyOut[32],
                        bool* saveKey) override {
         memcpy(decryptionKeyOut, cryptKey, 32);
         *saveKey = true;
@@ -635,25 +637,25 @@ bool EnginePdf::LoadFromStream(fz_stream* stm, PasswordUI* pwdUI) {
         }
 
         // MuPDF expects passwords to be UTF-8 encoded
-        AutoFree pwd_utf8(strconv::WstrToUtf8(pwd));
-        ok = pdf_authenticate_password(ctx, doc, pwd_utf8.Get());
+        AutoFree pwdA(strconv::WstrToUtf8(pwd));
+        ok = pdf_authenticate_password(ctx, doc, pwdA.Get());
         // according to the spec (1.7 ExtensionLevel 3), the password
         // for crypt revisions 5 and above are in SASLprep normalization
         if (!ok) {
             // TODO: this is only part of SASLprep
             pwd.Set(NormalizeString(pwd, 5 /* NormalizationKC */));
             if (pwd) {
-                pwd_utf8 = strconv::WstrToUtf8(pwd);
-                ok = pdf_authenticate_password(ctx, doc, pwd_utf8.Get());
+                pwdA = strconv::WstrToUtf8(pwd);
+                ok = pdf_authenticate_password(ctx, doc, pwdA.Get());
             }
         }
         // older Acrobat versions seem to have considered passwords to be in codepage 1252
         // note: such passwords aren't portable when stored as Unicode text
         if (!ok && GetACP() != 1252) {
-            AutoFree pwd_ansi(strconv::WstrToAnsi(pwd));
-            AutoFreeWstr pwd_cp1252(strconv::FromCodePage(pwd_ansi.Get(), 1252));
-            pwd_utf8 = strconv::WstrToUtf8(pwd_cp1252);
-            ok = pdf_authenticate_password(ctx, doc, pwd_utf8.Get());
+            AutoFree pwd_ansi(strconv::WstrToAnsiV(pwd));
+            AutoFreeWstr pwd_cp1252(strconv::StrToWstr(pwd_ansi.Get(), 1252));
+            pwdA = strconv::WstrToUtf8(pwd_cp1252);
+            ok = pdf_authenticate_password(ctx, doc, pwdA.Get());
         }
     }
 
@@ -1005,12 +1007,12 @@ PageDestination* EnginePdf::GetNamedDest(const WCHAR* name) {
 
     pdf_document* doc = (pdf_document*)_doc;
 
-    AutoFree name_utf8(strconv::WstrToUtf8(name));
+    auto nameA(ToUtf8Temp(name));
     pdf_obj* dest = nullptr;
 
     fz_var(dest);
     fz_try(ctx) {
-        pdf_obj* nameobj = pdf_new_string(ctx, name_utf8.Get(), (int)name_utf8.size());
+        pdf_obj* nameobj = pdf_new_string(ctx, nameA.Get(), (int)nameA.size());
         dest = pdf_lookup_dest(ctx, doc, nameobj);
         pdf_drop_obj(ctx, nameobj);
     }
@@ -1037,11 +1039,14 @@ PageDestination* EnginePdf::GetNamedDest(const WCHAR* name) {
         return nullptr;
     }
 
-    float x, y;
-    int pageNo = resolve_link(uri, &x, &y);
+    float x, y, zoom = 0;
+    int pageNo = resolve_link(uri, &x, &y, &zoom);
 
     RectF r{x, y, 0, 0};
     pageDest = newSimpleDest(pageNo, r);
+    if (zoom) {
+        pageDest->zoom = zoom;
+    }
     fz_free(ctx, uri);
     return pageDest;
 }
@@ -1076,7 +1081,7 @@ static PageElement* makePdfCommentFromPdfAnnot(fz_context* ctx, int pageNo, pdf_
     if (str::IsEmpty(contents) && PDF_ANNOT_WIDGET == tp) {
         s = label;
     }
-    AutoFreeWstr ws = strconv::Utf8ToWstr(s);
+    auto ws = ToWstrTemp(s);
     RectF rd = ToRectFl(rect);
     return newFzComment(ws, pageNo, rd);
 }
@@ -1217,6 +1222,12 @@ RectF EnginePdf::PageMediabox(int pageNo) {
 
 RectF EnginePdf::PageContentBox(int pageNo, RenderTarget target) {
     FzPageInfo* pageInfo = GetFzPageInfo(pageNo, false);
+    if (!pageInfo) {
+        // maybe should return a dummy size. not sure how this
+        // will play with layout. The page should fail to render
+        // since the doc is broken and page is missing
+        return RectF();
+    }
 
     ScopedCritSec scope(ctxAccess);
 
@@ -1267,12 +1278,15 @@ RectF EnginePdf::Transform(const RectF& rect, int pageNo, float zoom, int rotati
         char* name = str::Dup("");
         const WCHAR* nameW = FileName();
         if (nameW) {
-            name = (char*)strconv::WstrToUtf8(nameW).data();
+            name = strconv::WstrToUtf8(nameW);
         }
         logf("doc: %s, pageNo: %d, zoom: %.2f\n", name, pageNo, zoom);
         free(name);
     }
-    CrashIf(zoom <= 0);
+    DebugCrashIf(zoom <= 0);
+    if (zoom <= 0) {
+        zoom = 1;
+    }
     fz_matrix ctm = viewctm(pageNo, zoom, rotation);
     if (inverse) {
         ctm = fz_invert_matrix(ctm);
@@ -1597,7 +1611,7 @@ WCHAR* EnginePdf::ExtractFontList() {
 
         str::Str info;
         if (name[0] < 0 && MultiByteToWideChar(936, MB_ERR_INVALID_CHARS, name, -1, nullptr, 0)) {
-            info.Append(strconv::ToMultiByte(name, 936, CP_UTF8).data());
+            info.Append(strconv::ToMultiByteV(name, 936, CP_UTF8).data());
         } else {
             info.Append(name);
         }
@@ -1616,9 +1630,9 @@ WCHAR* EnginePdf::ExtractFontList() {
             info.Append(")");
         }
 
-        AutoFreeWstr fontInfo = strconv::Utf8ToWstr(info.LendData());
-        if (fontInfo && !fonts.Contains(fontInfo)) {
-            fonts.Append(fontInfo.StealData());
+        auto fontInfo = ToWstrTemp(info.LendData());
+        if (fontInfo.Get() && !fonts.Contains(fontInfo)) {
+            fonts.Append(fontInfo.Get());
         }
     }
     if (fonts.size() == 0) {
@@ -1738,7 +1752,7 @@ std::span<u8> EnginePdf::GetFileData() {
 
 // TODO: proper support for includeUserAnnots or maybe just remove it
 bool EnginePdf::SaveFileAs(const char* copyFileName, bool includeUserAnnots) {
-    AutoFreeWstr dstPath = strconv::Utf8ToWstr(copyFileName);
+    auto dstPath = ToWstrTemp(copyFileName);
     AutoFree d = GetFileData();
     if (!d.empty()) {
         bool ok = file::WriteFile(dstPath, d.AsSpan());
@@ -1748,7 +1762,7 @@ bool EnginePdf::SaveFileAs(const char* copyFileName, bool includeUserAnnots) {
     if (!path) {
         return false;
     }
-    bool ok = CopyFileW(path, dstPath, FALSE);
+    bool ok = file::Copy(dstPath, path, false);
     if (!ok) {
         return false;
     }
@@ -1787,7 +1801,7 @@ bool EnginePdfSaveUpdated(EngineBase* engine, std::string_view path,
         return false;
     }
     EnginePdf* enginePdf = (EnginePdf*)engine;
-    strconv::StackWstrToUtf8 currPath = engine->FileName();
+    TempStr currPath = ToUtf8Temp(engine->FileName());
     if (path.empty()) {
         path = {currPath.Get()};
     }
@@ -1932,66 +1946,6 @@ EngineBase* CreateEnginePdfFromStream(IStream* stream, PasswordUI* pwdUI) {
     return EnginePdf::CreateFromStream(stream, pwdUI);
 }
 
-static const char* getuser(void) {
-    const char* u;
-    u = getenv("USER");
-    if (!u)
-        u = getenv("USERNAME");
-    if (!u)
-        u = "user";
-    return u;
-}
-
-Annotation* EnginePdfCreateAnnotation(EngineBase* engine, AnnotationType typ, int pageNo, PointF pos) {
-    EnginePdf* epdf = AsEnginePdf(engine);
-    fz_context* ctx = epdf->ctx;
-
-    auto pageInfo = epdf->GetFzPageInfo(pageNo, true);
-
-    ScopedCritSec cs(epdf->ctxAccess);
-
-    auto page = pdf_page_from_fz_page(ctx, pageInfo->page);
-    enum pdf_annot_type atyp = (enum pdf_annot_type)typ;
-
-    auto annot = pdf_create_annot(ctx, page, atyp);
-
-    pdf_set_annot_modification_date(ctx, annot, time(NULL));
-    if (pdf_annot_has_author(ctx, annot)) {
-        pdf_set_annot_author(ctx, annot, getuser());
-    }
-
-    switch (typ) {
-        case AnnotationType::Text:
-        case AnnotationType::FreeText:
-        case AnnotationType::Stamp:
-        case AnnotationType::Caret:
-        case AnnotationType::Square:
-        case AnnotationType::Circle: {
-            fz_rect trect = pdf_annot_rect(ctx, annot);
-            float dx = trect.x1 - trect.x0;
-            trect.x0 = pos.x;
-            trect.x1 = trect.x0 + dx;
-            float dy = trect.y1 - trect.y0;
-            trect.y0 = pos.y;
-            trect.y1 = trect.y0 + dy;
-            pdf_set_annot_rect(ctx, annot, trect);
-        } break;
-        case AnnotationType::Line: {
-            fz_point a{pos.x, pos.y};
-            fz_point b{pos.x + 100, pos.y + 50};
-            pdf_set_annot_line(ctx, annot, a, b);
-        } break;
-    }
-    if (typ == AnnotationType::FreeText) {
-        pdf_set_annot_contents(ctx, annot, "This is a text...");
-        pdf_set_annot_border(ctx, annot, 1);
-    }
-
-    pdf_update_annot(ctx, annot);
-    auto res = MakeAnnotationPdf(epdf, annot, pageNo);
-    return res;
-}
-
 int EnginePdfGetAnnotations(EngineBase* engine, Vec<Annotation*>* annotsOut) {
     EnginePdf* epdf = AsEnginePdf(engine);
     return epdf->GetAnnotations(annotsOut);
@@ -2018,6 +1972,7 @@ static bool IsAllowedAnnot(AnnotationType tp, AnnotationType* allowed) {
     return false;
 }
 
+// caller must delete
 Annotation* EnginePdfGetAnnotationAtPos(EngineBase* engine, int pageNo, PointF pos, AnnotationType* allowedAnnots) {
     EnginePdf* epdf = AsEnginePdf(engine);
     FzPageInfo* pi = epdf->GetFzPageInfo(pageNo, true);
@@ -2057,4 +2012,23 @@ void EnginePdf::InvalideAnnotationsForPage(int pageNo) {
     if (pageInfo) {
         pageInfo->commentsNeedRebuilding = true;
     }
+}
+
+Annotation* MakeAnnotationPdf(EnginePdf* engine, pdf_annot* annot, int pageNo) {
+    ScopedCritSec cs(engine->ctxAccess);
+
+    auto tp = pdf_annot_type(engine->ctx, annot);
+    AnnotationType typ = AnnotationTypeFromPdfAnnot(tp);
+    if (typ == AnnotationType::Unknown) {
+        // unsupported type
+        return nullptr;
+    }
+
+    CrashIf(pageNo < 1);
+    Annotation* res = new Annotation();
+    res->engine = engine;
+    res->pageNo = pageNo;
+    res->pdfannot = annot;
+    res->type = typ;
+    return res;
 }

@@ -10,7 +10,6 @@
 
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineCreate.h"
 #include "DisplayMode.h"
@@ -179,7 +178,8 @@ void PaintSelection(WindowInfo* win, HDC hdc) {
         }
     }
 
-    PaintTransparentRectangles(hdc, win->canvasRc, rects, gGlobalPrefs->fixedPageUI.selectionColor);
+    ParsedColor* parsedCol = GetPrefsColor(gGlobalPrefs->fixedPageUI.selectionColor);
+    PaintTransparentRectangles(hdc, win->canvasRc, rects, parsedCol->col);
 }
 
 void UpdateTextSelection(WindowInfo* win, bool select) {
@@ -261,14 +261,14 @@ void ZoomToSelection(WindowInfo* win, float factor, bool scrollToFit, bool relat
 // isTextSelectionOut is set to true if this is text-only selection (as opposed to
 // rectangular selection)
 // caller needs to str::Free() the result
-WCHAR* GetSelectedText(WindowInfo* win, const WCHAR* lineSep, bool& isTextOnlySelectionOut) {
-    if (!win->currentTab || !win->currentTab->selectionOnPage) {
+WCHAR* GetSelectedText(TabInfo* tab, const WCHAR* lineSep, bool& isTextOnlySelectionOut) {
+    if (!tab || !tab->selectionOnPage) {
         return nullptr;
     }
-    if (win->currentTab->selectionOnPage->size() == 0) {
+    if (tab->selectionOnPage->size() == 0) {
         return nullptr;
     }
-    DisplayModel* dm = win->AsFixed();
+    DisplayModel* dm = tab->AsFixed();
     CrashIf(!dm);
     if (!dm) {
         return nullptr;
@@ -283,7 +283,7 @@ WCHAR* GetSelectedText(WindowInfo* win, const WCHAR* lineSep, bool& isTextOnlySe
         return s;
     }
     WStrVec selections;
-    for (SelectionOnPage& sel : *win->currentTab->selectionOnPage) {
+    for (SelectionOnPage& sel : *tab->selectionOnPage) {
         WCHAR* text = dm->GetTextInRegion(sel.pageNo, sel.rect);
         if (!str::IsEmpty(text)) {
             selections.Append(text);
@@ -297,7 +297,8 @@ WCHAR* GetSelectedText(WindowInfo* win, const WCHAR* lineSep, bool& isTextOnlySe
 }
 
 void CopySelectionToClipboard(WindowInfo* win) {
-    CrashIf(win->currentTab->selectionOnPage->size() == 0 && win->mouseAction != MouseAction::SelectingText);
+    TabInfo* tab = win->currentTab;
+    CrashIf(tab->selectionOnPage->size() == 0 && win->mouseAction != MouseAction::SelectingText);
 
     if (!OpenClipboard(nullptr)) {
         return;
@@ -307,12 +308,13 @@ void CopySelectionToClipboard(WindowInfo* win) {
         CloseClipboard();
     };
 
+    DisplayModel* dm = win->AsFixed();
     WCHAR* selText = nullptr;
     bool isTextOnlySelectionOut = false;
-    if (!gDisableDocumentRestrictions && !win->AsFixed()->GetEngine()->AllowsCopyingText()) {
+    if (!gDisableDocumentRestrictions && (dm && !dm->GetEngine()->AllowsCopyingText())) {
         win->ShowNotification(_TR("Copying text was denied (copying as image only)"));
     } else {
-        selText = GetSelectedText(win, L"\r\n", isTextOnlySelectionOut);
+        selText = GetSelectedText(tab, L"\r\n", isTextOnlySelectionOut);
     }
 
     // don't copy empty text
@@ -324,12 +326,11 @@ void CopySelectionToClipboard(WindowInfo* win) {
         return;
     }
 
-    DisplayModel* dm = win->AsFixed();
-    if (!dm || !win->currentTab->selectionOnPage || win->currentTab->selectionOnPage->size() == 0) {
+    if (!dm || !tab->selectionOnPage || tab->selectionOnPage->size() == 0) {
         return;
     }
     /* also copy a screenshot of the current selection to the clipboard */
-    SelectionOnPage* selOnPage = &win->currentTab->selectionOnPage->at(0);
+    SelectionOnPage* selOnPage = &tab->selectionOnPage->at(0);
     float zoom = dm->GetZoomReal(selOnPage->pageNo);
     int rotation = dm->GetRotation();
     RenderPageArgs args(selOnPage->pageNo, zoom, rotation, &selOnPage->rect, RenderTarget::Export);
@@ -341,7 +342,7 @@ void CopySelectionToClipboard(WindowInfo* win) {
 }
 
 void OnSelectAll(WindowInfo* win, bool textOnly) {
-    if (!HasPermission(Perm_CopySelection)) {
+    if (!HasPermission(Perm::CopySelection)) {
         return;
     }
 
@@ -419,7 +420,7 @@ void OnSelectionEdgeAutoscroll(WindowInfo* win, int x, int y) {
     }
 }
 
-void OnSelectionStart(WindowInfo* win, int x, int y, [[maybe_unused]] WPARAM key) {
+void OnSelectionStart(WindowInfo* win, int x, int y, __unused WPARAM key) {
     CrashIf(!win->AsFixed());
     DeleteOldSelectionInfo(win, true);
 

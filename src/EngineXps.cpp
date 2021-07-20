@@ -22,7 +22,6 @@ extern "C" {
 #include "AppColors.h"
 #include "wingui/TreeModel.h"
 
-#include "Annotation.h"
 #include "EngineBase.h"
 #include "EngineFzUtil.h"
 #include "EngineXps.h"
@@ -331,6 +330,8 @@ EngineXps::~EngineXps() {
     fz_drop_document(ctx, _doc);
     fz_drop_context(ctx);
 
+    delete tocTree;
+
     for (size_t i = 0; i < dimof(mutexes); i++) {
         LeaveCriticalSection(&mutexes[i]);
         DeleteCriticalSection(&mutexes[i]);
@@ -559,7 +560,7 @@ RectF EngineXps::PageMediabox(int pageNo) {
     return pi->mediabox;
 }
 
-RectF EngineXps::PageContentBox(int pageNo, [[maybe_unused]] RenderTarget target) {
+RectF EngineXps::PageContentBox(int pageNo, __unused RenderTarget target) {
     FzPageInfo* pageInfo = GetFzPageInfo(pageNo, false);
 
     ScopedCritSec scope(ctxAccess);
@@ -699,8 +700,8 @@ std::span<u8> EngineXps::GetFileData() {
     return file::ReadFile(path);
 }
 
-bool EngineXps::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool includeUserAnnots) {
-    AutoFreeWstr dstPath = strconv::Utf8ToWstr(copyFileName);
+bool EngineXps::SaveFileAs(const char* copyFileName, __unused bool includeUserAnnots) {
+    auto dstPath = ToWstrTemp(copyFileName);
     AutoFree d = GetFileData();
     if (!d.empty()) {
         bool ok = file::WriteFile(dstPath, d.AsSpan());
@@ -712,7 +713,7 @@ bool EngineXps::SaveFileAs(const char* copyFileName, [[maybe_unused]] bool inclu
     if (!path) {
         return false;
     }
-    return CopyFileW(path, dstPath, FALSE);
+    return file::Copy(dstPath, path, false);
 }
 
 WCHAR* EngineXps::ExtractFontList() {
@@ -729,7 +730,7 @@ WCHAR* EngineXps::ExtractFontList() {
     for (xps_font_cache* font = _doc->font_table; font; font = font->next) {
         AutoFreeWstr path(strconv::FromUtf8(font->name));
         AutoFreeWstr name(strconv::FromUtf8(font->font->name));
-        fonts.Append(str::Format(L"%s (%s)", name.Get(), path::GetBaseNameNoFree(path)));
+        fonts.Append(str::Format(L"%s (%s)", name.Get(), path::GetBaseNameTemp(path)));
     }
 #endif
     if (fonts.size() == 0) {
@@ -866,7 +867,7 @@ RenderedBitmap* EngineXps::GetPageImage(int pageNo, RectF rect, int imageIdx) {
     }
     fz_pixmap* pixmap = nullptr;
     fz_try(ctx) {
-        // SubmitCrashIf(true);
+        // SubmitBugReportIf(true);
         // TODO(port): not sure if should provide subarea, w and h
         pixmap = fz_get_pixmap_from_image(ctx, image, nullptr, nullptr, nullptr, nullptr);
     }

@@ -16,7 +16,6 @@
 #include "ProgressUpdateUI.h"
 #include "Notifications.h"
 #include "SumatraPDF.h"
-#include "Annotation.h"
 #include "WindowInfo.h"
 #include "Caption.h"
 #include "Tabs.h"
@@ -952,7 +951,7 @@ static void MenuBarAsPopupMenu(WindowInfo* win, int x, int y) {
         AutoFreeWstr subMenuName(AllocArray<WCHAR>(mii.cch));
         mii.dwTypeData = subMenuName;
         GetMenuItemInfo(win->menu, i, TRUE, &mii);
-        AppendMenu(popup, MF_POPUP | MF_STRING, (UINT_PTR)mii.hSubMenu, subMenuName);
+        AppendMenuW(popup, MF_POPUP | MF_STRING, (UINT_PTR)mii.hSubMenu, subMenuName);
     }
 
     if (IsUIRightToLeft()) {

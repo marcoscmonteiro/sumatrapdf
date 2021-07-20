@@ -3,6 +3,8 @@
 
 bool HasBeenInstalled();
 bool IsRunningInPortableMode();
+bool IsDllBuild();
+
 WCHAR* AppGenDataFilename(const WCHAR* pFilename);
 void SetAppDataPath(const WCHAR* path);
 
@@ -19,3 +21,5 @@ void SaveCallstackLogs();
 #if 0
 WCHAR* PathForFileInAppDataDir(const WCHAR* fileName);
 #endif
+
+WCHAR* FormatFileSize(i64 size);

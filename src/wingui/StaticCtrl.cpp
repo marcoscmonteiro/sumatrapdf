@@ -24,7 +24,7 @@ StaticCtrl::StaticCtrl(HWND p) : WindowBase(p) {
 StaticCtrl::~StaticCtrl() {
 }
 
-static void Handle_WM_COMMAND([[maybe_unused]] void* user, WndEvent* ev) {
+static void Handle_WM_COMMAND(__unused void* user, WndEvent* ev) {
     // auto w = (StaticCtrl*)user;
     CrashIf(ev->msg != WM_COMMAND);
     // TODO: implement me
@@ -69,8 +69,6 @@ bool StaticCtrl::Create() {
 }
 
 Size StaticCtrl::GetIdealSize() {
-    WCHAR* txt = win::GetText(hwnd);
-    Size s = HwndMeasureText(hwnd, txt, hfont);
-    free(txt);
-    return s;
+    WCHAR* txt = win::GetTextTemp(hwnd);
+    return HwndMeasureText(hwnd, txt, hfont);
 }

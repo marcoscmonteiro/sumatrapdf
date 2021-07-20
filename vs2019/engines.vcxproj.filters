@@ -7,7 +7,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\Annotation.h" />
-    <ClInclude Include="..\src\ChmDoc.h" />
+    <ClInclude Include="..\src\ChmFile.h" />
     <ClInclude Include="..\src\EbookDoc.h" />
     <ClInclude Include="..\src\EbookFormatter.h" />
     <ClInclude Include="..\src\EngineBase.h" />
@@ -24,7 +24,6 @@
     <ClInclude Include="..\src\EngineXps.h" />
     <ClInclude Include="..\src\HtmlFormatter.h" />
     <ClInclude Include="..\src\MobiDoc.h" />
-    <ClInclude Include="..\src\ParseBKM.h" />
     <ClInclude Include="..\src\PdfCreator.h" />
     <ClInclude Include="..\src\utils\PalmDbReader.h">
       <Filter>utils</Filter>
@@ -32,7 +31,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\Annotation.cpp" />
-    <ClCompile Include="..\src\ChmDoc.cpp" />
+    <ClCompile Include="..\src\ChmFile.cpp" />
     <ClCompile Include="..\src\EbookDoc.cpp" />
     <ClCompile Include="..\src\EbookFormatter.cpp" />
     <ClCompile Include="..\src\EngineBase.cpp" />
@@ -49,7 +48,6 @@
     <ClCompile Include="..\src\EngineXps.cpp" />
     <ClCompile Include="..\src\HtmlFormatter.cpp" />
     <ClCompile Include="..\src\MobiDoc.cpp" />
-    <ClCompile Include="..\src\ParseBKM.cpp" />
     <ClCompile Include="..\src\PdfCreator.cpp" />
     <ClCompile Include="..\src\utils\PalmDbReader.cpp">
       <Filter>utils</Filter>

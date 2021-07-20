@@ -14,6 +14,9 @@ extern "C" {
 #include "EngineBase.h"
 #include "EngineFzUtil.h"
 #include "EnginePdfImpl.h"
+#include "DisplayMode.h"
+#include "SettingsStructs.h"
+#include "GlobalPrefs.h"
 
 /*
 void SetLineEndingStyles(Annotation*, int start, int end);
@@ -30,11 +33,13 @@ static_assert((int)AnnotationType::ThreeD == (int)PDF_ANNOT_3D);
 static_assert((int)AnnotationType::Sound == (int)PDF_ANNOT_SOUND);
 static_assert((int)AnnotationType::Unknown == (int)PDF_ANNOT_UNKNOWN);
 
-AnnotationType AnnotationTypeFromPdfAnnot(enum pdf_annot_type tp) {
-    return (AnnotationType)tp;
-}
+// clang-format off
+const char* gAnnotationTextIcons = "Comment\0Help\0Insert\0Key\0NewParagraph\0Note\0Paragraph\0";
+// clang-format on
 
 // clang format-off
+
+#if 0
 // must match the order of enum class AnnotationType
 static const char* gAnnotNames =
     "Text\0"
@@ -65,6 +70,7 @@ static const char* gAnnotNames =
     "Watermark\0"
     "3D\0"
     "Projection\0";
+#endif
 
 static const char* gAnnotReadableNames =
     "Text\0"
@@ -110,26 +116,6 @@ std::string_view AnnotationName(AnnotationType tp) {
 }
 */
 
-// return argb
-PdfColor MkPdfColor(u8 r, u8 g, u8 b, u8 a) {
-    PdfColor b2 = (PdfColor)b;
-    PdfColor g2 = (PdfColor)g << 8;
-    PdfColor r2 = (PdfColor)r << 16;
-    PdfColor a2 = (PdfColor)a << 24;
-    return a2 | r2 | g2 | b2;
-}
-
-// argb
-void UnpackPdfColor(PdfColor c, u8& r, u8& g, u8& b, u8& a) {
-    b = (u8)(c & 0xff);
-    c = c >> 8;
-    g = (u8)(c & 0xff);
-    c = c >> 8;
-    r = (u8)(c & 0xff);
-    c = c >> 8;
-    a = (u8)(c & 0xff);
-}
-
 std::string_view AnnotationReadableName(AnnotationType tp) {
     int n = (int)tp;
     if (n < 0) {
@@ -153,7 +139,7 @@ AnnotationType Type(Annotation* annot) {
 }
 
 int PageNo(Annotation* annot) {
-    CrashIf(annot->pageNo < 0);
+    CrashIf(annot->pageNo < 1);
     return annot->pageNo;
 }
 
@@ -190,7 +176,7 @@ std::string_view Author(Annotation* annot) {
     fz_catch(e->ctx) {
         s = nullptr;
     }
-    if (!s || str::IsStringEmptyOrWhiteSpaceOnly(s)) {
+    if (!s || str::EmptyOrWhiteSpaceOnly(s)) {
         return {};
     }
     return s;
@@ -614,24 +600,8 @@ void SetOpacity(Annotation* annot, int newOpacity) {
     annot->isChanged = true;
 }
 
-Annotation* MakeAnnotationPdf(EnginePdf* engine, pdf_annot* annot, int pageNo) {
-    ScopedCritSec cs(engine->ctxAccess);
-
-    auto tp = pdf_annot_type(engine->ctx, annot);
-    AnnotationType typ = AnnotationTypeFromPdfAnnot(tp);
-    if (typ == AnnotationType::Unknown) {
-        // unsupported type
-        return nullptr;
-    }
-
-    Annotation* res = new Annotation();
-    res->engine = engine;
-    res->pageNo = pageNo;
-    res->pdfannot = annot;
-    res->type = typ;
-    return res;
-}
-
+// TODO: unused, remove
+#if 0
 Vec<Annotation*> FilterAnnotationsForPage(Vec<Annotation*>* annots, int pageNo) {
     Vec<Annotation*> result;
     if (!annots) {
@@ -656,3 +626,4 @@ Vec<Annotation*> FilterAnnotationsForPage(Vec<Annotation*>* annots, int pageNo) 
     }
     return result;
 }
+#endif

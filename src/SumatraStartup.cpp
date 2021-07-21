@@ -501,10 +501,11 @@ static bool RegisterForPdfExtentions(HWND hwnd) {
 static int RunMessageLoop() {
 
     HACCEL accTable;
-    if (gPluginMode)
+    if (gPluginMode) {
         // Certain Accelerators are not suitable for plugin mode. Using only those defined in Plugin.cpp
         accTable = CreateSumatraPluginAcceleratorTable();
-    else
+        InitializePlugin();
+    } else
         accTable = CreateSumatraAcceleratorTable();
 
     MSG msg{0};

@@ -25,8 +25,12 @@
 #include "Print.h"
 #include "Commands.h"
 
+#include "utils/Dict.h"
+#include "comdef.h"
+
 bool gAllowEditAnnotations = true;
 bool gEnableAccelerators = true;
+dict::MapStrToInt gPluginCommands(20);
 
 // Certain Accelerators are not suitable for plugin mode. This list is based on Acclerators.cpp filtering only those relevants.
 ACCEL gPluginAccelerators[] = {
@@ -66,6 +70,17 @@ ACCEL gPluginAccelerators[] = {
     {FALT | FVIRTKEY, VK_LEFT, CmdGoToNavBack},
     {FALT | FVIRTKEY, VK_RIGHT, CmdGoToNavForward},
 };
+
+void InitializePlugin(void) {
+    gPluginCommands.Insert("CmdPrint", CmdPrint);
+    gPluginCommands.Insert("CmdCopySelection", CmdCopySelection);
+    gPluginCommands.Insert("CmdSelectAll", CmdSelectAll);
+    gPluginCommands.Insert("CmdGoToNextPage", CmdGoToNextPage);
+    gPluginCommands.Insert("CmdGoToPrevPage", CmdGoToPrevPage);
+    gPluginCommands.Insert("CmdGoToFirstPage", CmdGoToFirstPage);
+    gPluginCommands.Insert("CmdGoToLastPage", CmdGoToLastPage);
+    gPluginCommands.Insert("CmdRefresh", CmdRefresh);
+}
 
 HACCEL CreateSumatraPluginAcceleratorTable() {
     int n = (int)dimof(gPluginAccelerators);
@@ -359,6 +374,20 @@ static const WCHAR* HandleSetPropertyCmd(WindowInfo* win, const WCHAR* cmd, DDEA
             gEnableAccelerators = (trueOrFalse == 1);
             return next;
         }
+
+        if (str::StartsWith(PropertyName, L"SendCommand")) {
+            int cmdValue;
+            _bstr_t cmdName(PropertyValue.Get());
+            const char* cmdName_ = cmdName;
+            if (gPluginCommands.Get(cmdName_, &cmdValue)) {
+                if (str::Eq(PropertyName, L"SendCommandAsync"))
+                    PostMessage(win->hwndFrame, WM_COMMAND, cmdValue, 0);
+                else
+                    SendMessage(win->hwndFrame, WM_COMMAND, cmdValue, 0);                
+            }
+            return next;
+        }
+
     }
 
     ack.fAck = 0;
